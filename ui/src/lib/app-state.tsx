@@ -1,15 +1,19 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
 
+import { initialGroups, type Group } from "@/lib/groups-data"
 import { initialBots, initialMemories, initialPeople, type BotDef, type Memory, type Person } from "@/lib/mock-data"
 
 // Состояние макета в одном месте: вкладка, открытое, тема, память, люди, боты, характер.
 // Всё живёт в памяти вкладки; запоминаются только тема и «знакомство пройдено».
 
 export type Tab = "chat" | "agent" | "bots"
-export type Page = "thread" | "bots" | "bot" | "memory" | "people" | "persona" | "tools" | "settings"
+export type Page = "thread" | "bots" | "bot" | "group" | "memory" | "people" | "persona" | "tools" | "settings"
 export type Theme = "lumen" | "mono"
 export type OrbState = "idle" | "thinking" | "writing" | "remember" | "sleep"
 export type Backend = "subscription" | "api" | "auto"
+/// Ширина переписки: обычно / шире / ещё шире — общая для чата, агента и ботов
+export type ChatWidth = "normal" | "wide" | "full"
+export const chatWidthClass: Record<ChatWidth, string> = { normal: "max-w-[44rem]", wide: "max-w-[60rem]", full: "max-w-[88rem]" }
 
 export type Me = { name: string; call: string; address: "ty" | "vy" }
 
@@ -73,6 +77,8 @@ type State = {
   setPeople: React.Dispatch<React.SetStateAction<Person[]>>
   bots: BotDef[]
   setBots: React.Dispatch<React.SetStateAction<BotDef[]>>
+  groups: Group[]
+  setGroups: React.Dispatch<React.SetStateAction<Group[]>>
   persona: Persona
   setPersona: React.Dispatch<React.SetStateAction<Persona>>
   orb: OrbState
@@ -87,6 +93,9 @@ type State = {
   showMemories: (ids: string[]) => void
   voiceOpen: boolean
   setVoiceOpen: (v: boolean) => void
+  chatWidth: ChatWidth
+  setChatWidth: (w: ChatWidth) => void
+  newInTab: () => void
 }
 
 const Ctx = createContext<State | null>(null)
@@ -116,6 +125,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [memories, setMemories] = useState(initialMemories)
   const [people, setPeople] = useState(initialPeople)
   const [bots, setBots] = useState(initialBots)
+  const [groups, setGroups] = useState(initialGroups)
   const [persona, setPersona] = useState(defaultPersona)
   const [orb, setOrb] = useState<OrbState>("idle")
   const [backend, setBackend] = useState<Backend>("auto")
@@ -123,6 +133,11 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [contextOpen, setContextOpen] = useState(() => window.innerWidth >= 1280)
   const [focusMemories, setFocusMemories] = useState<string[]>([])
   const [voiceOpen, setVoiceOpen] = useState(false)
+  const [chatWidth, setChatWidthState] = useState<ChatWidth>(() => (read("lumen-width") as ChatWidth) || "normal")
+  const setChatWidth = useCallback((w: ChatWidth) => {
+    write("lumen-width", w)
+    setChatWidthState(w)
+  }, [])
 
   const setTheme = useCallback((t: Theme) => {
     write("lumen-theme", t)
@@ -153,16 +168,27 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     root.dataset.motion = reducedMotion ? "reduced" : "full"
   }, [theme, reducedMotion])
 
+  /// Новый разговор в последней выбранной вкладке — с любого экрана (кнопка и ⌘N)
+  const newInTab = useCallback(() => {
+    if (tab === "chat") setOpen({ page: "thread", id: "new-chat" })
+    if (tab === "agent") setOpen({ page: "thread", id: "new-agent" })
+    if (tab === "bots") setOpen({ page: "bot", id: "new" })
+  }, [tab])
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault()
         setPaletteOpen((o) => !o)
       }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
+        e.preventDefault()
+        newInTab()
+      }
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [])
+  }, [newInTab])
 
   const value = useMemo<State>(
     () => ({
@@ -184,6 +210,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       setPeople,
       bots,
       setBots,
+      groups,
+      setGroups,
       persona,
       setPersona,
       orb,
@@ -198,8 +226,11 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       showMemories,
       voiceOpen,
       setVoiceOpen,
+      chatWidth,
+      setChatWidth,
+      newInTab,
     }),
-    [tab, setTab, open, go, theme, setTheme, reducedMotion, onboarded, setOnboarded, me, memories, people, bots, persona, orb, backend, paletteOpen, contextOpen, focusMemories, showMemories, voiceOpen]
+    [tab, setTab, open, go, theme, setTheme, reducedMotion, onboarded, setOnboarded, me, memories, people, bots, groups, persona, orb, backend, paletteOpen, contextOpen, focusMemories, showMemories, voiceOpen, chatWidth, setChatWidth, newInTab]
   )
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

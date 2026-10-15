@@ -21,7 +21,7 @@ export function BotsPage() {
         </Button>
       }
     >
-      <div className="max-w-5xl space-y-9">
+      <div className="space-y-9">
         <div>
           <GroupTitle aside={`${runs.length} сейчас`}>Работают</GroupTitle>
           <div className="space-y-2">
@@ -60,7 +60,7 @@ export function BotsPage() {
 
         <div>
           <GroupTitle aside={`${app.bots.length} ботов`}>Все</GroupTitle>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             {app.bots.map((b) => {
               const blocked = botTools.length - b.tools.length
               return (

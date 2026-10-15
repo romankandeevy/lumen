@@ -10,6 +10,7 @@ import {
   Search,
   Settings,
   Sparkles,
+  SquarePen,
   SquareTerminal,
   Sun,
   UsersRound,
@@ -19,6 +20,7 @@ import { toast } from "sonner"
 
 import { BotAvatar } from "@/components/bot-avatar"
 import { LumenOrb } from "@/components/lumen-orb"
+import { Page as PageFrame } from "@/components/page"
 import {
   Command,
   CommandDialog,
@@ -37,6 +39,7 @@ import { cn } from "@/lib/utils"
 import { BotPage } from "@/pages/bot-page"
 import { BotsPage } from "@/pages/bots-page"
 import { ChatPage } from "@/pages/chat-page"
+import { GroupPage, NewGroupForm, Stack } from "@/pages/group-page"
 import { MemoryPage } from "@/pages/memory-page"
 import { Onboarding } from "@/pages/onboarding"
 import { PeoplePage } from "@/pages/people-page"
@@ -85,10 +88,19 @@ function Shell() {
           <span className="text-[15px] font-semibold tracking-[-0.01em]">Lumen</span>
           <button
             onClick={() => app.setPaletteOpen(true)}
-            className="ml-auto flex h-7 items-center gap-1.5 rounded-lg px-2 text-xs text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
-            title="Найти и сделать"
+            className="ml-auto flex size-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+            title="Найти и сделать · ⌘K"
+            aria-label="Найти и сделать"
           >
-            <Search className="size-3.5" /> ⌘K
+            <Search className="size-4" />
+          </button>
+          <button
+            onClick={app.newInTab}
+            className="flex size-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+            title={`${app.tab === "bots" ? "Новый бот" : app.tab === "agent" ? "Новая задача" : "Новый чат"} · ⌘N`}
+            aria-label="Новый разговор"
+          >
+            <SquarePen className="size-4" />
           </button>
         </div>
 
@@ -144,6 +156,19 @@ function Shell() {
         {page === "thread" && <ChatPage key={id} chatId={id ?? "new-chat"} />}
         {page === "bots" && <BotsPage />}
         {page === "bot" && id && <BotPage key={id} botId={id} />}
+        {page === "group" && id === "new" && (
+          <PageFrame title="Новая группа" lead="Несколько ботов на одну задачу. Сначала они договорятся о ролях и вместе напишут план, потом начнут работать.">
+            <div className="max-w-3xl">
+              <NewGroupForm
+                onCreate={(g) => {
+                  app.setGroups((gs) => [...gs, g])
+                  app.go("group", g.id)
+                }}
+              />
+            </div>
+          </PageFrame>
+        )}
+        {page === "group" && id && id !== "new" && <GroupPage key={id} groupId={id} />}
         {page === "memory" && <MemoryPage />}
         {page === "people" && <PeoplePage />}
         {page === "persona" && <PersonaPage />}
@@ -248,7 +273,22 @@ function BotList() {
         <Bot className="size-4 text-muted-foreground" /> Все боты
         <span className="ml-auto text-[11px] text-muted-foreground">{runs.length} работают</span>
       </Row>
-      <div className="mt-2 space-y-0.5">
+      {/* группы — несколько ботов на одну задачу */}
+      <div className="mt-3 flex items-center px-2.5 pb-1">
+        <p className="text-xs text-muted-foreground">Группы</p>
+        <button onClick={() => app.go("group", "new")} title="Новая группа" aria-label="Новая группа" className="ml-auto flex size-5 items-center justify-center rounded-md text-muted-foreground hover:bg-foreground/10 hover:text-foreground">
+          <Plus className="size-3.5" />
+        </button>
+      </div>
+      {app.groups.map((g) => (
+        <Row key={g.id} active={app.open.page === "group" && app.open.id === g.id} onClick={() => app.go("group", g.id)}>
+          <Stack bots={g.members.map((m) => app.bots.find((b) => b.id === m)!).filter(Boolean)} size={20} />
+          <span className="min-w-0 flex-1 truncate">{g.name}</span>
+          {g.live && <Loader2 className="size-3.5 shrink-0 animate-spin text-glow" />}
+        </Row>
+      ))}
+      <p className="mt-3 px-2.5 pb-1 text-xs text-muted-foreground">Боты</p>
+      <div className="space-y-0.5">
         {app.bots.map((b) => {
           const running = runs.some((r) => r.bot === b.id)
           return (

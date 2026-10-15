@@ -180,7 +180,7 @@ export const efforts = [
 // Lumen зовёт их через @id из любого чата. Всё вне роли отрезано в коде:
 // у бота просто нет нужных инструментов. У каждого один постоянный разговор.
 
-export type BotIcon = "flask" | "palette" | "code" | "pen" | "sunrise" | "shield"
+export type BotIcon = string // имя иконки lucide
 
 export const botTools = [
   { id: "read", name: "Читать файлы" },
@@ -199,6 +199,7 @@ export type BotDef = {
   name: string
   icon: BotIcon
   hue: number // свой цвет — чтобы бот не путался с Lumen
+  chroma?: number // насыщенность цвета, по умолчанию 0.12
   role: string
   instructions: string
   can: string[]
@@ -209,6 +210,10 @@ export type BotDef = {
   starters: string[]
   offTopic: RegExp // в макете — чем ловим просьбы не по роли
   handoff?: string // кому передать то, что не его
+  doneWhen?: string // что считать готовым
+  report?: string // как отчитываться
+  hubSkills?: string[] // навыки из каталога (id в skills-hub)
+  never?: string[] // чего никогда не делать
   messages: number
   compactions: { when: string; from: number; summary: string }[]
 }
@@ -217,7 +222,7 @@ export const initialBots: BotDef[] = [
   {
     id: "tester",
     name: "Тестировщик",
-    icon: "flask",
+    icon: "FlaskConical",
     hue: 160,
     role: "Проверяет приложения и правки — и только",
     instructions: "Собирает проект, гоняет тесты, проходит сценарии руками в симуляторе. Пишет, что сломано, с шагами и скриншотом. Сам ничего не чинит.",
@@ -243,7 +248,7 @@ export const initialBots: BotDef[] = [
   {
     id: "designer",
     name: "Дизайнер",
-    icon: "palette",
+    icon: "Palette",
     hue: 320,
     role: "Макеты, стиль и ТЗ для кодера",
     instructions: "Делает мокапы и разбирает интерфейс. Код не пишет — вместо этого готовит подробное ТЗ для @coder.",
@@ -267,7 +272,7 @@ export const initialBots: BotDef[] = [
   {
     id: "coder",
     name: "Кодер prog",
-    icon: "code",
+    icon: "CodeXml",
     hue: 235,
     role: "Пишет и чинит код Mac-приложений",
     instructions: "Правит Swift-код в prog, собирает, коммитит. Push и выкатка — только с OK Ромы.",
@@ -291,7 +296,7 @@ export const initialBots: BotDef[] = [
   {
     id: "writer",
     name: "Тексты для сайта",
-    icon: "pen",
+    icon: "PenLine",
     hue: 200,
     role: "Тексты для kandeev.com",
     instructions: "Пишет тексты для папиного сайта: без цен, без кейсов с цифрами, для клиентов — на «вы».",
@@ -309,7 +314,7 @@ export const initialBots: BotDef[] = [
   {
     id: "morning",
     name: "Утро",
-    icon: "sunrise",
+    icon: "Sunrise",
     hue: 85,
     role: "Каждое утро — статус проектов",
     instructions: "В 9:00 смотрит tools/status.sh и ПЛАН.md и пишет коротко, что висит и что ждёт решения.",

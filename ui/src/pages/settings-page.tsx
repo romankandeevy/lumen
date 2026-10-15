@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { LumenOrb } from "@/components/lumen-orb"
+import { WidthSetting } from "@/components/width-toggle"
 import { GroupTitle, Page, Segmented } from "@/components/page"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
@@ -73,7 +74,7 @@ export function SettingsPage() {
 
   return (
     <Page title="Настройки">
-      <div ref={rootRef} className="flex max-w-5xl gap-10">
+      <div ref={rootRef} className="flex gap-10">
         <nav aria-label="Разделы настроек" className="sticky top-0 hidden w-40 shrink-0 self-start pt-1 md:block">
           <ul className="space-y-0.5">
             {sections.map((s) => (
@@ -109,7 +110,11 @@ export function SettingsPage() {
                 <p className="mt-1 text-xs leading-relaxed">Цвет света, фон, шрифт и ещё 10 готовых тем — позже</p>
               </div>
             </div>
-            <label className="mt-4 flex max-w-md items-center gap-3 text-sm">
+            <div className="mt-8">
+              <GroupTitle aside="чат, агент и боты">Ширина переписки</GroupTitle>
+              <WidthSetting />
+            </div>
+            <label className="mt-6 flex max-w-md items-center gap-3 text-sm">
               <Switch checked={app.reducedMotion} onCheckedChange={app.setReducedMotion} />
               Меньше движения
               <span className="text-xs text-muted-foreground">сфера не дышит, свет не мерцает</span>

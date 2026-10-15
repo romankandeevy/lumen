@@ -39,7 +39,7 @@ export function ToolsPage() {
 
   return (
     <Page title="Инструменты" lead="Всё, чем Lumen и боты могут пользоваться. Выключенное просто не попадает им в руки.">
-      <div className="max-w-4xl">
+      <div>
         <div className="flex flex-wrap items-center gap-3">
           <Segmented
             value={tab}
@@ -423,7 +423,7 @@ function ConnectorsTab({ items, setItems, query }: { items: Connector[]; setItem
       {shown.length === 0 ? (
         <Empty query={query} />
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
           {shown.map((c) => (
             <div
               key={c.id}

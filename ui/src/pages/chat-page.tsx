@@ -31,6 +31,7 @@ import { toast } from "sonner"
 
 import { BotAvatar, botStyle } from "@/components/bot-avatar"
 import { LumenOrb } from "@/components/lumen-orb"
+import { PlanList, type PlanItem } from "@/components/plan-list"
 import { EffortPicker, ModelPicker } from "@/components/pickers"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -39,7 +40,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { useApp } from "@/lib/app-state"
+import { chatWidthClass, useApp } from "@/lib/app-state"
 import { chats, projects, sessions, type BotDef, type Memory } from "@/lib/mock-data"
 import { cn } from "@/lib/utils"
 
@@ -72,6 +73,28 @@ type Msg =
       steps: string[]
       result?: React.ReactNode
     }
+
+/// План работы — сбоку, в правой панели, как в Claude Code
+const plans: Record<string, PlanItem[]> = {
+  shelf: [
+    { text: "Прочитать отчёт о падении", state: "done" },
+    { text: "Найти причину в ShelfStorage", state: "done" },
+    { text: "Поправить проверку индекса", state: "done" },
+    { text: "Проверить фикс", state: "doing", who: "tester" },
+    { text: "Закоммитить", state: "todo" },
+  ],
+  island: [
+    { text: "Прочитать IslandView.swift", state: "done" },
+    { text: "Собрать в облаке и замерить кадры", state: "doing" },
+    { text: "Перенести тень в CA-анимацию", state: "todo", who: "coder" },
+    { text: "Проверить при уведомлении", state: "todo", who: "tester" },
+  ],
+  lumen: [
+    { text: "Вспомнить, на чём остановились", state: "done" },
+    { text: "Записать решение про темы", state: "done" },
+    { text: "Собрать экран памяти", state: "todo" },
+  ],
+}
 
 const code = "rounded bg-foreground/[0.07] px-1 py-0.5 font-mono text-[0.8em]"
 
@@ -200,6 +223,7 @@ export function ChatPage({ chatId }: { chatId: string }) {
   const [project, setProject] = useState(session?.project ?? "lumen")
   const [where, setWhere] = useState<"mac" | "cloud">(session?.where ?? "mac")
   const [tools, setTools] = useState({ web: false, research: false, memory: true })
+  const [plan, setPlan] = useState<PlanItem[]>(plans[chatId] ?? [])
   const busy = app.orb === "thinking" || app.orb === "writing"
   const scroller = useRef<HTMLDivElement>(null)
   const timers = useRef<number[]>([])
@@ -274,6 +298,15 @@ export function ChatPage({ chatId }: { chatId: string }) {
     if (bot) {
       later(() => delegate(bot, t.replace(/@\S+\s*/, "")), 900)
       return
+    }
+
+    if (agent && !plan.length) {
+      setPlan([
+        { text: "Понять задачу и прочитать проект", state: "doing" },
+        { text: "Сделать правки", state: "todo" },
+        { text: "Собрать и проверить", state: "todo" },
+      ])
+      later(() => setPlan((p) => p.map((x, i) => ({ ...x, state: i === 0 ? "done" : i === 1 ? "doing" : x.state }))), 2400)
     }
 
     const wantsMemory = /запомни/i.test(t)
@@ -360,7 +393,7 @@ export function ChatPage({ chatId }: { chatId: string }) {
               <ChatEmpty onPick={setDraft} />
             )
           ) : (
-            <div className="mx-auto flex max-w-[44rem] flex-col gap-7 px-6 py-8">
+            <div className={cn("mx-auto flex flex-col gap-7 px-6 py-8 transition-[max-width] duration-300", chatWidthClass[app.chatWidth])}>
               {messages.map((m) =>
                 m.from === "user" ? <UserMsg key={m.id} text={m.text} /> : m.from === "lumen" ? <LumenMsg key={m.id} msg={m} agent={agent} /> : <Delegation key={m.id} msg={m} />
               )}
@@ -394,7 +427,7 @@ export function ChatPage({ chatId }: { chatId: string }) {
         />
       </section>
 
-      {app.contextOpen && <ContextPanel agent={agent} project={project} where={where} />}
+      {app.contextOpen && <ContextPanel agent={agent} project={project} where={where} plan={plan} />}
     </div>
   )
 }
@@ -434,7 +467,7 @@ function Composer(p: ComposerProps) {
   return (
     <div className="relative px-5 pt-1 pb-5">
       <div className="pointer-events-none absolute inset-x-0 -top-10 h-10 bg-gradient-to-t from-background to-transparent" />
-      <div className="relative mx-auto max-w-[44rem]">
+      <div className={cn("relative mx-auto transition-[max-width] duration-300", chatWidthClass[app.chatWidth])}>
         {/* @ — список ботов над полем */}
         {mention && matches.length > 0 && (
           <div className="absolute inset-x-0 bottom-full mb-2 overflow-hidden rounded-xl border bg-popover p-1.5 shadow-2xl">
@@ -991,12 +1024,17 @@ function SideLink({ onClick, children }: { onClick: () => void; children: React.
   )
 }
 
-function ContextPanel({ agent, project, where }: { agent: boolean; project: string; where: "mac" | "cloud" }) {
+function ContextPanel({ agent, project, where, plan }: { agent: boolean; project: string; where: "mac" | "cloud"; plan: PlanItem[] }) {
   const app = useApp()
   const used = app.focusMemories.map((id) => app.memories.find((m) => m.id === id)).filter(Boolean) as Memory[]
   const persona = app.persona
   return (
     <aside className="absolute inset-y-0 right-0 z-20 flex min-h-0 w-80 flex-col overflow-auto border-l bg-sidebar shadow-2xl xl:static xl:w-auto xl:bg-sidebar/50 xl:shadow-none">
+      {plan.length > 0 && (
+        <Side title="План">
+          <PlanList items={plan} bots={app.bots} />
+        </Side>
+      )}
       {agent && (
         <Side title="Сессия">
           <div className="space-y-2 text-sm">
