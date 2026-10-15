@@ -5,7 +5,10 @@ import PackageDescription
 let package = Package(
     name: "Lumen",
     platforms: [.macOS(.v14)],
-    products: [.executable(name: "Lumen", targets: ["Lumen"])],
+    products: [
+        .executable(name: "Lumen", targets: ["Lumen"]),
+        .executable(name: "lumen-mcp", targets: ["lumen-mcp"]),
+    ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift", from: "7.0.0"),
     ],
@@ -15,7 +18,9 @@ let package = Package(
         .target(name: "LumenProviders", dependencies: ["LumenCore"]),
         .target(name: "LumenUI", dependencies: ["LumenCore", "LumenStorage", "LumenProviders"]),
         .executableTarget(name: "Lumen", dependencies: ["LumenUI"]),
-        .testTarget(name: "LumenTests", dependencies: ["LumenCore", "LumenStorage", "LumenProviders", "LumenUI"],
+        // stdio MCP-сервер: память для claude (лежит рядом с Lumen в бандле)
+        .executableTarget(name: "lumen-mcp", dependencies: ["LumenCore", "LumenStorage"]),
+        .testTarget(name: "LumenTests", dependencies: ["LumenCore", "LumenStorage", "LumenProviders", "LumenUI", "lumen-mcp"],
                     resources: [.copy("Fixtures")]),
     ]
 )

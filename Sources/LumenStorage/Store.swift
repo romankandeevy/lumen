@@ -72,6 +72,48 @@ public final class Store: Sendable {
                 t.add(column: "changes", .jsonText)
             }
         }
+        m.registerMigration("v4-memory") { db in
+            try db.alter(table: "memory") { t in
+                t.add(column: "conversationID", .text)
+                t.add(column: "key", .text)
+                t.add(column: "updatedAt", .datetime)
+            }
+            // факты знакомства 0.1–0.4: «name»/«address» → виды из макета, постоянные ключи
+            try db.execute(sql: """
+                UPDATE memory SET key = 'onboarding.' || kind, kind = CASE kind WHEN 'name' THEN 'you' ELSE 'pref' END,
+                       source = 'Знакомство' WHERE source = 'onboarding';
+                UPDATE memory SET kind = 'you' WHERE kind NOT IN ('you','project','decision','pref','people');
+                UPDATE memory SET updatedAt = createdAt;
+                """)
+            try db.create(index: "memory_key", on: "memory", columns: ["key"], unique: true, ifNotExists: true)
+            try db.alter(table: "message") { t in
+                t.add(column: "remembered", .jsonText).notNull().defaults(to: "[]")
+                t.add(column: "recalled", .jsonText).notNull().defaults(to: "[]")
+            }
+            // полнотекстовый поиск. Своя копия текста с «ё» → «е»: unicode61 не сводит их в кириллице.
+            // Таблицы обновляются триггерами из memory и message.
+            for (fts, table) in [("memory_fts", "memory"), ("message_fts", "message")] {
+                try db.execute(sql: "CREATE VIRTUAL TABLE \(fts) USING fts5(text, tokenize = 'unicode61 remove_diacritics 2')")
+                let norm = "replace(replace(new.text, 'ё', 'е'), 'Ё', 'Е')"
+                try db.execute(sql: """
+                    INSERT INTO \(fts)(rowid, text) SELECT id, replace(replace(text, 'ё', 'е'), 'Ё', 'Е') FROM \(table);
+                    CREATE TRIGGER \(table)_fts_ai AFTER INSERT ON \(table) BEGIN
+                        INSERT INTO \(fts)(rowid, text) VALUES (new.id, \(norm)); END;
+                    CREATE TRIGGER \(table)_fts_au AFTER UPDATE OF text ON \(table) BEGIN
+                        UPDATE \(fts) SET text = \(norm) WHERE rowid = new.id; END;
+                    CREATE TRIGGER \(table)_fts_ad AFTER DELETE ON \(table) BEGIN
+                        DELETE FROM \(fts) WHERE rowid = old.id; END;
+                    """)
+            }
+            // что из памяти запомнено или вспомнено в каком разговоре — для «Запомнил» и «Опирался на»
+            try db.create(table: "memoryUse") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("conversationID", .text).notNull().indexed()
+                t.column("memoryID", .integer).notNull().references("memory", onDelete: .cascade)
+                t.column("action", .text).notNull() // remember | recall
+                t.column("at", .datetime).notNull()
+            }
+        }
         return m
     }
 
@@ -128,34 +170,91 @@ public final class Store: Sendable {
 
     // MARK: память
 
+    /// Добавляет факт или, если у него есть ключ и такой уже есть, переписывает его
     @discardableResult
-    public func remember(_ fact: MemoryFact) throws -> MemoryFact {
+    public func save(_ fact: MemoryFact) throws -> MemoryFact {
         try db.write { db in
             var f = fact
-            try f.insert(db)
-            return f
-        }
-    }
-
-    /// Обновляет факт того же вида и источника, а если такого нет — добавляет.
-    /// Знакомство можно пройти заново: имя не должно дублироваться.
-    @discardableResult
-    public func upsert(_ fact: MemoryFact) throws -> MemoryFact {
-        try db.write { db in
-            var f = fact
-            if let old = try MemoryFact.filter(Column("kind") == fact.kind && Column("source") == fact.source).fetchOne(db) {
+            f.updatedAt = Date()
+            if f.id == nil, let key = f.key, let old = try MemoryFact.filter(Column("key") == key).fetchOne(db) {
                 f.id = old.id
                 f.createdAt = old.createdAt
-                try f.update(db)
-            } else {
-                try f.insert(db)
             }
+            try f.save(db)
             return f
         }
     }
 
+    public func deleteMemory(_ id: Int64) throws {
+        _ = try db.write { db in try MemoryFact.deleteOne(db, key: id) }
+    }
+
+    /// Все факты: закреплённые сверху, дальше свежие
     public func memories() throws -> [MemoryFact] {
-        try db.read { db in try MemoryFact.order(Column("createdAt")).fetchAll(db) }
+        try db.read { db in
+            try MemoryFact.order(Column("pinned").desc, Column("updatedAt").desc).fetchAll(db)
+        }
+    }
+
+    public func memoryCount() throws -> Int {
+        try db.read { db in try MemoryFact.fetchCount(db) }
+    }
+
+    /// Поиск фактов по словам с русскими окончаниями. `anyWord` — хватит любого слова (для recall), иначе все.
+    public func searchMemories(_ text: String, limit: Int = 8, anyWord: Bool = false) throws -> [MemoryFact] {
+        guard let q = SearchQuery.fts(text, anyWord: anyWord) else { return [] }
+        return try db.read { db in
+            try MemoryFact.fetchAll(db, sql: """
+                SELECT memory.* FROM memory JOIN memory_fts ON memory_fts.rowid = memory.id
+                WHERE memory_fts MATCH ? ORDER BY memory.pinned DESC, bm25(memory_fts) LIMIT ?
+                """, arguments: [q, limit])
+        }
+    }
+
+    /// Поиск по прошлым разговорам: одно лучшее место на разговор
+    public func searchConversations(_ text: String, limit: Int = 20) throws -> [ConversationHit] {
+        guard let q = SearchQuery.fts(text) else { return [] }
+        return try db.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT message.id, message.conversationID, message.createdAt, conversation.title, conversation.kind,
+                       snippet(message_fts, 0, '«', '»', '…', 14) AS snip, bm25(message_fts) AS rank
+                FROM message_fts JOIN message ON message.id = message_fts.rowid
+                JOIN conversation ON conversation.id = message.conversationID
+                WHERE message_fts MATCH ? ORDER BY rank LIMIT 200
+                """, arguments: [q])
+            var seen = Set<String>()
+            var out: [ConversationHit] = []
+            for r in rows {
+                let cid: String = r["conversationID"]
+                guard seen.insert(cid).inserted else { continue }
+                out.append(ConversationHit(messageID: r["id"], conversationID: cid, title: r["title"],
+                                           kind: ConversationKind(rawValue: r["kind"]) ?? .chat, snippet: r["snip"], date: r["createdAt"]))
+                if out.count == limit { break }
+            }
+            return out
+        }
+    }
+
+    /// Отметить, что факт запомнен или вспомнен в разговоре
+    public func logMemoryUse(_ memoryID: Int64, conversationID: String, action: String) throws {
+        try db.write { db in
+            try db.execute(sql: "INSERT INTO memoryUse(conversationID, memoryID, action, at) VALUES (?, ?, ?, ?)",
+                           arguments: [conversationID, memoryID, action, Date()])
+        }
+    }
+
+    /// Факты, запомненные или вспомненные в разговоре с момента `since`
+    public func memoryUses(conversationID: String, since: Date, action: String) throws -> [Int64] {
+        try db.read { db in
+            try Int64.fetchAll(db, sql: """
+                SELECT DISTINCT memoryID FROM memoryUse WHERE conversationID = ? AND action = ? AND at >= ? ORDER BY id
+                """, arguments: [conversationID, action, since])
+        }
+    }
+
+    public func memories(ids: [Int64]) throws -> [MemoryFact] {
+        guard !ids.isEmpty else { return [] }
+        return try db.read { db in try MemoryFact.fetchAll(db, keys: ids) }
     }
 }
 

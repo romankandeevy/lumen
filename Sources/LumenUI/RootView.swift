@@ -16,6 +16,7 @@ public struct RootView: View {
             Group {
                 switch app.page {
                 case .chat: ChatView(app: app)
+                case .memory: MemoryView(app: app)
                 case .settings: SettingsView(app: app)
                 }
             }
@@ -90,6 +91,9 @@ struct Sidebar: View {
             .scrollIndicators(.never)
 
             VStack(spacing: 2) {
+                NavRow(title: "Память", icon: "brain", active: app.page == .memory, trailing: "\(app.memoryCount)") {
+                    app.page = .memory
+                }
                 NavRow(title: "Настройки", icon: "gearshape", active: { if case .settings = app.page { true } else { false } }()) {
                     app.page = .settings(.look)
                 }

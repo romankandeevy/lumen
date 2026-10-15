@@ -53,6 +53,8 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var chatWidth: ChatWidth
     /// Папки, где недавно работал агент — первая выбрана для новой задачи
     public var recentFolders: [String] = []
+    /// «Запоминать само»: Lumen сам сохраняет важное из разговора, а не только по просьбе «запомни»
+    public var autoRemember = true
 
     public init(onboarded: Bool = false, backend: Backend = .subscription, theme: Theme = .lumen, reducedMotion: Bool = false,
                 model: ChatModel = .sonnet, effort: Effort = .medium, chatWidth: ChatWidth = .normal) {
@@ -76,24 +78,7 @@ public struct Preferences: Codable, Sendable, Equatable {
         effort = try c.decodeIfPresent(Effort.self, forKey: .effort) ?? .medium
         chatWidth = try c.decodeIfPresent(ChatWidth.self, forKey: .chatWidth) ?? .normal
         recentFolders = try c.decodeIfPresent([String].self, forKey: .recentFolders) ?? []
+        autoRemember = try c.decodeIfPresent(Bool.self, forKey: .autoRemember) ?? true
     }
 }
 
-/// Факт памяти. Пока пишется только знакомством; поиск и показ — в «Памяти».
-public struct MemoryFact: Codable, Sendable, Equatable, Identifiable {
-    public var id: Int64?
-    public var kind: String
-    public var text: String
-    public var source: String
-    public var pinned: Bool
-    public var createdAt: Date
-
-    public init(id: Int64? = nil, kind: String, text: String, source: String, pinned: Bool = false, createdAt: Date = Date()) {
-        self.id = id
-        self.kind = kind
-        self.text = text
-        self.source = source
-        self.pinned = pinned
-        self.createdAt = createdAt
-    }
-}

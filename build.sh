@@ -16,11 +16,14 @@ fi
 APP="build/Lumen.app"
 echo "==> swift build"
 swift build -c release --product Lumen
+swift build -c release --product lumen-mcp
 BIN="$(swift build -c release --show-bin-path)"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/Lumen" "$APP/Contents/MacOS/Lumen"
+# помощник памяти: claude запускает его как MCP-сервер
+cp "$BIN/lumen-mcp" "$APP/Contents/MacOS/lumen-mcp"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp -R Resources/Fonts "$APP/Contents/Resources/"
 # ресурсы пакетов (GRDB кладёт свой бандл с PrivacyInfo)
@@ -29,6 +32,7 @@ for b in "$BIN"/*.bundle; do [ -e "$b" ] && cp -R "$b" "$APP/Contents/Resources/
 # если её нет — временная.
 SIGN_ID="-"
 security find-identity -v -p codesigning 2>/dev/null | grep -q "Local Dev Signing" && SIGN_ID="Local Dev Signing"
+codesign --force --sign "$SIGN_ID" "$APP/Contents/MacOS/lumen-mcp"
 codesign --force --sign "$SIGN_ID" "$APP"
 echo "==> готово: $APP"
 

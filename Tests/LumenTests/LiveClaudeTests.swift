@@ -10,6 +10,15 @@ import Testing
 
 private let live = ProcessInfo.processInfo.environment["LUMEN_LIVE"] == "1"
 
+/// lumen-mcp собран рядом с тестами (зависимость тестовой цели)
+func pointToMCP() {
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    for rel in [".build/out/Products/Debug/lumen-mcp", ".build/debug/lumen-mcp"] {
+        let bin = root.appendingPathComponent(rel)
+        if FileManager.default.isExecutableFile(atPath: bin.path) { setenv("LUMEN_MCP", bin.path, 1); return }
+    }
+}
+
 @Test(.enabled(if: live)) func liveStopIsFastAndSessionContinues() async throws {
     let cli = try #require(ClaudeCLI.locate())
     let session = try ClaudeSession(cli: cli, config: .init(model: "claude-haiku-5-5",
@@ -125,4 +134,33 @@ private let live = ProcessInfo.processInfo.environment["LUMEN_LIVE"] == "1"
     #expect(app.chat.messages.last?.changes?.state == .committed)
     let log = try await Shell.run(URL(fileURLWithPath: "/usr/bin/env"), ["git", "log", "--oneline"], cwd: repo)
     #expect(log.stdout.split(separator: "\n").count == 2)
+}
+
+@MainActor @Test(.enabled(if: live)) func liveMemoryAcrossChats() async throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-mem-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    pointToMCP()
+    let app = try AppModel(paths: AppPaths(root: home))
+    #expect(app.mcpBinary.map { FileManager.default.isExecutableFile(atPath: $0.path) } == true)
+    await app.refreshClaude()
+    app.finishOnboarding(name: "Ярослав", address: .ty, backend: .subscription, theme: .lumen)
+    app.chat.set(model: .haiku, effort: .low)
+
+    app.chat.send("Запомни, пожалуйста: я встаю в 7:40 утра.")
+    while app.chat.busy { try await Task.sleep(for: .milliseconds(100)) }
+    let first = try #require(app.chat.messages.last)
+    #expect(first.error == nil, "\(first.error ?? "")")
+    #expect(!first.remembered.isEmpty, "плашка «Запомнил»")
+    #expect(app.memories.contains { $0.text.contains("7:40") })
+    let fact = try #require(app.memories.first { $0.text.contains("7:40") })
+    #expect(fact.conversationID == app.chat.conversation?.id)
+
+    // новый чат: факт не закреплён, значит модель должна вспомнить его через recall
+    app.newChat()
+    app.chat.send("Во сколько я обычно встаю? Ответь только временем.")
+    while app.chat.busy { try await Task.sleep(for: .milliseconds(100)) }
+    let second = try #require(app.chat.messages.last)
+    #expect(second.text.contains("7:40"), "ответ: \(second.text)")
+    #expect(second.recalled.contains(fact.id!), "«Опирался на»")
+    #expect(app.conversations.count == 2)
 }

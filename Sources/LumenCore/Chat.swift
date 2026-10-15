@@ -92,6 +92,8 @@ public struct AgentStep: Codable, Sendable, Equatable, Hashable {
         case "WebFetch": return .init(kind: .web, text: "Открывает \((input["url"] as? String ?? "").prefix(60))")
         case "TodoWrite": return .init(kind: .think, text: "Обновляет план")
         case "Task", "Agent": return .init(kind: .think, text: "Отдаёт часть работы помощнику")
+        case "remember", "mcp__lumen__remember": return .init(kind: .think, text: "Запоминает")
+        case "recall", "mcp__lumen__recall": return .init(kind: .think, text: "Вспоминает")
         default: return .init(kind: .other, text: tool.hasPrefix("mcp__") ? tool.components(separatedBy: "__").last ?? tool : tool)
         }
     }
@@ -180,11 +182,14 @@ public struct ChatMessage: Codable, Sendable, Equatable, Identifiable {
     public var steps: [AgentStep]
     /// Что агент поменял в файлах
     public var changes: ChangeSet?
+    /// Факты, которые Lumen запомнил за этот ход («Запомнил») и на которые опирался («Опирался на»)
+    public var remembered: [Int64]
+    public var recalled: [Int64]
     public var createdAt: Date
 
     public init(id: Int64? = nil, conversationID: String, role: Role, text: String, apiContent: String? = nil,
                 model: ChatModel? = nil, stopped: Bool = false, error: String? = nil, steps: [AgentStep] = [],
-                changes: ChangeSet? = nil, createdAt: Date = Date()) {
+                changes: ChangeSet? = nil, remembered: [Int64] = [], recalled: [Int64] = [], createdAt: Date = Date()) {
         self.id = id
         self.conversationID = conversationID
         self.role = role
@@ -195,6 +200,8 @@ public struct ChatMessage: Codable, Sendable, Equatable, Identifiable {
         self.error = error
         self.steps = steps
         self.changes = changes
+        self.remembered = remembered
+        self.recalled = recalled
         self.createdAt = createdAt
     }
 }

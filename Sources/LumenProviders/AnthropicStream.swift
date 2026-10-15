@@ -10,6 +10,8 @@ public struct AnthropicChatRequest: Sendable {
     /// История: user — текст, assistant — блоки ответа как вернул API (или текст, если их нет)
     public var messages: [[String: any Sendable]]
     public var maxTokens = 64_000
+    /// Клиентские инструменты (память): name, description, input_schema
+    public var tools: [JSONBox] = []
 
     public init(model: ChatModel, effort: Effort, system: String, messages: [[String: any Sendable]]) {
         self.model = model
@@ -20,7 +22,7 @@ public struct AnthropicChatRequest: Sendable {
 
     /// Сообщения в формате API из истории разговора. Ответы с ошибкой не отправляем.
     public static func history(_ msgs: [ChatMessage]) -> [[String: any Sendable]] {
-        msgs.compactMap { m in
+        let plain: [[String: any Sendable]] = msgs.compactMap { m -> [String: any Sendable]? in
             switch m.role {
             case .user:
                 return ["role": "user", "content": m.text]
@@ -31,6 +33,14 @@ public struct AnthropicChatRequest: Sendable {
                 guard m.error == nil, !m.text.isEmpty else { return nil }
                 return ["role": "assistant", "content": m.text]
             }
+        }
+        return plain.flatMap { msg -> [[String: any Sendable]] in
+            // ход с инструментами хранится целиком: assistant(tool_use) → user(tool_result) → … → assistant
+            if let box = msg["content"] as? JSONBox, let blocks = box.value as? [Any], blocks.count == 1,
+               let wrapped = blocks.first as? [String: Any], let turn = wrapped["lumen_turn"] as? [[String: Any]] {
+                return turn.map { ["role": $0["role"] as? String ?? "assistant", "content": JSONBox($0["content"] ?? [])] }
+            }
+            return [msg]
         }
     }
 
@@ -46,6 +56,7 @@ public struct AnthropicChatRequest: Sendable {
             "messages": messages.map { $0.mapValues { ($0 as? JSONBox)?.value ?? $0 } },
         ]
         if model.hasServerFallback { b["fallbacks"] = "default" }
+        if !tools.isEmpty { b["tools"] = tools.map(\.value) }
         return try JSONSerialization.data(withJSONObject: b)
     }
 }
@@ -153,6 +164,13 @@ struct SSEMessageBuilder {
             if let u = (ev["message"] as? [String: Any])?["usage"] as? [String: Any] { read(u) }
         case "content_block_start":
             if let i = ev["index"] as? Int, let b = ev["content_block"] as? [String: Any] { blocks[i] = b }
+        case "content_block_stop":
+            // вход инструмента пришёл кусками JSON — собрать
+            if let i = ev["index"] as? Int, var b = blocks[i], let partial = b["_partial"] as? String {
+                b["input"] = (try? JSONSerialization.jsonObject(with: Data(partial.utf8))) ?? [:]
+                b.removeValue(forKey: "_partial")
+                blocks[i] = b
+            }
         case "content_block_delta":
             guard let i = ev["index"] as? Int, let d = ev["delta"] as? [String: Any] else { return [] }
             switch d["type"] as? String {
@@ -164,6 +182,8 @@ struct SSEMessageBuilder {
                 append(d["thinking"] as? String ?? "", to: "thinking", in: i)
             case "signature_delta":
                 blocks[i]?["signature"] = d["signature"] as? String
+            case "input_json_delta":
+                append(d["partial_json"] as? String ?? "", to: "_partial", in: i)
             default: break
             }
         case "message_delta":

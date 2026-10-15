@@ -104,3 +104,32 @@ enum Snap {
     app.openChat(c)
     try await Snap.save(RootView(app: app), "05-agent-session")
 }
+
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotMemory() async throws {
+    Snap.registerFonts()
+    let app = try Snap.app()
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .subscription, theme: .lumen)
+    let c = Conversation(title: "Lumen: замысел", backend: .subscription, model: .sonnet, effort: .medium)
+    try app.store.save(c)
+    let facts: [(MemoryKind, String, Bool)] = [
+        (.decision, "Только тёмные темы: «Люмен» и «Монохром»; светлую не делаем", true),
+        (.pref, "При внедрении мокапа существующие кнопки остаются на местах", true),
+        (.project, "Lumen — Mac-приложение по логике Hermes Agent, открытый код", false),
+        (.people, "Папа — владелец kandeev.com, сайт без цен и кейсов с цифрами", false),
+    ]
+    var ids: [Int64] = []
+    for (k, t, pin) in facts {
+        let f = try app.store.save(MemoryFact(kind: k, text: t, source: c.title, conversationID: c.id, pinned: pin))
+        ids.append(f.id!)
+    }
+    app.reloadMemories()
+    app.reloadConversations()
+    app.page = .memory
+    try await Snap.save(RootView(app: app), "08-memory")
+
+    try app.store.save(ChatMessage(conversationID: c.id, role: .user, text: "Да. И запомни: светлую тему не делаем, только тёмные."))
+    try app.store.save(ChatMessage(conversationID: c.id, role: .assistant, text: "Понял. Тёмных тем будет две — «Люмен» и «Монохром». Светлой не будет.",
+                                   remembered: [ids[0]], recalled: [ids[1]]))
+    app.openChat(c)
+    try await Snap.save(RootView(app: app), "02b-chat-remembered")
+}

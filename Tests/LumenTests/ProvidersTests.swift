@@ -94,8 +94,8 @@ import Testing
     try store.set("profile", Profile(name: "Рома", address: .ty))
     #expect(store.profile.name == "Рома")
 
-    try store.upsert(MemoryFact(kind: "name", text: "Зовут Рома", source: "onboarding", pinned: true))
-    try store.upsert(MemoryFact(kind: "name", text: "Зовут Роман", source: "onboarding", pinned: true))
+    try store.save(MemoryFact(kind: .you, text: "Зовут Рома", source: "Знакомство", key: "onboarding.name", pinned: true))
+    try store.save(MemoryFact(kind: .you, text: "Зовут Роман", source: "Знакомство", key: "onboarding.name", pinned: true))
     let facts = try store.memories()
     #expect(facts.count == 1)
     #expect(facts[0].text == "Зовут Роман")

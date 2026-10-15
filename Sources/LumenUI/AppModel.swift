@@ -17,9 +17,13 @@ public final class AppModel {
     var orb: Orb.State = .idle
 
     // MARK: окно
-    enum Page: Equatable { case chat, settings(SettingsView.Section) }
+    enum Page: Equatable { case chat, memory, settings(SettingsView.Section) }
 
     var page: Page = .chat
+    /// Вся память — для страницы «Что Lumen знает», счётчика и плашек в чате
+    var memories: [MemoryFact] = []
+    /// Последний забытый факт — чтобы «Вернуть»
+    var lastForgotten: MemoryFact?
     /// Вкладка панели: Чат или Агент
     enum Tab { case chat, agent }
     var tab: Tab = .chat
@@ -69,6 +73,7 @@ public final class AppModel {
             keyState = .saved
         }
         conversations = (try? store.conversations()) ?? []
+        memories = (try? store.memories()) ?? []
         agentFolder = prefs.recentFolders.lazy.map { URL(fileURLWithPath: $0) }
             .first { FileManager.default.fileExists(atPath: $0.path) }
     }
@@ -111,8 +116,8 @@ public final class AppModel {
         page = .chat
     }
 
-    /// Сколько фактов помнит Lumen — для пустого чата
-    var memoryCount: Int { (try? store.memories().count) ?? 0 }
+    /// Сколько фактов помнит Lumen — для пустого чата и счётчика в панели
+    var memoryCount: Int { memories.count }
 
     func reloadConversations() {
         conversations = (try? store.conversations()) ?? []
@@ -158,10 +163,11 @@ public final class AppModel {
         profile = Profile(name: name, address: address)
         try? store.set("profile", profile)
         if !name.isEmpty {
-            _ = try? store.upsert(MemoryFact(kind: "name", text: "Зовут \(name)", source: "onboarding", pinned: true))
+            _ = try? store.save(MemoryFact(kind: .you, text: "Зовут \(name)", source: "Знакомство", key: "onboarding.name", pinned: true))
         }
-        _ = try? store.upsert(MemoryFact(kind: "address", text: address == .ty ? "Обращаться на «ты»" : "Обращаться на «вы»",
-                                     source: "onboarding", pinned: true))
+        _ = try? store.save(MemoryFact(kind: .pref, text: address == .ty ? "Обращаться на «ты»" : "Обращаться на «вы»",
+                                       source: "Знакомство", key: "onboarding.address", pinned: true))
+        reloadMemories()
         update {
             $0.onboarded = true
             $0.backend = backend

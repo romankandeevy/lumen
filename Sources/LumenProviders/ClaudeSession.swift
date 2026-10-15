@@ -22,6 +22,8 @@ public final class ClaudeSession: @unchecked Sendable {
         /// Что разрешено без вопросов и что запрещено даже при обходе (`--allowedTools` / `--disallowedTools`)
         public var allowedTools: [String]
         public var disallowedTools: [String]
+        /// Файл с MCP-серверами (lumen-mcp — память)
+        public var mcpConfig: String?
 
         public init(model: String, effort: String? = nil, systemPrompt: String? = nil, tools: [String]? = [],
                     userSettings: Bool = false, sessionID: String = UUID().uuidString.lowercased(),
@@ -56,12 +58,14 @@ public final class ClaudeSession: @unchecked Sendable {
             var a = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
                      "--include-partial-messages", "--model", model, "--permission-mode", "dontAsk"]
             if let effort { a += ["--effort", effort] }
-            if let systemPrompt { a += ["--system-prompt", systemPrompt] }
+            // свой промпт чата меняется (закреплённые факты) — пусть claude берёт его заново при --resume
+            if let systemPrompt { a += ["--system-prompt", systemPrompt, "--system-prompt-snapshot", "off"] }
             if let appendSystemPrompt { a += ["--append-system-prompt", appendSystemPrompt] }
             if !allowedTools.isEmpty { a += ["--allowedTools"] + allowedTools }
             if !disallowedTools.isEmpty { a += ["--disallowedTools"] + disallowedTools }
             if let tools { a += ["--tools", tools.joined(separator: ",")] }
             if !userSettings { a += ["--setting-sources", "", "--strict-mcp-config"] }
+            if let mcpConfig { a += ["--mcp-config", mcpConfig] }
             a += resume ? ["--resume", sessionID] : ["--session-id", sessionID]
             return a
         }

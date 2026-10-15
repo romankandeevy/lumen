@@ -8,7 +8,7 @@ import Observation
 /// Подписка — тёплый процесс `claude` на разговор, API — запрос со всей историей.
 @MainActor @Observable
 final class ChatController {
-    private unowned let app: AppModel
+    unowned let app: AppModel
 
     /// Открытый разговор и его сообщения
     private(set) var conversation: Conversation?
@@ -20,6 +20,7 @@ final class ChatController {
     @ObservationIgnored private var sessions: [String: ClaudeSession] = [:]
     @ObservationIgnored private var turnTask: Task<Void, Never>?
     @ObservationIgnored private var stopRequested = false
+    @ObservationIgnored private var turnStart = Date()
 
     init(app: AppModel) {
         self.app = app
@@ -33,6 +34,11 @@ final class ChatController {
         guard conversation?.id != c.id else { return }
         stop()
         conversation = c
+        messages = (try? app.store.messages(in: c.id)) ?? []
+    }
+
+    func reloadMessages() {
+        guard let c = conversation else { return }
         messages = (try? app.store.messages(in: c.id)) ?? []
     }
 
@@ -85,6 +91,7 @@ final class ChatController {
         if isNew { app.reloadConversations() }
 
         stopRequested = false
+        turnStart = Date()
         thinking = true
         app.orb = .thinking
         let history = messages
@@ -179,6 +186,11 @@ final class ChatController {
             config = .init(model: c.model.rawValue, effort: c.effort.rawValue, systemPrompt: app.systemPrompt(),
                            tools: [], userSettings: false, sessionID: sid, resume: resume)
         }
+        // память: lumen-mcp с инструментами remember и recall
+        if let mcp = try? app.writeMCPConfig(for: c) {
+            config.mcpConfig = mcp.path
+            config.allowedTools += ["mcp__lumen__remember", "mcp__lumen__recall"]
+        }
         let s = try ClaudeSession(cli: cli, config: config)
         sessions[c.id] = s
         return s
@@ -189,29 +201,66 @@ final class ChatController {
             finish(c, text: "", error: APIChatError.noKey.localizedDescription)
             return
         }
-        let request = AnthropicChatRequest(model: c.model, effort: c.effort, system: app.systemPrompt(),
+        let tools = MemoryTools(store: app.store, conversationID: c.id, conversationTitle: c.title)
+        var request = AnthropicChatRequest(model: c.model, effort: c.effort, system: app.systemPrompt(),
                                            messages: AnthropicChatRequest.history(history))
+        request.tools = MemoryTools.definitions.map {
+            JSONBox(["name": $0.name, "description": $0.description, "input_schema": $0.schema, "strict": true])
+        }
         var answer = ""
+        // ход целиком (с вызовами инструментов) — чтобы в истории он повторился как был
+        var turn: [[String: Any]] = []
         do {
-            for try await ev in AnthropicAPI(key: key).chat(request) {
-                switch ev {
-                case .textDelta(let t):
-                    answer += t
-                    appendStreaming(t, c)
-                case .finished(let reason, let content, _):
-                    if reason == "refusal" {
-                        finish(c, text: answer, error: "Модель отказалась отвечать на это сообщение.")
-                    } else {
-                        finish(c, text: answer, apiContent: content)
+            for _ in 0..<6 {
+                var finished: (String, String)?
+                for try await ev in AnthropicAPI(key: key).chat(request) {
+                    switch ev {
+                    case .textDelta(let t):
+                        answer += t
+                        appendStreaming(t, c)
+                    case .finished(let reason, let content, _):
+                        finished = (reason, content)
                     }
+                }
+                guard let (reason, content) = finished else {
+                    // поток кончился без конца ответа — значит, нажали «Стоп»
+                    finish(c, text: answer, stopped: true)
                     return
                 }
+                let blocks = (try? JSONSerialization.jsonObject(with: Data(content.utf8)) as? [[String: Any]]) ?? []
+                turn.append(["role": "assistant", "content": blocks])
+                if reason == "refusal" {
+                    finish(c, text: answer, error: "Модель отказалась отвечать на это сообщение.")
+                    return
+                }
+                let calls = blocks.filter { $0["type"] as? String == "tool_use" }
+                guard reason == "tool_use", !calls.isEmpty else {
+                    finish(c, text: answer, apiContent: Self.turnJSON(turn))
+                    return
+                }
+                // выполнить инструменты памяти и продолжить ход
+                var results: [[String: Any]] = []
+                for call in calls {
+                    let name = call["name"] as? String ?? ""
+                    appendStep(AgentStep.from(tool: name, input: [:]), c)
+                    let out = (try? tools.call(name, call["input"] as? [String: Any] ?? [:])) ?? "Ошибка памяти"
+                    results.append(["type": "tool_result", "tool_use_id": call["id"] as? String ?? "", "content": out])
+                }
+                turn.append(["role": "user", "content": results])
+                request.messages.append(["role": "assistant", "content": JSONBox(blocks)])
+                request.messages.append(["role": "user", "content": JSONBox(results)])
             }
-            // поток кончился без конца ответа — значит, нажали «Стоп»
-            finish(c, text: answer, stopped: true)
+            finish(c, text: answer, apiContent: Self.turnJSON(turn))
         } catch {
             finish(c, text: answer, stopped: stopRequested, error: stopRequested ? nil : error.localizedDescription)
         }
+    }
+
+    /// Один ход для истории: обычный — блоки ответа; с инструментами — вся цепочка в обёртке lumen_turn
+    static func turnJSON(_ turn: [[String: Any]]) -> String? {
+        let value: Any = turn.count == 1 ? (turn[0]["content"] ?? []) : [["lumen_turn": turn]]
+        guard let d = try? JSONSerialization.data(withJSONObject: value) else { return nil }
+        return String(decoding: d, as: UTF8.self)
     }
 
     private func appendStreaming(_ t: String, _ c: Conversation) {
@@ -234,11 +283,33 @@ final class ChatController {
 
     private func finish(_ c: Conversation, text: String, apiContent: String? = nil, stopped: Bool = false, error: String? = nil,
                         changes: ChangeSet? = nil) {
-        let steps = streaming?.steps ?? []
+        // шаги показываем у агента; в чате вызовы памяти видны плашками «Запомнил» и «Опирался на»
+        let steps = c.kind == .agent ? (streaming?.steps ?? []) : []
         streaming = nil
+        let remembered = (try? app.store.memoryUses(conversationID: c.id, since: turnStart, action: "remember")) ?? []
+        let recalled = (try? app.store.memoryUses(conversationID: c.id, since: turnStart, action: "recall")) ?? []
         let m = ChatMessage(conversationID: c.id, role: .assistant, text: text, apiContent: apiContent,
-                            model: c.model, stopped: stopped, error: error, steps: steps, changes: changes)
+                            model: c.model, stopped: stopped, error: error, steps: steps, changes: changes,
+                            remembered: remembered, recalled: recalled.filter { !remembered.contains($0) })
         if let saved = try? app.store.save(m), conversation?.id == c.id { messages.append(saved) }
+        if !remembered.isEmpty {
+            app.reloadMemories()
+            app.flash()
+        }
+    }
+
+    /// Память поменялась: процессы чата гасим, следующий ход поднимет их с новым системным промптом (`--resume`)
+    func memoryChanged() {
+        for (id, s) in sessions where id != conversation?.id || !busy {
+            if conversationKind(id) == .chat {
+                s.close()
+                sessions[id] = nil
+            }
+        }
+    }
+
+    private func conversationKind(_ id: String) -> ConversationKind {
+        id == conversation?.id ? (conversation?.kind ?? .chat) : (app.conversations.first { $0.id == id }?.kind ?? .chat)
     }
 
     // MARK: карточка «Изменения»
@@ -313,12 +384,52 @@ extension Conversation {
 }
 
 extension AppModel {
+    /// Как пользоваться памятью — одинаково в чате и у агента
+    var memoryRules: String {
+        var r = ["У тебя есть долгая память: инструменты remember (сохранить факт) и recall (найти в памяти)."]
+        if prefs.autoRemember {
+            r.append("Если узнал что-то важное и устойчивое о человеке, его проектах, решениях, людях вокруг или о том, как ему удобно, — сохрани через remember одной короткой фразой. Мелочи и разовое не сохраняй.")
+        } else {
+            r.append("Сохраняй через remember только когда человек прямо просит запомнить.")
+        }
+        r.append("Когда просят «запомни» — обязательно сохрани. Если ответ опирается на прошлое (что решили, что он просил, как зовут людей), сначала вызови recall. О вызовах не рассказывай: Lumen сам покажет, что запомнил.")
+        return r.joined(separator: " ")
+    }
+
+    /// mcp.json для claude: lumen-mcp с базой и разговором
+    func writeMCPConfig(for c: Conversation) throws -> URL {
+        guard let bin = mcpBinary else { throw CocoaError(.fileNoSuchFile) }
+        let dir = paths.run.appendingPathComponent(c.id, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let config: [String: Any] = ["mcpServers": ["lumen": [
+            "command": bin.path, "args": [],
+            "env": ["LUMEN_DB": paths.database.path, "LUMEN_CONVERSATION_ID": c.id, "LUMEN_CONVERSATION_TITLE": c.title],
+        ]]]
+        let url = dir.appendingPathComponent("mcp.json")
+        try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted]).write(to: url)
+        return url
+    }
+
+    /// lumen-mcp лежит рядом с Lumen в бандле; в тестах — рядом с собранными продуктами (LUMEN_MCP)
+    var mcpBinary: URL? {
+        if let env = ProcessInfo.processInfo.environment["LUMEN_MCP"] { return URL(fileURLWithPath: env) }
+        let near = Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent("lumen-mcp")
+        if let near, FileManager.default.isExecutableFile(atPath: near.path) { return near }
+        // swift test: тесты лежат в .build/…/Products/Debug, рядом с lumen-mcp
+        for b in Bundle.allBundles {
+            let u = b.bundleURL.deletingLastPathComponent().appendingPathComponent("lumen-mcp")
+            if FileManager.default.isExecutableFile(atPath: u.path) { return u }
+        }
+        return nil
+    }
+
     /// Дописывается к системному промпту Claude Code у агента: кто такой Lumen и правило про push
     func agentPrompt() -> String {
         var lines = ["Ты — Lumen, агент на Маке. Отвечай по-русски, по делу."]
         if !profile.name.isEmpty { lines.append("Собеседника зовут \(profile.name), обращайся на \(profile.address == .ty ? "«ты»" : "«вы»").") }
         lines.append("Push, публикацию и выкатку не делай: это только с явного OK, и делает их человек.")
         lines.append("В конце хода коротко скажи, что сделано и что не проверено.")
+        lines.append(memoryRules)
         return lines.joined(separator: "\n")
     }
 
@@ -334,6 +445,7 @@ extension AppModel {
             lines += pinned.map { "- \($0)" }
         }
         lines.append("Это чат: у тебя нет доступа к файлам и командам этого Мака.")
+        lines.append(memoryRules)
         return lines.joined(separator: "\n")
     }
 }
