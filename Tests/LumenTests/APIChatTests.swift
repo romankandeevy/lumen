@@ -34,7 +34,10 @@ final class StubAPI: URLProtocol, @unchecked Sendable {
     static func sse(_ events: [String]) -> String { events.map { "event: x\ndata: \($0)\n\n" }.joined() }
 }
 
-@MainActor @Test func apiChatRunsMemoryToolLoop() async throws {
+/// Тесты с подменённой сетью: очереди ответов общие, поэтому строго по одному
+@Suite(.serialized) @MainActor struct APIStubTests {
+
+@Test func apiChatRunsMemoryToolLoop() async throws {
     setenv("LUMEN_KEYCHAIN", "com.roman.lumen.tests", 1)
     defer { Keychain(service: "com.roman.lumen.tests").delete(Keychain.anthropicKey) }
     let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-api-\(UUID().uuidString)")
@@ -99,4 +102,31 @@ final class StubAPI: URLProtocol, @unchecked Sendable {
     let roles = (StubAPI.requests[2]["messages"] as? [[String: Any]])?.map { $0["role"] as? String }
     #expect(roles == ["user", "assistant", "user", "assistant", "user"])
     #expect(app.chat.messages.last?.text == "В 9.")
+}
+
+@Test func monthlyLimitStopsAPI() async throws {
+    setenv("LUMEN_KEYCHAIN", "com.roman.lumen.tests", 1)
+    defer { Keychain(service: "com.roman.lumen.tests").delete(Keychain.anthropicKey) }
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-limit-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    try app.keychain.save("sk-ant-test-" + String(repeating: "x", count: 30), for: Keychain.anthropicKey)
+    let config = URLSessionConfiguration.ephemeral
+    config.protocolClasses = [StubAPI.self]
+    app.urlSession = URLSession(configuration: config)
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .api, theme: .lumen)
+    app.update { $0.monthlyLimit = 5 }
+    try app.store.logSpend(conversationID: nil, backend: .api, model: "claude-opus-5-5", input: 0, output: 0, cacheRead: 0, cacheWrite: 0, usd: 5.01)
+    StubAPI.requests = []
+    app.chat.send("Привет")
+    while app.chat.running != nil { try await Task.sleep(for: .milliseconds(20)) }
+    // запрос не ушёл (сеть общая с соседним тестом — ищем именно своё сообщение)
+    let sent = StubAPI.requests.contains { r in
+        ((r["messages"] as? [[String: Any]]) ?? []).contains { ($0["content"] as? String) == "Привет" }
+    }
+    #expect(!sent)
+    #expect(app.chat.messages.last?.error?.contains("лимит") == true)
+    // подписка лимитом не ограничена — это другой счёт
+    #expect(app.limitReached != nil)
+}
 }

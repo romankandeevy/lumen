@@ -4,6 +4,7 @@ import Testing
 @testable import LumenCore
 @testable import LumenStorage
 @testable import LumenUI
+@testable import LumenProviders
 
 // Снимки экранов для сверки с макетом (ui/, mockups/). Рисуются в невидимом окне — экран не трогают.
 //   LUMEN_SNAP=/путь/к/папке swift test --filter Snapshots
@@ -132,4 +133,25 @@ enum Snap {
                                    remembered: [ids[0]], recalled: [ids[1]]))
     app.openChat(c)
     try await Snap.save(RootView(app: app), "02b-chat-remembered")
+}
+
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotContextPanel() async throws {
+    Snap.registerFonts()
+    let app = try Snap.app()
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .subscription, theme: .lumen)
+    let c = Conversation(title: "Lumen: замысел", backend: .subscription, model: .sonnet, effort: .medium)
+    try app.store.save(c)
+    let f = try app.store.save(MemoryFact(kind: .decision, text: "Только тёмные темы: «Люмен» и «Монохром»", source: c.title, conversationID: c.id, pinned: true))
+    try app.store.save(ChatMessage(conversationID: c.id, role: .user, text: "Какие темы делаем?"))
+    var m = ChatMessage(conversationID: c.id, role: .assistant, text: "Две тёмные: «Люмен» и «Монохром». Светлой не будет.", recalled: [f.id!])
+    m.contextTokens = 47_400
+    m.contextWindow = 200_000
+    try app.store.save(m)
+    app.usage = [UsageWindow(kind: .session, percent: 34, resetsAt: Date().addingTimeInterval(3600)),
+                 UsageWindow(kind: .week, percent: 12, resetsAt: Date().addingTimeInterval(86_400 * 3))]
+    app.reloadMemories()
+    app.reloadConversations()
+    app.openChat(c)
+    app.update { $0.contextOpen = true }
+    try await Snap.save(RootView(app: app), "06-context-panel")
 }

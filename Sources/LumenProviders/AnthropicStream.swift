@@ -74,6 +74,13 @@ public enum APIChatEvent: Sendable {
 
     public struct Usage: Sendable, Equatable {
         public var input = 0, output = 0, cacheRead = 0, cacheWrite = 0
+
+        public init(input: Int = 0, output: Int = 0, cacheRead: Int = 0, cacheWrite: Int = 0) {
+            self.input = input
+            self.output = output
+            self.cacheRead = cacheRead
+            self.cacheWrite = cacheWrite
+        }
     }
 }
 

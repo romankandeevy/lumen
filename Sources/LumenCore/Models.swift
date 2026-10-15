@@ -55,6 +55,10 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var recentFolders: [String] = []
     /// «Запоминать само»: Lumen сам сохраняет важное из разговора, а не только по просьбе «запомни»
     public var autoRemember = true
+    /// Предохранитель API: не тратить больше стольких долларов в месяц (§18.3: $100, что входят в Max)
+    public var monthlyLimit = 100
+    /// Правая панель «Контекст» открыта
+    public var contextOpen = false
 
     public init(onboarded: Bool = false, backend: Backend = .subscription, theme: Theme = .lumen, reducedMotion: Bool = false,
                 model: ChatModel = .sonnet, effort: Effort = .medium, chatWidth: ChatWidth = .normal) {
@@ -79,6 +83,8 @@ public struct Preferences: Codable, Sendable, Equatable {
         chatWidth = try c.decodeIfPresent(ChatWidth.self, forKey: .chatWidth) ?? .normal
         recentFolders = try c.decodeIfPresent([String].self, forKey: .recentFolders) ?? []
         autoRemember = try c.decodeIfPresent(Bool.self, forKey: .autoRemember) ?? true
+        monthlyLimit = try c.decodeIfPresent(Int.self, forKey: .monthlyLimit) ?? 100
+        contextOpen = try c.decodeIfPresent(Bool.self, forKey: .contextOpen) ?? false
     }
 }
 

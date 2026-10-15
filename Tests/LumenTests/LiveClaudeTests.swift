@@ -164,3 +164,26 @@ func pointToMCP() {
     #expect(second.recalled.contains(fact.id!), "«Опирался на»")
     #expect(app.conversations.count == 2)
 }
+
+@MainActor @Test(.enabled(if: live)) func liveContextAndCompact() async throws {
+    pointToMCP()
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-ctx-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    await app.refreshClaude()
+    app.finishOnboarding(name: "Тест", address: .ty, backend: .subscription, theme: .lumen)
+    app.chat.set(model: .haiku, effort: .low)
+    app.chat.send("Запомни кодовое слово СОВА, без инструментов, просто в разговоре. Ответь «ок».")
+    while app.chat.running != nil { try await Task.sleep(for: .milliseconds(100)) }
+    let ctx = try #require(app.chat.lastContext)
+    #expect(ctx.used > 0 && ctx.window >= 200_000)
+    #expect((try app.store.spent(backend: .subscription, since: app.monthStart)) > 0)
+
+    app.chat.compact()
+    while app.chat.running != nil { try await Task.sleep(for: .milliseconds(100)) }
+    #expect(app.chat.messages.last?.note != nil, "\(app.chat.messages.last?.error ?? "")")
+
+    app.chat.send("Какое кодовое слово? Одним словом.")
+    while app.chat.running != nil { try await Task.sleep(for: .milliseconds(100)) }
+    #expect(app.chat.messages.last?.text.uppercased().contains("СОВА") == true)
+}

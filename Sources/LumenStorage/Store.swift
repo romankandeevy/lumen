@@ -114,7 +114,47 @@ public final class Store: Sendable {
                 t.column("at", .datetime).notNull()
             }
         }
+        m.registerMigration("v5-spend") { db in
+            try db.alter(table: "message") { t in
+                t.add(column: "contextTokens", .integer)
+                t.add(column: "contextWindow", .integer)
+                t.add(column: "note", .text)
+            }
+            // журнал трат (§11): по API — по ценам, по подписке — оценка claude «сколько стоило бы»
+            try db.create(table: "spend") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("at", .datetime).notNull().indexed()
+                t.column("conversationID", .text)
+                t.column("backend", .text).notNull()
+                t.column("model", .text).notNull()
+                t.column("input", .integer).notNull()
+                t.column("output", .integer).notNull()
+                t.column("cacheRead", .integer).notNull()
+                t.column("cacheWrite", .integer).notNull()
+                t.column("usd", .double).notNull()
+            }
+        }
         return m
+    }
+
+    // MARK: траты
+
+    public func logSpend(conversationID: String?, backend: Backend, model: String, input: Int, output: Int,
+                         cacheRead: Int, cacheWrite: Int, usd: Double) throws {
+        try db.write { db in
+            try db.execute(sql: """
+                INSERT INTO spend(at, conversationID, backend, model, input, output, cacheRead, cacheWrite, usd)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [Date(), conversationID, backend.rawValue, model, input, output, cacheRead, cacheWrite, usd])
+        }
+    }
+
+    /// Сколько потрачено с начала месяца (по API — деньги, по подписке — оценка)
+    public func spent(backend: Backend, since: Date) throws -> Double {
+        try db.read { db in
+            try Double.fetchOne(db, sql: "SELECT COALESCE(SUM(usd), 0) FROM spend WHERE backend = ? AND at >= ?",
+                                arguments: [backend.rawValue, since]) ?? 0
+        }
     }
 
     // MARK: разговоры

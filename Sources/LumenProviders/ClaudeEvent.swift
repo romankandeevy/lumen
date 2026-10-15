@@ -11,6 +11,8 @@ public enum ClaudeEvent: Sendable, Equatable {
     case step(AgentStep)
     case rateLimit(RateLimit)
     case retry(attempt: Int, error: String)
+    /// Разговор сжат (`/compact` или автоматически)
+    case compacted
     case finished(TurnResult)
     case unknown(String)
 
@@ -30,6 +32,10 @@ public enum ClaudeEvent: Sendable, Equatable {
         public let inputTokens: Int
         public let outputTokens: Int
         public let cacheReadTokens: Int
+        public var cacheWriteTokens = 0
+        /// Сколько занял разговор на последнем запросе хода и сколько вмещает окно
+        public var contextTokens = 0
+        public var contextWindow = 0
     }
 
     /// Все события строки: в одном сообщении может быть несколько вызовов инструментов
@@ -54,6 +60,8 @@ public enum ClaudeEvent: Sendable, Equatable {
             return .started(sessionID: obj["session_id"] as? String ?? "",
                             model: obj["model"] as? String ?? "",
                             tools: obj["tools"] as? [String] ?? [])
+        case ("system", "compact_boundary"):
+            return .compacted
         case ("system", "api_retry"):
             return .retry(attempt: obj["attempt"] as? Int ?? 0, error: obj["error"] as? String ?? "")
         case ("system", _):
@@ -82,13 +90,20 @@ public enum ClaudeEvent: Sendable, Equatable {
         case ("result", _):
             let usage = obj["usage"] as? [String: Any] ?? [:]
             let isError = obj["is_error"] as? Bool ?? (subtype != "success")
-            return .finished(TurnResult(ok: !isError,
-                                        text: obj["result"] as? String ?? "",
-                                        sessionID: obj["session_id"] as? String ?? "",
-                                        costUSD: obj["total_cost_usd"] as? Double ?? 0,
-                                        inputTokens: usage["input_tokens"] as? Int ?? 0,
-                                        outputTokens: usage["output_tokens"] as? Int ?? 0,
-                                        cacheReadTokens: usage["cache_read_input_tokens"] as? Int ?? 0))
+            var r = TurnResult(ok: !isError,
+                               text: obj["result"] as? String ?? "",
+                               sessionID: obj["session_id"] as? String ?? "",
+                               costUSD: obj["total_cost_usd"] as? Double ?? 0,
+                               inputTokens: usage["input_tokens"] as? Int ?? 0,
+                               outputTokens: usage["output_tokens"] as? Int ?? 0,
+                               cacheReadTokens: usage["cache_read_input_tokens"] as? Int ?? 0)
+            r.cacheWriteTokens = usage["cache_creation_input_tokens"] as? Int ?? 0
+            // контекст — вход последнего запроса хода (у агента их несколько)
+            let last = (usage["iterations"] as? [[String: Any]])?.last ?? usage
+            r.contextTokens = (last["input_tokens"] as? Int ?? 0) + (last["cache_read_input_tokens"] as? Int ?? 0)
+                + (last["cache_creation_input_tokens"] as? Int ?? 0)
+            r.contextWindow = (obj["modelUsage"] as? [String: [String: Any]])?.values.compactMap { $0["contextWindow"] as? Int }.max() ?? 0
+            return .finished(r)
         default:
             return .unknown(type)
         }

@@ -129,6 +129,37 @@ final class ChatController {
         if c.usesCLI { sessions[c.id]?.interrupt() } else { turnTask?.cancel() }
     }
 
+    /// «Сжать разговор»: claude пересказывает старое и освобождает окно (`/compact`, проверено в спайке)
+    func compact() {
+        guard let c = conversation, c.usesCLI, running == nil, let cli = app.cli else { return }
+        running = c
+        turnThinking = true
+        turnStart = Date()
+        app.orb = .thinking
+        Task {
+            var ok = false
+            if let session = try? cliSession(for: c, cli: cli, resume: true), let turn = try? session.send("/compact") {
+                for await ev in turn {
+                    if case .compacted = ev { ok = true }
+                    if case .finished = ev { break }
+                }
+            }
+            let note = ChatMessage(conversationID: c.id, role: .assistant, text: "", model: c.model,
+                                   error: ok ? nil : "Не получилось сжать разговор. Попробуй ещё раз.",
+                                   note: ok ? "Разговор сжат: старое пересказано, место в окне освобождено" : nil)
+            if let saved = try? app.store.save(note), conversation?.id == c.id { messages.append(saved) }
+            turnThinking = false
+            running = nil
+            app.orb = .idle
+        }
+    }
+
+    /// Последний известный размер контекста открытого разговора
+    var lastContext: (used: Int, window: Int)? {
+        guard let m = messages.last(where: { $0.contextTokens != nil }), let used = m.contextTokens else { return nil }
+        return (used, m.contextWindow ?? (conversation?.usesCLI == true ? 200_000 : 1_000_000))
+    }
+
     /// Разговор удалён — его процесс больше не нужен
     func forget(_ id: String) {
         if running?.id == id { stop() }
@@ -146,6 +177,10 @@ final class ChatController {
     private func runCLI(_ c: Conversation, text: String, hadTurnsBefore: Bool) async {
         guard let cli = app.cli else {
             finish(c, text: "", error: "Claude Code не найден. Поставь его и войди в Настройках → Модели и оплата.")
+            return
+        }
+        if c.backend == .api, let stop = app.limitReached {
+            finish(c, text: "", error: stop)
             return
         }
         // агент: что было изменено в папке до хода — чтобы показать только его правки
@@ -177,12 +212,18 @@ final class ChatController {
                 finish(c, text: answer, error: Self.cliError(session.errorOutput), changes: changes)
                 return
             }
+            // расход: по подписке claude даёт оценку «сколько стоило бы по API»; агент по ключу платит ключом
+            let paidBy: Backend = c.kind == .agent && c.backend == .api ? .api : .subscription
+            try? app.store.logSpend(conversationID: c.id, backend: paidBy, model: c.model.rawValue, input: result.inputTokens,
+                                    output: result.outputTokens, cacheRead: result.cacheReadTokens,
+                                    cacheWrite: result.cacheWriteTokens, usd: result.costUSD)
+            let ctx = (result.contextTokens, result.contextWindow)
             if stopRequested {
-                finish(c, text: answer, stopped: true, changes: changes)
+                finish(c, text: answer, stopped: true, changes: changes, context: ctx)
             } else if result.ok {
-                finish(c, text: answer.isEmpty ? result.text : answer, changes: changes)
+                finish(c, text: answer.isEmpty ? result.text : answer, changes: changes, context: ctx)
             } else {
-                finish(c, text: answer, error: Self.cliError(result.text), changes: changes)
+                finish(c, text: answer, error: Self.cliError(result.text), changes: changes, context: ctx)
             }
         } catch {
             finish(c, text: "", error: error.localizedDescription)
@@ -226,7 +267,19 @@ final class ChatController {
             finish(c, text: "", error: APIChatError.noKey.localizedDescription)
             return
         }
+        if let stop = app.limitReached {
+            finish(c, text: "", error: stop)
+            return
+        }
         let tools = MemoryTools(store: app.store, conversationID: c.id, conversationTitle: c.title)
+        var spent = APIChatEvent.Usage()
+        var context = 0
+        func log() {
+            try? app.store.logSpend(conversationID: c.id, backend: .api, model: c.model.rawValue, input: spent.input, output: spent.output,
+                                    cacheRead: spent.cacheRead, cacheWrite: spent.cacheWrite,
+                                    usd: c.model.cost(input: spent.input, output: spent.output, cacheRead: spent.cacheRead, cacheWrite: spent.cacheWrite))
+        }
+        defer { log() }
         var request = AnthropicChatRequest(model: c.model, effort: c.effort, system: app.systemPrompt(),
                                            messages: AnthropicChatRequest.history(history))
         request.tools = MemoryTools.definitions.map {
@@ -245,8 +298,13 @@ final class ChatController {
                     case .textDelta(let t):
                         answer += t
                         appendStreaming(t, c)
-                    case .finished(let reason, let content, _):
+                    case .finished(let reason, let content, let usage):
                         finished = (reason, content)
+                        spent.input += usage.input
+                        spent.output += usage.output
+                        spent.cacheRead += usage.cacheRead
+                        spent.cacheWrite += usage.cacheWrite
+                        context = usage.input + usage.cacheRead + usage.cacheWrite + usage.output
                     }
                 }
                 guard let (reason, content) = finished else {
@@ -262,7 +320,7 @@ final class ChatController {
                 }
                 let calls = blocks.filter { $0["type"] as? String == "tool_use" }
                 guard reason == "tool_use", !calls.isEmpty else {
-                    finish(c, text: answer, apiContent: Self.turnJSON(turn))
+                    finish(c, text: answer, apiContent: Self.turnJSON(turn), context: (context, 1_000_000))
                     return
                 }
                 // выполнить инструменты памяти и продолжить ход
@@ -322,16 +380,20 @@ final class ChatController {
     }
 
     private func finish(_ c: Conversation, text: String, apiContent: String? = nil, stopped: Bool = false, error: String? = nil,
-                        changes: ChangeSet? = nil) {
+                        changes: ChangeSet? = nil, context: (Int, Int)? = nil) {
         // шаги показываем у агента; в чате вызовы памяти видны плашками «Запомнил» и «Опирался на»
         flushText()
         let steps = c.kind == .agent ? (turnMessage?.steps ?? []) : []
         turnMessage = nil
         let remembered = (try? app.store.memoryUses(conversationID: c.id, since: turnStart, action: "remember")) ?? []
         let recalled = (try? app.store.memoryUses(conversationID: c.id, since: turnStart, action: "recall")) ?? []
-        let m = ChatMessage(conversationID: c.id, role: .assistant, text: text, apiContent: apiContent,
+        var m = ChatMessage(conversationID: c.id, role: .assistant, text: text, apiContent: apiContent,
                             model: c.model, stopped: stopped, error: error, steps: steps, changes: changes,
                             remembered: remembered, recalled: recalled.filter { !remembered.contains($0) })
+        if let context, context.0 > 0 {
+            m.contextTokens = context.0
+            m.contextWindow = context.1 > 0 ? context.1 : nil
+        }
         if let saved = try? app.store.save(m), conversation?.id == c.id { messages.append(saved) }
         if !remembered.isEmpty {
             app.reloadMemories()

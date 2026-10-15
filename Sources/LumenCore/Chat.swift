@@ -30,6 +30,23 @@ public enum ChatModel: String, Codable, Sendable, CaseIterable, Identifiable {
     /// Если модель откажется отвечать по правилам безопасности, API сам доотвечает другой моделью.
     /// У Haiku такого нет.
     public var hasServerFallback: Bool { self != .haiku }
+
+    /// Цены API за миллион токенов: вход, выход, чтение кэша (платформа Anthropic, октябрь 2026)
+    public var price: (input: Double, output: Double, cacheRead: Double) {
+        switch self {
+        case .fable: (10, 50, 0.25)
+        case .opus: (4, 20, 0.20)
+        case .sonnet: (2, 10, 0.20)
+        case .haiku: (0.10, 0.50, 0.01)
+        }
+    }
+
+    /// Стоимость хода по API в долларах; запись в кэш — 1,25 цены входа
+    public func cost(input: Int, output: Int, cacheRead: Int, cacheWrite: Int) -> Double {
+        let p = price
+        return (Double(input) * p.input + Double(output) * p.output + Double(cacheRead) * p.cacheRead
+                + Double(cacheWrite) * p.input * 1.25) / 1_000_000
+    }
 }
 
 /// «Сколько думать» — effort, одинаковый у CLI и API
@@ -185,11 +202,18 @@ public struct ChatMessage: Codable, Sendable, Equatable, Identifiable {
     /// Факты, которые Lumen запомнил за этот ход («Запомнил») и на которые опирался («Опирался на»)
     public var remembered: [Int64]
     public var recalled: [Int64]
+    /// Сколько токенов занял разговор к этому ответу и сколько всего помещается
+    public var contextTokens: Int?
+    public var contextWindow: Int?
+    /// Служебная строка в переписке («Разговор сжат») — не ответ модели
+    public var note: String?
     public var createdAt: Date
 
     public init(id: Int64? = nil, conversationID: String, role: Role, text: String, apiContent: String? = nil,
                 model: ChatModel? = nil, stopped: Bool = false, error: String? = nil, steps: [AgentStep] = [],
-                changes: ChangeSet? = nil, remembered: [Int64] = [], recalled: [Int64] = [], createdAt: Date = Date()) {
+                changes: ChangeSet? = nil, remembered: [Int64] = [], recalled: [Int64] = [], note: String? = nil,
+                createdAt: Date = Date()) {
+        self.note = note
         self.id = id
         self.conversationID = conversationID
         self.role = role

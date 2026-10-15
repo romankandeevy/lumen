@@ -15,6 +15,14 @@ struct ChatView: View {
     private var folder: URL? { chat.conversation?.folder.map { URL(fileURLWithPath: $0) } ?? app.agentFolder }
 
     var body: some View {
+        HStack(spacing: 0) {
+            content
+            if app.prefs.contextOpen { ContextPanel(app: app).transition(.move(edge: .trailing)) }
+        }
+        .animation(.easeOut(duration: 0.2), value: app.prefs.contextOpen)
+    }
+
+    private var content: some View {
         VStack(spacing: 0) {
             header
             if chat.messages.isEmpty && !chat.busy {
@@ -56,6 +64,9 @@ struct ChatView: View {
                 }
             }
             Spacer()
+            IconButton(icon: "sidebar.right", help: "Контекст: память, окно, расход", active: app.prefs.contextOpen) {
+                app.update { $0.contextOpen.toggle() }
+            }
         }
         .padding(.horizontal, 20)
         .frame(height: 56)
@@ -170,7 +181,14 @@ struct MessageRow: View {
     @Environment(\.palette) private var p
 
     var body: some View {
-        if message.role == .user {
+        if let note = message.note {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.counterclockwise").font(.system(size: 11))
+                Text(note)
+            }
+            .font(.geist(12)).foregroundStyle(p.mutedFg)
+            .frame(maxWidth: .infinity)
+        } else if message.role == .user {
             HStack(spacing: 0) {
                 Spacer(minLength: 0)
                 Text(message.text)

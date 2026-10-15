@@ -379,6 +379,14 @@ struct SubscriptionCard: View {
         }
     }
 
+    static func resetNote(_ d: Date?) -> String {
+        guard let d else { return "" }
+        let f = formatter
+        f.dateFormat = Calendar.current.isDate(d, inSameDayAs: Date()) ? "'сброс в' HH:mm"
+            : (Calendar.current.isDateInTomorrow(d) ? "'сброс завтра в' HH:mm" : "'сброс' d MMM 'в' HH:mm")
+        return f.string(from: d)
+    }
+
     private static let formatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "ru_RU")
@@ -398,12 +406,35 @@ struct SubscriptionCard: View {
 struct ApiKeyCard: View {
     @Bindable var app: AppModel
 
+    @Environment(\.palette) private var p
+
     @State private var key = ""
 
     var body: some View {
         SettingsCard(title: "Anthropic API", icon: "key", status: AnyView(status)) {
             VStack(alignment: .leading, spacing: 0) {
                 KeyField(app: app, key: $key)
+                HStack(alignment: .bottom, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("В этом месяце").font(.geist(12)).foregroundStyle(p.mutedFg)
+                        Text("$\(Money.string(app.apiSpentThisMonth))").font(.geist(24, .semibold)).tracking(-0.48).monospacedDigit()
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Остановиться на").font(.geist(12)).foregroundStyle(p.mutedFg)
+                        HStack(spacing: 4) {
+                            Text("$")
+                            TextField("", value: Binding(get: { app.prefs.monthlyLimit }, set: { v in app.update { $0.monthlyLimit = max(1, v) } }),
+                                      format: .number)
+                                .textFieldStyle(.plain).frame(width: 48).monospacedDigit()
+                            Text("в месяц").foregroundStyle(p.mutedFg)
+                        }
+                        .font(.geist(14))
+                        .padding(.horizontal, 10).frame(height: 32)
+                        .background(p.input.opacity(0.3), in: RoundedRectangle(cornerRadius: R.lg))
+                        .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
+                    }
+                }
+                .padding(.top, 20)
                 if app.savedKeyTail != nil {
                     LButton(title: "Удалить ключ", icon: "trash", kind: .ghost, small: true) { app.forgetKey() }
                         .padding(.top, 12)

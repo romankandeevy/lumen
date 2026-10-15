@@ -79,3 +79,10 @@ extension AppModel {
         return String(format: "%.1f", Double(n) / 1000).replacingOccurrences(of: ".", with: ",") + " тыс. знаков"
     }
 }
+
+enum Money {
+    /// «4,18» — два знака, запятая
+    static func string(_ v: Double) -> String {
+        String(format: "%.2f", v).replacingOccurrences(of: ".", with: ",")
+    }
+}

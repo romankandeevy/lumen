@@ -123,6 +123,19 @@ public final class AppModel {
         page = .chat
     }
 
+    /// Начало текущего месяца — для «В этом месяце»
+    var monthStart: Date { Calendar.current.dateInterval(of: .month, for: Date())?.start ?? Date() }
+
+    /// Потрачено по ключу API в этом месяце
+    var apiSpentThisMonth: Double { (try? store.spent(backend: .api, since: monthStart)) ?? 0 }
+
+    /// Месячный предохранитель: nil — можно тратить, иначе — понятная причина остановки
+    var limitReached: String? {
+        let spent = apiSpentThisMonth
+        guard spent >= Double(prefs.monthlyLimit) else { return nil }
+        return "Достигнут месячный лимит API: потрачено $\(Money.string(spent)) из $\(prefs.monthlyLimit). Подними лимит в Настройках → Модели и оплата или подожди начала месяца."
+    }
+
     /// Сколько фактов помнит Lumen — для пустого чата и счётчика в панели
     var memoryCount: Int { memories.count }
 

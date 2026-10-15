@@ -3,6 +3,7 @@ import Testing
 @testable import LumenCore
 @testable import LumenProviders
 @testable import LumenStorage
+@testable import LumenUI
 
 @Test func apiRequestBody() throws {
     let history = AnthropicChatRequest.history([
@@ -86,3 +87,23 @@ import Testing
     #expect(p.onboarded && p.backend == .api && p.theme == .mono)
     #expect(p.model == .sonnet && p.effort == .medium)
 }
+
+@Test func pricesAndTokens() {
+    // Sonnet 5.5: $2 вход, $10 выход, $0.20 чтение кэша, запись — 1,25 входа
+    #expect(abs(ChatModel.sonnet.cost(input: 1_000_000, output: 100_000, cacheRead: 1_000_000, cacheWrite: 0) - 3.2) < 0.0001)
+    #expect(abs(ChatModel.opus.cost(input: 0, output: 0, cacheRead: 0, cacheWrite: 1_000_000) - 5) < 0.0001)
+    #expect(Tokens.short(47_400) == "47 тыс.")
+    #expect(Tokens.short(1_000_000) == "1 млн")
+    #expect(Tokens.short(512) == "512")
+}
+
+@Test func contextFromRecordedResult() throws {
+    let url = try #require(Bundle.module.url(forResource: "chat-two-turns", withExtension: "jsonl", subdirectory: "Fixtures"))
+    let results = try String(contentsOf: url, encoding: .utf8).split(separator: "\n")
+        .compactMap { ClaudeEvent.decode(Data($0.utf8)) }
+        .compactMap { if case .finished(let r) = $0 { r } else { nil } }
+    #expect(results[0].contextTokens == 600)
+    #expect(results[0].contextWindow == 200_000)
+    #expect(results[0].costUSD > 0)
+}
+
