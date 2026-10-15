@@ -98,6 +98,9 @@ struct ChatView: View {
                     ForEach(chat.messages) { m in
                         MessageRow(message: m, chat: chat).id(m.id)
                     }
+                    if !chat.busy, let last = chat.messages.last, let next = last.next {
+                        NextStepCard(next: next) { chat.answer($0, on: last) } close: { chat.dismissNext(last) }
+                    }
                     if let s = chat.streaming {
                         MessageRow(message: s, chat: chat, streaming: true)
                     } else if chat.thinking {
@@ -207,8 +210,10 @@ struct MessageRow: View {
                     if !message.steps.isEmpty {
                         StepsView(steps: message.steps, live: streaming)
                     }
-                    if !message.text.isEmpty {
-                        RichText(text: message.text)
+                    // блок «что дальше» пока пишется — не показывать сырым
+                    let shown = NextStep.split(message.text).text
+                    if !shown.isEmpty {
+                        RichText(text: shown)
                     }
                     if let changes = message.changes, let chat {
                         ChangeCard(message: message, changes: changes, chat: chat)

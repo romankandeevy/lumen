@@ -154,6 +154,18 @@ final class ChatController {
         }
     }
 
+    /// Ответ кнопкой из «что дальше»: карточка уходит, ответ отправляется
+    func answer(_ choice: NextStep.Choice, on m: ChatMessage) {
+        dismissNext(m)
+        send(choice.reply)
+    }
+
+    func dismissNext(_ m: ChatMessage) {
+        guard let i = messages.firstIndex(where: { $0.id == m.id }) else { return }
+        messages[i].next = nil
+        _ = try? app.store.save(messages[i])
+    }
+
     /// Последний известный размер контекста открытого разговора
     var lastContext: (used: Int, window: Int)? {
         guard let m = messages.last(where: { $0.contextTokens != nil }), let used = m.contextTokens else { return nil }
@@ -198,6 +210,8 @@ final class ChatController {
                     appendStreaming(t, c)
                 case .step(let step):
                     appendStep(step, c)
+                case .plan(let change):
+                    updatePlan(change, c)
                 case .finished(let r):
                     result = r
                 default: break
@@ -370,6 +384,17 @@ final class ChatController {
         pendingText = ""
     }
 
+    private func updatePlan(_ change: PlanItem.Change, _ c: Conversation) {
+        var updated = (running?.id == c.id ? running : nil) ?? c
+        let items = PlanItem.apply(change, to: updated.plan)
+        updated.plan = items
+        running = updated
+        if conversation?.id == c.id { conversation?.plan = items }
+        try? app.store.updatePlan(c.id, items)
+        // план — сбоку, как в макете: панель открывается сама
+        if !app.prefs.contextOpen && conversation?.id == c.id { app.update { $0.contextOpen = true } }
+    }
+
     private func appendStep(_ step: AgentStep, _ c: Conversation) {
         if turnThinking {
             turnThinking = false
@@ -387,9 +412,12 @@ final class ChatController {
         turnMessage = nil
         let remembered = (try? app.store.memoryUses(conversationID: c.id, since: turnStart, action: "remember")) ?? []
         let recalled = (try? app.store.memoryUses(conversationID: c.id, since: turnStart, action: "recall")) ?? []
-        var m = ChatMessage(conversationID: c.id, role: .assistant, text: text, apiContent: apiContent,
+        // «что дальше»: агент пишет блок в конце ответа — вынимаем его из текста в карточку
+        let (visible, next) = c.kind == .agent ? NextStep.split(text) : (text, nil)
+        var m = ChatMessage(conversationID: c.id, role: .assistant, text: visible, apiContent: apiContent,
                             model: c.model, stopped: stopped, error: error, steps: steps, changes: changes,
                             remembered: remembered, recalled: recalled.filter { !remembered.contains($0) })
+        m.next = stopped ? nil : next
         if let context, context.0 > 0 {
             m.contextTokens = context.0
             m.contextWindow = context.1 > 0 ? context.1 : nil
@@ -531,7 +559,11 @@ extension AppModel {
         var lines = ["Ты — Lumen, агент на Маке. Отвечай по-русски, по делу."]
         if !profile.name.isEmpty { lines.append("Собеседника зовут \(profile.name), обращайся на \(profile.address == .ty ? "«ты»" : "«вы»").") }
         lines.append("Push, публикацию и выкатку не делай: это только с явного OK, и делает их человек.")
-        lines.append("В конце хода коротко скажи, что сделано и что не проверено.")
+        lines.append("""
+            В самом конце каждого ответа добавь блок для карточки «что дальше» — строго JSON внутри тегов, без markdown:
+            <lumen-next>{"recap": "два-три коротких предложения: что теперь сделано и что не сделано или не проверено", "ask": "один вопрос, если следующий шаг решает человек, иначе null", "primary": {"label": "1–3 слова", "reply": "что отправится от человека"} или null, "secondary": такая же вторая кнопка, только если это реальная альтернатива, иначе null}</lumen-next>
+            Этот блок Lumen показывает отдельной карточкой — в тексте ответа итог не повторяй.
+            """)
         lines.append(memoryRules)
         return lines.joined(separator: "\n")
     }

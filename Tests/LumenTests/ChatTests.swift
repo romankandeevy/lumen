@@ -107,3 +107,43 @@ import Testing
     #expect(results[0].costUSD > 0)
 }
 
+
+@Test func nextStepBlockIsSplitOut() {
+    let text = """
+    Починил падение.
+
+    <lumen-next>{"recap": "Добавил проверку индекса. Сборку не запускал.", "ask": "Собрать и проверить?", "primary": {"label": "Собери", "reply": "Собери и проверь"}, "secondary": null}</lumen-next>
+    """
+    let (visible, next) = NextStep.split(text)
+    #expect(visible == "Починил падение.")
+    #expect(next?.recap == "Добавил проверку индекса. Сборку не запускал.")
+    #expect(next?.primary?.reply == "Собери и проверь")
+    #expect(next?.secondary == nil)
+    // пока блок пишется — он уже спрятан
+    #expect(NextStep.split("Готово. <lumen-next>{\"rec").text == "Готово.")
+    #expect(NextStep.split("Без карточки").next == nil)
+}
+
+@Test func todoWriteBecomesPlan() {
+    let line = #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TodoWrite","input":{"todos":[{"content":"Понять задачу","status":"completed","activeForm":"x"},{"content":"Сделать правки","status":"in_progress","activeForm":"x"},{"content":"Проверить","status":"pending","activeForm":"x"}]}}]}}"#
+    let events = ClaudeEvent.decodeAll(Data(line.utf8))
+    let change = events.compactMap { if case .plan(let p) = $0 { p } else { nil } }.first
+    let plan = change.map { PlanItem.apply($0, to: []) }
+    #expect(plan?.map(\.state) == [.done, .doing, .todo])
+    #expect(plan?.first?.text == "Понять задачу")
+    #expect(events.contains { if case .step(let s) = $0 { s.text == "Обновляет план" } else { false } })
+}
+
+@Test func taskToolsBuildPlan() {
+    var plan: [PlanItem] = []
+    for line in [
+        #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskCreate","input":{"subject":"Прочитать","activeForm":"x"}},{"type":"tool_use","name":"TaskCreate","input":{"subject":"Поправить","activeForm":"x"}}]}}"#,
+        #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskUpdate","input":{"taskId":"1","status":"completed"}}]}}"#,
+        #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskUpdate","input":{"taskId":"2","status":"in_progress"}}]}}"#,
+    ] {
+        for case .plan(let ch) in ClaudeEvent.decodeAll(Data(line.utf8)) { plan = PlanItem.apply(ch, to: plan) }
+    }
+    #expect(plan.map(\.text) == ["Прочитать", "Поправить"])
+    #expect(plan.map(\.state) == [.done, .doing])
+    #expect(PlanItem.apply(.update(id: "1", status: "deleted", text: nil), to: plan).count == 1)
+}

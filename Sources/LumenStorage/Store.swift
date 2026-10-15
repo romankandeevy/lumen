@@ -134,6 +134,10 @@ public final class Store: Sendable {
                 t.column("usd", .double).notNull()
             }
         }
+        m.registerMigration("v6-plan") { db in
+            try db.alter(table: "conversation") { t in t.add(column: "plan", .jsonText).notNull().defaults(to: "[]") }
+            try db.alter(table: "message") { t in t.add(column: "next", .jsonText) }
+        }
         return m
     }
 
@@ -165,6 +169,11 @@ public final class Store: Sendable {
 
     public func save(_ c: Conversation) throws {
         try db.write { db in try c.save(db) }
+    }
+
+    public func updatePlan(_ id: String, _ plan: [PlanItem]) throws {
+        let json = String(decoding: try JSONEncoder().encode(plan), as: UTF8.self)
+        try db.write { db in try db.execute(sql: "UPDATE conversation SET plan = ? WHERE id = ?", arguments: [json, id]) }
     }
 
     public func deleteConversation(_ id: String) throws {

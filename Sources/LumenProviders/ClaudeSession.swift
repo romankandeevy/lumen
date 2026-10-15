@@ -48,7 +48,8 @@ public final class ClaudeSession: @unchecked Sendable {
     public static func agent(model: String, effort: String?, persona: String, folder: URL, sessionID: String, resume: Bool) -> Config {
         Config(model: model, effort: effort, tools: nil, userSettings: true, sessionID: sessionID, resume: resume, cwd: folder,
                appendSystemPrompt: persona,
-               allowedTools: ["Read", "Edit", "Write", "MultiEdit", "NotebookEdit", "Glob", "Grep", "Bash", "WebFetch", "WebSearch", "TodoWrite", "Task"],
+               allowedTools: ["Read", "Edit", "Write", "MultiEdit", "NotebookEdit", "Glob", "Grep", "Bash", "WebFetch", "WebSearch",
+                              "TodoWrite", "Task", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "ToolSearch"],
                disallowedTools: ["Bash(git push:*)", "Bash(git push)"])
     }
 

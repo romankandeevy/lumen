@@ -13,6 +13,8 @@ public enum ClaudeEvent: Sendable, Equatable {
     case retry(attempt: Int, error: String)
     /// Разговор сжат (`/compact` или автоматически)
     case compacted
+    /// Агент обновил план (TodoWrite, TaskCreate, TaskUpdate)
+    case plan(PlanItem.Change)
     case finished(TurnResult)
     case unknown(String)
 
@@ -42,8 +44,22 @@ public enum ClaudeEvent: Sendable, Equatable {
     public static func decodeAll(_ line: Data) -> [ClaudeEvent] {
         if let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any], obj["type"] as? String == "assistant" {
             let content = (obj["message"] as? [String: Any])?["content"] as? [[String: Any]] ?? []
-            return content.filter { $0["type"] as? String == "tool_use" }.map {
-                .step(AgentStep.from(tool: $0["name"] as? String ?? "", input: $0["input"] as? [String: Any] ?? [:]))
+            return content.filter { $0["type"] as? String == "tool_use" }.flatMap { block -> [ClaudeEvent] in
+                let name = block["name"] as? String ?? ""
+                let input = block["input"] as? [String: Any] ?? [:]
+                var out: [ClaudeEvent] = [.step(AgentStep.from(tool: name, input: input))]
+                switch name {
+                case "TodoWrite":
+                    if let todos = input["todos"] as? [[String: Any]] { out.append(.plan(.replace(PlanItem.from(todos: todos)))) }
+                case "TaskCreate":
+                    if let subject = input["subject"] as? String { out.append(.plan(.add(subject))) }
+                case "TaskUpdate":
+                    if let id = input["taskId"] as? String ?? (input["taskId"] as? Int).map(String.init) {
+                        out.append(.plan(.update(id: id, status: input["status"] as? String, text: input["subject"] as? String)))
+                    }
+                default: break
+                }
+                return out
             }
         }
         return decode(line).map { [$0] } ?? []

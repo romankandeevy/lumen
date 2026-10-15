@@ -155,3 +155,29 @@ enum Snap {
     app.update { $0.contextOpen = true }
     try await Snap.save(RootView(app: app), "06-context-panel")
 }
+
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotAgentPlanNext() async throws {
+    Snap.registerFonts()
+    let app = try Snap.app()
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .subscription, theme: .lumen)
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent("shelf")
+    var c = Conversation(title: "Почему падает Shelf?", kind: .agent, folder: folder.path, backend: .subscription, model: .sonnet, effort: .high)
+    c.plan = [.init(text: "Понять задачу и прочитать проект", state: .done, id: "1"),
+              .init(text: "Сделать правки", state: .doing, id: "2"),
+              .init(text: "Собрать и проверить", state: .todo, id: "3")]
+    try app.store.save(c)
+    try app.store.save(ChatMessage(conversationID: c.id, role: .user, text: "Почему падает Shelf при двойном щелчке?"))
+    var m = ChatMessage(conversationID: c.id, role: .assistant, text: "Нашёл причину: двойной вызов `remove(at:)`. Добавил проверку индекса.",
+                        steps: [.init(kind: .read, text: "Читает ShelfStorage.swift"), .init(kind: .edit, text: "Правит ShelfStorage.swift")],
+                        changes: ChangeSet(files: [FileChange(path: "Sources/ShelfStorage.swift", status: "M", added: 2, removed: 1)]))
+    m.next = NextStep(recap: "Сделал первую часть: нашёл причину и добавил проверку индекса. Собрать и проверить в приложении ещё не успел.",
+                      ask: "Продолжать?", primary: .init(label: "Продолжай", reply: "Продолжай"),
+                      secondary: .init(label: "Покажи план", reply: "Покажи, что будешь делать"))
+    m.contextTokens = 61_000
+    m.contextWindow = 200_000
+    try app.store.save(m)
+    app.reloadConversations()
+    app.openChat(c)
+    app.update { $0.contextOpen = true }
+    try await Snap.save(RootView(app: app), "17-next-step", size: CGSize(width: 1280, height: 800))
+}

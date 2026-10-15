@@ -260,3 +260,128 @@ struct DiffSheet: View {
         return .clear
     }
 }
+
+/// План работы (`PlanList`): сделано — галочка, сейчас — крутится, дальше — пунктир; сверху «N из M»
+struct PlanList: View {
+    let items: [PlanItem]
+
+    @Environment(\.palette) private var p
+
+    var body: some View {
+        let done = items.filter { $0.state == .done }.count
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                GeometryReader { g in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(p.foreground.opacity(0.1))
+                        Capsule().fill(p.glow).frame(width: g.size.width * CGFloat(done) / CGFloat(max(items.count, 1)))
+                            .animation(.easeOut(duration: 0.5), value: done)
+                    }
+                }
+                .frame(height: 4)
+                Text("\(done) из \(items.count)").font(.geist(11)).foregroundStyle(p.mutedFg).monospacedDigit()
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, it in
+                    HStack(alignment: .top, spacing: 10) {
+                        PlanMark(state: it.state).padding(.top, 1)
+                        Text(it.text)
+                            .font(.geist(13, it.state == .doing ? .medium : .regular))
+                            .foregroundStyle(it.state == .done ? p.mutedFg : (it.state == .doing ? p.foreground : p.foreground.opacity(0.75)))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct PlanMark: View {
+    let state: PlanItem.State
+
+    @Environment(\.palette) private var p
+    @State private var spin = false
+
+    var body: some View {
+        switch state {
+        case .done:
+            Image(systemName: "checkmark").font(.system(size: 9, weight: .heavy)).foregroundStyle(p.background)
+                .frame(width: 17, height: 17).background(p.foreground.opacity(0.7), in: Circle())
+        case .doing:
+            Circle().stroke(p.foreground.opacity(0.15), lineWidth: 2)
+                .overlay(Circle().trim(from: 0, to: 0.25).stroke(p.glow, style: StrokeStyle(lineWidth: 2, lineCap: .round)))
+                .frame(width: 15, height: 15).padding(1)
+                .rotationEffect(.degrees(spin ? 360 : 0))
+                .onAppear { withAnimation(.linear(duration: 1.1).repeatForever(autoreverses: false)) { spin = true } }
+        case .todo:
+            Circle().strokeBorder(p.foreground.opacity(0.35), style: StrokeStyle(lineWidth: 1.5, dash: [2.5, 2.5]))
+                .frame(width: 17, height: 17)
+        }
+    }
+}
+
+/// Карточка «что дальше» (`NextStep`): итог, вопрос, главная кнопка с ⌘↵, вторая — альтернатива, крестик — убрать
+struct NextStepCard: View {
+    let next: NextStep
+    let answer: (NextStep.Choice) -> Void
+    let close: () -> Void
+
+    @Environment(\.palette) private var p
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(next.recap).font(.geist(15)).lineSpacing(5).foregroundStyle(p.foreground.opacity(0.85))
+                .fixedSize(horizontal: false, vertical: true).padding(.trailing, 28)
+            if let ask = next.ask, !ask.isEmpty {
+                Text(ask).font(.geist(15)).fixedSize(horizontal: false, vertical: true)
+            }
+            if next.primary != nil || next.secondary != nil {
+                HStack(spacing: 8) {
+                    if let primary = next.primary {
+                        Button { answer(primary) } label: {
+                            HStack(spacing: 6) {
+                                Text(primary.label).font(.geist(14, .medium))
+                                HStack(spacing: 2) { Kbd("⌘"); Kbd("↵") }
+                            }
+                            .foregroundStyle(p.background)
+                            .padding(.leading, 14).padding(.trailing, 6).frame(height: 36)
+                            .background(p.foreground, in: RoundedRectangle(cornerRadius: R.xl))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .keyboardShortcut(.return, modifiers: .command)
+                    }
+                    if let secondary = next.secondary {
+                        Button { answer(secondary) } label: {
+                            Text(secondary.label).font(.geist(14, .medium))
+                                .padding(.horizontal, 14).frame(height: 36)
+                                .background(p.secondary, in: RoundedRectangle(cornerRadius: R.xl))
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 20).padding(.vertical, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(p.card.opacity(0.7), in: RoundedRectangle(cornerRadius: R.xxl))
+        .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(p.border))
+        .overlay(alignment: .topTrailing) {
+            Button(action: close) { Image(systemName: "xmark").font(.system(size: 12)).foregroundStyle(p.mutedFg) }
+                .buttonStyle(.plain).help("Убрать").padding(14)
+        }
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+
+    private struct Kbd: View {
+        let s: String
+        init(_ s: String) { self.s = s }
+        @Environment(\.palette) private var p
+        var body: some View {
+            Text(s).font(.geist(12)).frame(width: 24, height: 24)
+                .background(p.background.opacity(0.1), in: RoundedRectangle(cornerRadius: R.md))
+                .overlay(RoundedRectangle(cornerRadius: R.md).strokeBorder(p.background.opacity(0.2)))
+        }
+    }
+}

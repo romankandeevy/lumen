@@ -2,7 +2,7 @@ import LumenCore
 import SwiftUI
 
 /// Правая панель «Контекст» (`ContextPanel` в макете): сессия агента, память в ответе, окно контекста, расход.
-/// «План» и «Характер» появятся, когда заработают.
+/// «Характер» появится, когда заработает.
 struct ContextPanel: View {
     @Bindable var app: AppModel
 
@@ -14,6 +14,9 @@ struct ContextPanel: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
+                if let plan = conversation?.plan, !plan.isEmpty {
+                    Side(title: "План") { PlanList(items: plan) }
+                }
                 if conversation?.kind == .agent, let folder = conversation?.folder {
                     Side(title: "Сессия") {
                         VStack(alignment: .leading, spacing: 8) {

@@ -107,12 +107,107 @@ public struct AgentStep: Codable, Sendable, Equatable, Hashable {
         case "Glob": return .init(kind: .search, text: "Ищет файлы \((input["pattern"] as? String ?? "").prefix(40))")
         case "WebSearch": return .init(kind: .web, text: "Ищет в интернете «\((input["query"] as? String ?? "").prefix(40))»")
         case "WebFetch": return .init(kind: .web, text: "Открывает \((input["url"] as? String ?? "").prefix(60))")
-        case "TodoWrite": return .init(kind: .think, text: "Обновляет план")
+        case "TodoWrite", "TaskUpdate": return .init(kind: .think, text: "Обновляет план")
+        case "TaskCreate": return .init(kind: .think, text: "Добавляет в план: \((input["subject"] as? String ?? "").prefix(60))")
+        case "ToolSearch", "TaskList", "TaskGet": return .init(kind: .think, text: "Готовит инструменты")
         case "Task", "Agent": return .init(kind: .think, text: "Отдаёт часть работы помощнику")
         case "remember", "mcp__lumen__remember": return .init(kind: .think, text: "Запоминает")
         case "recall", "mcp__lumen__recall": return .init(kind: .think, text: "Вспоминает")
         default: return .init(kind: .other, text: tool.hasPrefix("mcp__") ? tool.components(separatedBy: "__").last ?? tool : tool)
         }
+    }
+}
+
+/// Пункт плана агента (`PlanItem` в макете) — из его списка задач (TodoWrite)
+public struct PlanItem: Codable, Sendable, Equatable, Hashable {
+    public enum State: String, Codable, Sendable { case done, doing, todo }
+    public var text: String
+    public var state: State
+    /// Номер задачи у claude (TaskCreate выдаёт 1, 2, 3…) — для TaskUpdate
+    public var id: String?
+
+    public init(text: String, state: State, id: String? = nil) {
+        self.text = text
+        self.state = state
+        self.id = id
+    }
+
+    /// Изменение плана из вызова инструмента
+    public enum Change: Sendable, Equatable {
+        /// TodoWrite: весь список заново
+        case replace([PlanItem])
+        /// TaskCreate: новая задача в конец
+        case add(String)
+        /// TaskUpdate: статус (pending / in_progress / completed / deleted) и, может быть, новый текст
+        case update(id: String, status: String?, text: String?)
+    }
+
+    public static func apply(_ change: Change, to plan: [PlanItem]) -> [PlanItem] {
+        switch change {
+        case .replace(let items):
+            return items
+        case .add(let text):
+            let next = (plan.compactMap { $0.id.flatMap(Int.init) }.max() ?? 0) + 1
+            return plan + [PlanItem(text: text, state: .todo, id: String(next))]
+        case .update(let id, let status, let text):
+            if status == "deleted" { return plan.filter { $0.id != id } }
+            return plan.map { item in
+                guard item.id == id else { return item }
+                var i = item
+                if let text, !text.isEmpty { i.text = text }
+                switch status {
+                case "completed": i.state = .done
+                case "in_progress": i.state = .doing
+                case "pending": i.state = .todo
+                default: break
+                }
+                return i
+            }
+        }
+    }
+
+    /// Из входа TodoWrite: [{content, status: pending|in_progress|completed, activeForm}]
+    public static func from(todos: [[String: Any]]) -> [PlanItem] {
+        todos.map { t in
+            let status = t["status"] as? String
+            return PlanItem(text: t["content"] as? String ?? "",
+                            state: status == "completed" ? .done : (status == "in_progress" ? .doing : .todo))
+        }
+    }
+}
+
+/// Карточка «что дальше» в конце хода агента (`NextStep` в макете): итог, вопрос, одна-две кнопки
+public struct NextStep: Codable, Sendable, Equatable {
+    public struct Choice: Codable, Sendable, Equatable {
+        public var label: String
+        public var reply: String
+        public init(label: String, reply: String) {
+            self.label = label
+            self.reply = reply
+        }
+    }
+    public var recap: String
+    public var ask: String?
+    public var primary: Choice?
+    public var secondary: Choice?
+
+    public init(recap: String, ask: String? = nil, primary: Choice? = nil, secondary: Choice? = nil) {
+        self.recap = recap
+        self.ask = ask
+        self.primary = primary
+        self.secondary = secondary
+    }
+
+    static let open = "<lumen-next>", close = "</lumen-next>"
+
+    /// Текст ответа без блока «что дальше» — и сам блок, если агент его написал
+    public static func split(_ text: String) -> (text: String, next: NextStep?) {
+        guard let a = text.range(of: open) else { return (text, nil) }
+        let visible = String(text[..<a.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let rest = text[a.upperBound...]
+        let json = rest.range(of: close).map { String(rest[..<$0.lowerBound]) } ?? String(rest)
+        let next = try? JSONDecoder().decode(NextStep.self, from: Data(json.trimmingCharacters(in: .whitespacesAndNewlines).utf8))
+        return (visible, next?.recap.isEmpty == false ? next : nil)
     }
 }
 
@@ -160,6 +255,8 @@ public struct Conversation: Codable, Sendable, Equatable, Identifiable, Hashable
     public var effort: Effort
     /// Сессия `claude` для режима подписки — для `--resume`
     public var cliSessionID: String?
+    /// План агента — последний его список задач
+    public var plan: [PlanItem] = []
     public var createdAt: Date
     public var updatedAt: Date
 
@@ -207,6 +304,8 @@ public struct ChatMessage: Codable, Sendable, Equatable, Identifiable {
     public var contextWindow: Int?
     /// Служебная строка в переписке («Разговор сжат») — не ответ модели
     public var note: String?
+    /// «Что дальше» после хода агента; nil — карточку убрали или её не было
+    public var next: NextStep?
     public var createdAt: Date
 
     public init(id: Int64? = nil, conversationID: String, role: Role, text: String, apiContent: String? = nil,

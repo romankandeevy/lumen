@@ -187,3 +187,28 @@ func pointToMCP() {
     while app.chat.running != nil { try await Task.sleep(for: .milliseconds(100)) }
     #expect(app.chat.messages.last?.text.uppercased().contains("СОВА") == true)
 }
+
+@MainActor @Test(.enabled(if: live)) func liveAgentPlanAndNextStep() async throws {
+    pointToMCP()
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("lumen-next-\(UUID().uuidString)")
+    let repo = root.appendingPathComponent("proj")
+    try fm.createDirectory(at: repo, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: root) }
+    try "a\n".write(to: repo.appendingPathComponent("notes.txt"), atomically: true, encoding: .utf8)
+
+    let app = try AppModel(paths: AppPaths(root: root.appendingPathComponent("home")))
+    await app.refreshClaude()
+    app.finishOnboarding(name: "Тест", address: .ty, backend: .subscription, theme: .lumen)
+    app.tab = .agent
+    app.agentFolder = repo
+    app.newAgentTask()
+    app.chat.send("Сначала составь план из трёх пунктов инструментом TodoWrite, потом выполни: допиши в notes.txt строки b и c, отмечая пункты плана. Сборки нет.")
+    while app.chat.running != nil { try await Task.sleep(for: .milliseconds(200)) }
+    let reply = try #require(app.chat.messages.last)
+    #expect(reply.error == nil, "\(reply.error ?? "")")
+    let planCount = app.chat.conversation?.plan.count ?? 0
+    #expect(planCount > 0, "план сбоку; шаги: \(reply.steps.map(\.text))")
+    #expect(reply.next != nil, "карточка «что дальше»: \(reply.text.suffix(300))")
+    #expect(!reply.text.contains("<lumen-next>"))
+}
