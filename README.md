@@ -24,3 +24,7 @@ cd ui && npm install && npm run dev -- --port 5175
 ```
 
 Открыть http://localhost:5175. Скриншоты лежат в `mockups/`.
+
+## Лицензия
+
+MIT — см. [LICENSE](LICENSE).
