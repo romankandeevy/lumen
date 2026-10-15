@@ -37,12 +37,29 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var backend: Backend
     public var theme: Theme
     public var reducedMotion: Bool
+    /// Последние выбранные в чате модель и «сколько думать» — для нового чата
+    public var model: ChatModel
+    public var effort: Effort
 
-    public init(onboarded: Bool = false, backend: Backend = .subscription, theme: Theme = .lumen, reducedMotion: Bool = false) {
+    public init(onboarded: Bool = false, backend: Backend = .subscription, theme: Theme = .lumen, reducedMotion: Bool = false,
+                model: ChatModel = .sonnet, effort: Effort = .medium) {
         self.onboarded = onboarded
         self.backend = backend
         self.theme = theme
         self.reducedMotion = reducedMotion
+        self.model = model
+        self.effort = effort
+    }
+
+    // старые настройки (0.1) без модели и effort читаются с умолчаниями
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        onboarded = try c.decodeIfPresent(Bool.self, forKey: .onboarded) ?? false
+        backend = try c.decodeIfPresent(Backend.self, forKey: .backend) ?? .subscription
+        theme = try c.decodeIfPresent(Theme.self, forKey: .theme) ?? .lumen
+        reducedMotion = try c.decodeIfPresent(Bool.self, forKey: .reducedMotion) ?? false
+        model = try c.decodeIfPresent(ChatModel.self, forKey: .model) ?? .sonnet
+        effort = try c.decodeIfPresent(Effort.self, forKey: .effort) ?? .medium
     }
 }
 

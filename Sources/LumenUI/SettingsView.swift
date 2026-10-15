@@ -8,7 +8,12 @@ struct SettingsView: View {
     @Bindable var app: AppModel
 
     @Environment(\.palette) private var p
-    @State private var current: Section = .look
+
+    /// Вкладка настроек живёт в `app.page`: карточка профиля открывает сразу «Модели и оплата»
+    private var current: Section {
+        if case .settings(let s) = app.page { return s }
+        return .look
+    }
 
     enum Section: String, CaseIterable {
         case look = "Внешний вид"
@@ -48,7 +53,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(Section.allCases, id: \.self) { s in
                 Button {
-                    withAnimation(.easeOut(duration: 0.18)) { current = s }
+                    withAnimation(.easeOut(duration: 0.18)) { app.page = .settings(s) }
                 } label: {
                     Text(s.rawValue)
                         .font(.geist(13.5))

@@ -15,7 +15,7 @@ let package = Package(
         .target(name: "LumenProviders", dependencies: ["LumenCore"]),
         .target(name: "LumenUI", dependencies: ["LumenCore", "LumenStorage", "LumenProviders"]),
         .executableTarget(name: "Lumen", dependencies: ["LumenUI"]),
-        .testTarget(name: "LumenTests", dependencies: ["LumenCore", "LumenStorage", "LumenProviders"],
+        .testTarget(name: "LumenTests", dependencies: ["LumenCore", "LumenStorage", "LumenProviders", "LumenUI"],
                     resources: [.copy("Fixtures")]),
     ]
 )

@@ -38,7 +38,62 @@ public final class Store: Sendable {
                 t.column("createdAt", .datetime).notNull()
             }
         }
+        m.registerMigration("v2-chat") { db in
+            try db.create(table: "conversation") { t in
+                t.primaryKey("id", .text)
+                t.column("title", .text).notNull()
+                t.column("backend", .text).notNull()
+                t.column("model", .text).notNull()
+                t.column("effort", .text).notNull()
+                t.column("cliSessionID", .text)
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull().indexed()
+            }
+            try db.create(table: "message") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("conversationID", .text).notNull().indexed()
+                    .references("conversation", onDelete: .cascade)
+                t.column("role", .text).notNull()
+                t.column("text", .text).notNull()
+                t.column("apiContent", .text)
+                t.column("model", .text)
+                t.column("stopped", .boolean).notNull().defaults(to: false)
+                t.column("error", .text)
+                t.column("createdAt", .datetime).notNull()
+            }
+        }
         return m
+    }
+
+    // MARK: разговоры
+
+    public func conversations() throws -> [Conversation] {
+        try db.read { db in try Conversation.order(Column("updatedAt").desc).fetchAll(db) }
+    }
+
+    public func save(_ c: Conversation) throws {
+        try db.write { db in try c.save(db) }
+    }
+
+    public func deleteConversation(_ id: String) throws {
+        _ = try db.write { db in try Conversation.deleteOne(db, key: id) }
+    }
+
+    public func messages(in conversationID: String) throws -> [ChatMessage] {
+        try db.read { db in
+            try ChatMessage.filter(Column("conversationID") == conversationID).order(Column("id")).fetchAll(db)
+        }
+    }
+
+    /// Добавляет сообщение (или обновляет, если у него уже есть id) и поднимает разговор наверх списка
+    @discardableResult
+    public func save(_ message: ChatMessage) throws -> ChatMessage {
+        try db.write { db in
+            var m = message
+            try m.save(db)
+            try db.execute(sql: "UPDATE conversation SET updatedAt = ? WHERE id = ?", arguments: [Date(), m.conversationID])
+            return m
+        }
     }
 
     // MARK: настройки
@@ -92,6 +147,15 @@ public final class Store: Sendable {
     public func memories() throws -> [MemoryFact] {
         try db.read { db in try MemoryFact.order(Column("createdAt")).fetchAll(db) }
     }
+}
+
+extension Conversation: FetchableRecord, PersistableRecord {
+    public static let databaseTableName = "conversation"
+}
+
+extension ChatMessage: FetchableRecord, MutablePersistableRecord {
+    public static let databaseTableName = "message"
+    public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
 }
 
 extension MemoryFact: FetchableRecord, MutablePersistableRecord {

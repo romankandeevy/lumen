@@ -16,6 +16,13 @@ public final class AppModel {
     var prefs: Preferences
     var orb: Orb.State = .idle
 
+    // MARK: окно
+    enum Page: Equatable { case chat, settings(SettingsView.Section) }
+
+    var page: Page = .chat
+    var conversations: [Conversation] = []
+    @ObservationIgnored private(set) lazy var chat = ChatController(app: self)
+
     // MARK: подписка
     enum ClaudeState: Equatable {
         case checking
@@ -56,6 +63,38 @@ public final class AppModel {
             savedKeyTail = String(key.suffix(4))
             keyState = .saved
         }
+        conversations = (try? store.conversations()) ?? []
+    }
+
+    // MARK: разговоры
+
+    func reloadConversations() {
+        conversations = (try? store.conversations()) ?? []
+    }
+
+    func openChat(_ c: Conversation) {
+        chat.open(c)
+        page = .chat
+    }
+
+    func newChat() {
+        chat.startNew()
+        page = .chat
+    }
+
+    func deleteChat(_ c: Conversation) {
+        if chat.conversation?.id == c.id { chat.startNew() }
+        try? store.deleteConversation(c.id)
+        reloadConversations()
+    }
+
+    /// Модели, которые сейчас реально работают с выбранным движком.
+    /// Opus 5.5 через подписку требует claude 2.1.280+ (docs/spikes.md).
+    func availableModels(for backend: Backend) -> [ChatModel] {
+        guard backend == .subscription, case .signedIn(let v, _) = claude, v < Self.opus55Version else {
+            return ChatModel.allCases
+        }
+        return ChatModel.allCases.filter { $0 != .opus }
     }
 
     // MARK: настройки

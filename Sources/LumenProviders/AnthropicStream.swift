@@ -1,0 +1,202 @@
+import Foundation
+import LumenCore
+
+/// Ход чата по ключу: POST /v1/messages со стримом SSE (§3 техплана).
+/// Thinking не передаём — у этих моделей он адаптивный по умолчанию; глубину задаёт effort.
+public struct AnthropicChatRequest: Sendable {
+    public var model: ChatModel
+    public var effort: Effort
+    public var system: String
+    /// История: user — текст, assistant — блоки ответа как вернул API (или текст, если их нет)
+    public var messages: [[String: any Sendable]]
+    public var maxTokens = 64_000
+
+    public init(model: ChatModel, effort: Effort, system: String, messages: [[String: any Sendable]]) {
+        self.model = model
+        self.effort = effort
+        self.system = system
+        self.messages = messages
+    }
+
+    /// Сообщения в формате API из истории разговора. Ответы с ошибкой не отправляем.
+    public static func history(_ msgs: [ChatMessage]) -> [[String: any Sendable]] {
+        msgs.compactMap { m in
+            switch m.role {
+            case .user:
+                return ["role": "user", "content": m.text]
+            case .assistant:
+                if let raw = m.apiContent, let blocks = try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [Any], !blocks.isEmpty {
+                    return ["role": "assistant", "content": JSONBox(blocks)]
+                }
+                guard m.error == nil, !m.text.isEmpty else { return nil }
+                return ["role": "assistant", "content": m.text]
+            }
+        }
+    }
+
+    func body() throws -> Data {
+        var b: [String: Any] = [
+            "model": model.rawValue,
+            "max_tokens": maxTokens,
+            "stream": true,
+            // системный блок стабилен на весь разговор — кэшируется; история кэшируется автоматически
+            "system": [["type": "text", "text": system, "cache_control": ["type": "ephemeral"]]],
+            "cache_control": ["type": "ephemeral"],
+            "output_config": ["effort": effort.rawValue],
+            "messages": messages.map { $0.mapValues { ($0 as? JSONBox)?.value ?? $0 } },
+        ]
+        if model.hasServerFallback { b["fallbacks"] = "default" }
+        return try JSONSerialization.data(withJSONObject: b)
+    }
+}
+
+/// Обёртка, чтобы разобранный JSON можно было хранить в Sendable-словаре
+public struct JSONBox: @unchecked Sendable {
+    public let value: Any
+    public init(_ value: Any) { self.value = value }
+}
+
+public enum APIChatEvent: Sendable {
+    case textDelta(String)
+    /// Конец хода: почему остановился, блоки ответа (JSON) для истории, расход
+    case finished(stopReason: String, content: String, usage: Usage)
+
+    public struct Usage: Sendable, Equatable {
+        public var input = 0, output = 0, cacheRead = 0, cacheWrite = 0
+    }
+}
+
+public enum APIChatError: Error, LocalizedError, Equatable {
+    case noKey
+    case noNetwork
+    case rejectedKey
+    case rateLimited
+    case overloaded
+    case server(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .noKey: "Нет ключа Anthropic API. Добавь его в Настройках → Модели и оплата."
+        case .noNetwork: "Нет связи с Anthropic. Проверь интернет и отправь ещё раз."
+        case .rejectedKey: "Ключ API не подошёл. Проверь его в Настройках → Модели и оплата."
+        case .rateLimited: "Слишком много запросов подряд. Подожди минуту и отправь ещё раз."
+        case .overloaded: "Anthropic сейчас перегружен. Отправь ещё раз чуть позже."
+        case .server(let m): m
+        }
+    }
+}
+
+extension AnthropicAPI {
+    /// Стрим ответа. Отмена задачи-потребителя обрывает соединение — это «Стоп».
+    public func chat(_ request: AnthropicChatRequest) -> AsyncThrowingStream<APIChatEvent, Error> {
+        AsyncThrowingStream { cont in
+            let task = Task {
+                do {
+                    var req = URLRequest(url: baseURL.appendingPathComponent("v1/messages"))
+                    req.httpMethod = "POST"
+                    req.setValue(key, forHTTPHeaderField: "x-api-key")
+                    req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+                    req.setValue("application/json", forHTTPHeaderField: "content-type")
+                    if request.model.hasServerFallback {
+                        req.setValue("server-side-fallback-2026-07-01", forHTTPHeaderField: "anthropic-beta")
+                    }
+                    req.httpBody = try request.body()
+                    req.timeoutInterval = 600
+
+                    let (bytes, resp) = try await session.bytes(for: req)
+                    let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                    guard code == 200 else {
+                        var data = Data()
+                        for try await b in bytes { data.append(b) }
+                        throw Self.error(status: code, body: data)
+                    }
+                    var parser = SSEMessageBuilder()
+                    for try await line in bytes.lines {
+                        guard line.hasPrefix("data:") else { continue }
+                        let json = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
+                        for ev in try parser.feed(Data(json.utf8)) { cont.yield(ev) }
+                    }
+                    cont.finish()
+                } catch let e as URLError where e.code == .cancelled {
+                    cont.finish()
+                } catch let e as URLError {
+                    cont.finish(throwing: [.notConnectedToInternet, .networkConnectionLost, .cannotFindHost,
+                                           .cannotConnectToHost, .timedOut].contains(e.code) ? APIChatError.noNetwork : e)
+                } catch {
+                    cont.finish(throwing: error)
+                }
+            }
+            cont.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    static func error(status: Int, body: Data) -> APIChatError {
+        switch status {
+        case 401, 403: return .rejectedKey
+        case 429: return .rateLimited
+        case 529: return .overloaded
+        default: return .server(message(from: body).map { "Anthropic: \($0)" } ?? "Anthropic ответил \(status)")
+        }
+    }
+}
+
+/// Собирает ответ из SSE-событий: дельты текста — наружу сразу, блоки целиком — для истории
+struct SSEMessageBuilder {
+    private var blocks: [Int: [String: Any]] = [:]
+    private var stopReason = ""
+    private var usage = APIChatEvent.Usage()
+
+    mutating func feed(_ data: Data) throws -> [APIChatEvent] {
+        guard let ev = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let type = ev["type"] as? String else { return [] }
+        switch type {
+        case "message_start":
+            if let u = (ev["message"] as? [String: Any])?["usage"] as? [String: Any] { read(u) }
+        case "content_block_start":
+            if let i = ev["index"] as? Int, let b = ev["content_block"] as? [String: Any] { blocks[i] = b }
+        case "content_block_delta":
+            guard let i = ev["index"] as? Int, let d = ev["delta"] as? [String: Any] else { return [] }
+            switch d["type"] as? String {
+            case "text_delta":
+                let t = d["text"] as? String ?? ""
+                append(t, to: "text", in: i)
+                return [.textDelta(t)]
+            case "thinking_delta":
+                append(d["thinking"] as? String ?? "", to: "thinking", in: i)
+            case "signature_delta":
+                blocks[i]?["signature"] = d["signature"] as? String
+            default: break
+            }
+        case "message_delta":
+            if let r = (ev["delta"] as? [String: Any])?["stop_reason"] as? String { stopReason = r }
+            if let u = ev["usage"] as? [String: Any] { read(u) }
+        case "message_stop":
+            return [.finished(stopReason: stopReason, content: contentJSON(), usage: usage)]
+        case "error":
+            let msg = (ev["error"] as? [String: Any])?["message"] as? String ?? "ошибка"
+            let kind = (ev["error"] as? [String: Any])?["type"] as? String
+            throw kind == "overloaded_error" ? APIChatError.overloaded : APIChatError.server("Anthropic: \(msg)")
+        default: break
+        }
+        return []
+    }
+
+    private mutating func append(_ t: String, to field: String, in i: Int) {
+        guard var b = blocks[i] else { return }
+        b[field] = (b[field] as? String ?? "") + t
+        blocks[i] = b
+    }
+
+    private mutating func read(_ u: [String: Any]) {
+        if let v = u["input_tokens"] as? Int { usage.input = v }
+        if let v = u["output_tokens"] as? Int { usage.output = v }
+        if let v = u["cache_read_input_tokens"] as? Int { usage.cacheRead = v }
+        if let v = u["cache_creation_input_tokens"] as? Int { usage.cacheWrite = v }
+    }
+
+    /// Блоки ответа по порядку — как их вернул API (thinking с подписью, text, fallback)
+    func contentJSON() -> String {
+        let ordered = blocks.keys.sorted().compactMap { blocks[$0] }
+        guard let d = try? JSONSerialization.data(withJSONObject: ordered) else { return "[]" }
+        return String(decoding: d, as: UTF8.self)
+    }
+}
