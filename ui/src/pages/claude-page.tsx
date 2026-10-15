@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
-// Мокап Claude Chat: чат с Claude Code, который знает проекты prog, память и Пульт.
+// Мокап Lumen: чат с Claude Code, который знает проекты prog, память и Пульт.
 // Слева — чаты и задачи в фоне, в центре — разговор, справа — контекст, окно и расход.
 
 type Chat = { id: string; title: string; project: string; model: string; when: string; unread?: boolean }

@@ -7,7 +7,7 @@ import { ThemeProvider } from "@/components/theme-provider.tsx"
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <ThemeProvider defaultTheme="dark" storageKey="claude-chat-theme">
+    <ThemeProvider defaultTheme="dark" storageKey="lumen-theme">
       <App />
     </ThemeProvider>
   </StrictMode>
