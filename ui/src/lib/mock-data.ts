@@ -173,7 +173,6 @@ export const efforts = [
   { id: "high", name: "Высокий", note: "код и разбор — по умолчанию" },
   { id: "xhigh", name: "Сверхвысокий", note: "сложные баги, большие правки" },
   { id: "max", name: "Максимальный", note: "самое трудное, думает долго" },
-  { id: "ultra", name: "Ультракод", note: "глубокая работа над кодом, дольше всего" },
 ]
 
 // ── боты: агенты-субагенты под одну роль ──
@@ -346,13 +345,26 @@ export const mcpServers = [
 ]
 
 export const connectors = [
-  { id: "github", name: "GitHub", note: "репозитории, PR, issues", on: true },
+  { id: "github", name: "GitHub", note: "репозитории, PR, issues, Actions", on: true },
+  { id: "vercel", name: "Vercel", note: "деплои, логи, домены kandeev.com", on: true },
+  { id: "supabase", name: "Supabase", note: "база, таблицы, функции, логи", on: false },
   { id: "gmail", name: "Gmail", note: "почта: читать и черновики", on: true },
-  { id: "calendar", name: "Календарь", note: "события и свободное время", on: true },
+  { id: "calendar", name: "Google Календарь", note: "события и свободное время", on: true },
+  { id: "drive", name: "Google Диск", note: "документы, таблицы, файлы", on: false },
   { id: "notion", name: "Notion", note: "страницы и базы", on: false },
+  { id: "linear", name: "Linear", note: "задачи и циклы", on: false },
   { id: "figma", name: "Figma", note: "макеты и компоненты", on: false },
-  { id: "linear", name: "Linear", note: "задачи", on: false },
-  { id: "vercel", name: "Vercel", note: "деплои kandeev.com", on: true },
+  { id: "slack", name: "Slack", note: "каналы и сообщения", on: false },
+  { id: "stripe", name: "Stripe", note: "платежи и подписки", on: false },
+  { id: "sentry", name: "Sentry", note: "ошибки и падения", on: false },
+  { id: "cloudflare", name: "Cloudflare", note: "DNS, Workers, кэш", on: false },
+  { id: "netlify", name: "Netlify", note: "деплои сайтов", on: false },
+  { id: "jira", name: "Jira", note: "задачи Atlassian", on: false },
+  { id: "asana", name: "Asana", note: "проекты и задачи", on: false },
+  { id: "dropbox", name: "Dropbox", note: "файлы и папки", on: false },
+  { id: "airtable", name: "Airtable", note: "таблицы-базы", on: false },
+  { id: "posthog", name: "PostHog", note: "аналитика и события", on: false },
+  { id: "firebase", name: "Firebase", note: "база, авторизация, пуши", on: false },
   { id: "telegram", name: "Telegram", note: "писать Lumen с телефона — позже", on: false, soon: true },
 ]
 

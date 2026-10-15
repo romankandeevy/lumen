@@ -1,4 +1,5 @@
 import {
+  AppWindow,
   ArrowUp,
   AtSign,
   AudioLines,
@@ -33,6 +34,7 @@ import { BotAvatar, botStyle } from "@/components/bot-avatar"
 import { LumenOrb } from "@/components/lumen-orb"
 import { NextStep, type Choice, type NextStepData } from "@/components/next-step"
 import { PlanList, type PlanItem } from "@/components/plan-list"
+import { Sandbox } from "@/components/sandbox"
 import { EffortPicker, ModelPicker } from "@/components/pickers"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -47,7 +49,7 @@ import { cn } from "@/lib/utils"
 
 // Два вида разговора, как Chat и Code у Claude:
 // Чат — просто разговор (модель, «сколько думать», голос), ничего не трогает.
-// Агент — работа в папке проекта: папка, файлы, шаги, правки; на Маке или в облаке Claude Code.
+// Агент — работа в папке проекта: папка, файлы, шаги, правки; на Маке или в облаке через API.
 // В обоих можно позвать бота через @ — Lumen передаст ему задачу как субагенту.
 
 type Step = { icon: "eye" | "search" | "brain"; text: string }
@@ -224,7 +226,7 @@ const scripts: Record<string, Msg[]> = {
       steps: { summary: "Читает IslandView.swift и собирает в облаке", items: [{ icon: "eye", text: "Читает IslandView.swift" }] },
       body: <p>Похоже на тень, которая не успевает за островом. Собираю и замеряю кадры.</p>,
       used: ["m13"],
-      running: "Собирает Island в облаке Claude Code",
+      running: "Собирает Island в облаке через API",
     },
   ],
   dash: [
@@ -246,6 +248,7 @@ export function ChatPage({ chatId }: { chatId: string }) {
   const [where, setWhere] = useState<"mac" | "cloud">(session?.where ?? "mac")
   const [tools, setTools] = useState({ web: false, research: false, memory: true })
   const [plan, setPlan] = useState<PlanItem[]>(plans[chatId] ?? [])
+  const [sandbox, setSandbox] = useState(false)
   const [next, setNext] = useState<NextStepData | null>(agent ? (nextSteps[chatId] ?? null) : null)
   const busy = app.orb === "thinking" || app.orb === "writing"
   const scroller = useRef<HTMLDivElement>(null)
@@ -339,7 +342,7 @@ export function ChatPage({ chatId }: { chatId: string }) {
     const reply = wantsMemory
       ? "Запомнил. Буду учитывать это в следующих разговорах — и здесь, и в других чатах."
       : agent
-        ? `Понял. Работаю в папке ${project}${where === "cloud" ? " в облаке Claude Code" : ""}. Это макет — настоящая работа начнётся, когда подключим Claude.`
+        ? `Понял. Работаю в папке ${project}${where === "cloud" ? " в облаке через API" : ""}. Это макет — настоящая работа начнётся, когда подключим Claude.`
         : "Понял. Это макет — настоящий ответ придёт, когда подключим Claude. Сейчас я бы опирался на то, что знаю о тебе."
     const used = wantsMemory || !tools.memory ? [] : pinned.slice(0, 2).map((m) => m.id)
 
@@ -379,7 +382,12 @@ export function ChatPage({ chatId }: { chatId: string }) {
   }
 
   return (
-    <div className={cn("relative grid h-full grid-cols-1", app.contextOpen && "xl:grid-cols-[minmax(0,1fr)_320px]")}>
+    <div
+      className={cn(
+        "relative grid h-full grid-cols-1",
+        sandbox ? "lg:grid-cols-[minmax(0,1fr)_minmax(440px,48%)]" : app.contextOpen && "xl:grid-cols-[minmax(0,1fr)_320px]"
+      )}
+    >
       <section className="flex min-h-0 flex-col">
         <header className="flex h-14 shrink-0 items-center gap-3 border-b px-5">
           <span className={cn("flex size-7 shrink-0 items-center justify-center rounded-lg", agent && "bg-foreground/[0.07]")} title={agent ? "Агент" : "Чат"}>
@@ -394,7 +402,7 @@ export function ChatPage({ chatId }: { chatId: string }) {
                   <span className="text-foreground/20">·</span>
                   {where === "cloud" ? (
                     <>
-                      <Cloud className="size-3" /> в облаке Claude Code
+                      <Cloud className="size-3" /> в облаке через API
                     </>
                   ) : (
                     <>
@@ -409,7 +417,15 @@ export function ChatPage({ chatId }: { chatId: string }) {
           </div>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant={app.contextOpen ? "secondary" : "ghost"} size="icon-sm" onClick={() => app.setContextOpen(!app.contextOpen)}>
+              <Button variant={sandbox ? "secondary" : "ghost"} size="icon-sm" onClick={() => setSandbox((s) => !s)} aria-label="Песочница">
+                <AppWindow />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Песочница: сайт, браузер, видео, 3D, файлы</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant={app.contextOpen && !sandbox ? "secondary" : "ghost"} size="icon-sm" onClick={() => (setSandbox(false), app.setContextOpen(!app.contextOpen || sandbox))}>
                 <PanelRight />
               </Button>
             </TooltipTrigger>
@@ -471,7 +487,8 @@ export function ChatPage({ chatId }: { chatId: string }) {
         />
       </section>
 
-      {app.contextOpen && <ContextPanel agent={agent} project={project} where={where} plan={plan} />}
+      {sandbox && <Sandbox onClose={() => setSandbox(false)} />}
+      {!sandbox && app.contextOpen && <ContextPanel agent={agent} project={project} where={where} plan={plan} />}
     </div>
   )
 }
@@ -683,7 +700,7 @@ function FolderPicker({ project, setProject }: { project: string; setProject: (v
 function WherePicker({ where, setWhere }: { where: "mac" | "cloud"; setWhere: (v: "mac" | "cloud") => void }) {
   const opts = [
     { id: "mac" as const, icon: Laptop, name: "Этот Мак", note: "работает здесь, видит все файлы" },
-    { id: "cloud" as const, icon: Cloud, name: "Облако Claude", note: "облачная сессия Claude Code; Мак можно закрыть" },
+    { id: "cloud" as const, icon: Cloud, name: "Облако (API)", note: "Managed Agents по ключу API: видно каждый шаг, Мак можно закрыть; платится из $100 в месяц, что входят в Max" },
   ]
   const cur = opts.find((o) => o.id === where)!
   return (
@@ -770,7 +787,7 @@ function AgentEmpty({
         {(
           [
             ["mac", Laptop, "Этот Мак"],
-            ["cloud", Cloud, "Облако Claude"],
+            ["cloud", Cloud, "Облако (API)"],
           ] as const
         ).map(([id, Icon, name]) => (
           <button
@@ -1087,7 +1104,7 @@ function ContextPanel({ agent, project, where, plan }: { agent: boolean; project
             </p>
             <p className="flex items-center gap-2 text-muted-foreground">
               {where === "cloud" ? <Cloud className="size-4 shrink-0" /> : <Laptop className="size-4 shrink-0" />}
-              {where === "cloud" ? "Облако Claude Code — Мак можно закрыть" : "Этот Мак"}
+              {where === "cloud" ? "Облако через API (Managed Agents) — Мак можно закрыть" : "Этот Мак"}
             </p>
             <p className="flex items-center gap-2 text-muted-foreground">
               <Lock className="size-4 shrink-0" /> push и выкатка — только с твоего OK

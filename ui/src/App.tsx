@@ -49,7 +49,7 @@ import { ToolsPage } from "@/pages/tools-page"
 import { VoiceMode } from "@/pages/voice-mode"
 
 // Оболочка как в Claude: сверху панели три вкладки — Чат (просто разговор),
-// Агент (работа в папке, на Маке или в облаке Claude Code) и Боты (агенты под одну роль).
+// Агент (работа в папке, на Маке или в облаке через API) и Боты (агенты под одну роль).
 // Внизу панели — общее для всех: память, люди, характер, инструменты, настройки.
 
 export function App() {
@@ -231,7 +231,7 @@ function ChatList() {
   )
 }
 
-/// Вкладка «Агент»: сессии в папках проектов; облачко — если идёт в облаке Claude Code
+/// Вкладка «Агент»: сессии в папках проектов; облачко — если идёт в облаке через API
 function AgentList() {
   const app = useApp()
   return (
@@ -240,7 +240,7 @@ function AgentList() {
       <p className="px-2.5 pb-1 text-xs text-muted-foreground">Сессии</p>
       {sessions.map((s) => (
         <Row key={s.id} active={app.open.page === "thread" && app.open.id === s.id} onClick={() => app.go("thread", s.id)}>
-          <span className="flex size-5 shrink-0 items-center justify-center self-start pt-0.5 text-muted-foreground" title={s.where === "cloud" ? "В облаке Claude Code" : "На этом Маке"}>
+          <span className="flex size-5 shrink-0 items-center justify-center self-start pt-0.5 text-muted-foreground" title={s.where === "cloud" ? "В облаке через API" : "На этом Маке"}>
             {s.state === "running" ? <Loader2 className="size-3.5 animate-spin text-glow" /> : s.where === "cloud" ? <Cloud className="size-3.5" /> : <Laptop className="size-3.5" />}
           </span>
           <span className="min-w-0 flex-1">

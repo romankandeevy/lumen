@@ -401,6 +401,10 @@ function AddServerDialog({ open, onClose, onAdd }: { open: boolean; onClose: () 
 
 function ConnectorsTab({ items, setItems, query }: { items: Connector[]; setItems: React.Dispatch<React.SetStateAction<Connector[]>>; query: string }) {
   const [busy, setBusy] = useState<string | null>(null)
+  const [custom, setCustom] = useState(false)
+  const [cName, setCName] = useState("")
+  const [cUrl, setCUrl] = useState("")
+  const [cAuth, setCAuth] = useState<"oauth" | "key" | "none">("oauth")
   const shown = items.filter((c) => matches(query, c.name, c.note))
 
   const toggle = (c: Connector) => {
@@ -419,7 +423,50 @@ function ConnectorsTab({ items, setItems, query }: { items: Connector[]; setItem
 
   return (
     <>
-      <GroupTitle aside="вход через браузер, ключи хранятся в Связке ключей">Сервисы</GroupTitle>
+      <div className="mb-3 flex items-center gap-3">
+        <GroupTitle aside={`${items.length - 1} популярных · вход через браузер, ключи в Связке ключей`}>Сервисы</GroupTitle>
+        <Button size="sm" variant="outline" className="ml-auto" onClick={() => setCustom(true)}>
+          <Plus /> Свой коннектор
+        </Button>
+      </div>
+      <Dialog open={custom} onOpenChange={setCustom}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Свой коннектор</DialogTitle>
+            <DialogDescription>Любой сервис с MCP-сервером: адрес и способ входа. Lumen и боты получат его инструменты.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <input value={cName} onChange={(e) => setCName(e.target.value)} placeholder="Название, например «Моя CRM»" className="h-9 w-full rounded-lg border bg-input/30 px-3 text-sm outline-none focus:border-glow/50" />
+            <input value={cUrl} onChange={(e) => setCUrl(e.target.value)} placeholder="https://mcp.example.com/sse" className="h-9 w-full rounded-lg border bg-input/30 px-3 font-mono text-xs outline-none focus:border-glow/50" />
+            <Segmented
+              value={cAuth}
+              onChange={setCAuth}
+              options={[
+                { id: "oauth", name: "Вход через браузер" },
+                { id: "key", name: "Ключ" },
+                { id: "none", name: "Без входа" },
+              ]}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setCustom(false)}>
+              Отмена
+            </Button>
+            <Button
+              disabled={!cName.trim() || !cUrl.trim()}
+              onClick={() => {
+                setItems((xs) => [{ id: `c${Date.now()}`, name: cName.trim(), note: `свой · ${cUrl.trim()}`, on: true }, ...xs])
+                toast(`${cName.trim()} подключён`)
+                setCustom(false)
+                setCName("")
+                setCUrl("")
+              }}
+            >
+              Подключить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {shown.length === 0 ? (
         <Empty query={query} />
       ) : (
