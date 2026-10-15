@@ -31,6 +31,7 @@ import { toast } from "sonner"
 
 import { BotAvatar, botStyle } from "@/components/bot-avatar"
 import { LumenOrb } from "@/components/lumen-orb"
+import { NextStep, type Choice, type NextStepData } from "@/components/next-step"
 import { PlanList, type PlanItem } from "@/components/plan-list"
 import { EffortPicker, ModelPicker } from "@/components/pickers"
 import { Badge } from "@/components/ui/badge"
@@ -94,6 +95,27 @@ const plans: Record<string, PlanItem[]> = {
     { text: "Записать решение про темы", state: "done" },
     { text: "Собрать экран памяти", state: "todo" },
   ],
+}
+
+/// «Что дальше» в конце хода агента — итог и одно решение за Ромой
+const nextSteps: Record<string, NextStepData> = {
+  shelf: {
+    recap: "Падение Shelf починено: проверка индекса в ShelfStorage.swift и кнопка выключается на время удаления. @tester сейчас проверяет фикс. Ничего не закоммичено.",
+    ask: "Закоммитить фикс?",
+    primary: { label: "Закоммитить", reply: "Закоммить", ack: "Закоммитил: «Shelf: не падать при двойном удалении». Push — когда скажешь." },
+    secondary: { label: "Сначала разница", reply: "Покажи сначала разницу", ack: "Вот разница: ShelfStorage.swift, +2 −1 — проверка индекса перед удалением. Коммитить?" },
+  },
+  dash: {
+    recap: "Три мелочи в Пульте поправлены, кнопки остались на местах. Сборка прошла, в приложении руками не проверял.",
+    ask: "Выпускать 1.1?",
+    primary: { label: "Выпускай", reply: "Выпускай", ack: "Собрал релиз 1.1 и подготовил заметки. Выкладку жду от тебя — нужен твой OK на push." },
+    secondary: { label: "Сначала проверю", reply: "Сначала сам проверю", ack: "Хорошо. Сборка лежит в build/, запусти и скажи, что увидел." },
+  },
+  night: {
+    recap: "Ночной обход прошёл: сайт отвечает, SSL до марта, битую ссылку в блоге поправил в ветке preview. На прод не выкладывал.",
+    ask: "Выложить правку на прод?",
+    primary: { label: "Выложить", reply: "Выкладывай", ack: "Выложил на прод, ссылка в блоге теперь живая." },
+  },
 }
 
 const code = "rounded bg-foreground/[0.07] px-1 py-0.5 font-mono text-[0.8em]"
@@ -224,6 +246,7 @@ export function ChatPage({ chatId }: { chatId: string }) {
   const [where, setWhere] = useState<"mac" | "cloud">(session?.where ?? "mac")
   const [tools, setTools] = useState({ web: false, research: false, memory: true })
   const [plan, setPlan] = useState<PlanItem[]>(plans[chatId] ?? [])
+  const [next, setNext] = useState<NextStepData | null>(agent ? (nextSteps[chatId] ?? null) : null)
   const busy = app.orb === "thinking" || app.orb === "writing"
   const scroller = useRef<HTMLDivElement>(null)
   const timers = useRef<number[]>([])
@@ -290,6 +313,7 @@ export function ChatPage({ chatId }: { chatId: string }) {
     const t = text.trim()
     if (!t || busy) return
     setDraft("")
+    setNext(null)
     setMessages((m) => [...m, { id: `u${Date.now()}`, from: "user", text: t }])
     app.setOrb("thinking")
 
@@ -332,7 +356,15 @@ export function ChatPage({ chatId }: { chatId: string }) {
                 app.setOrb("remember")
                 later(() => app.setOrb("idle"), 1200)
               }
-            : undefined,
+            : agent
+              ? () =>
+                  setNext({
+                    recap: `Сделал первую часть в папке ${project}: прочитал проект и наметил правки. Собрать и проверить в приложении ещё не успел.`,
+                    ask: "Продолжать?",
+                    primary: { label: "Продолжай", reply: "Продолжай", ack: "Продолжаю: правлю файлы, потом соберу и проверю." },
+                    secondary: { label: "Покажи план", reply: "Покажи, что будешь делать", ack: "План справа: понять задачу, сделать правки, собрать и проверить. Начинаю со второго пункта?" },
+                  })
+              : undefined,
           used
         ),
       1200
@@ -396,6 +428,18 @@ export function ChatPage({ chatId }: { chatId: string }) {
             <div className={cn("mx-auto flex flex-col gap-7 px-6 py-8 transition-[max-width] duration-300", chatWidthClass[app.chatWidth])}>
               {messages.map((m) =>
                 m.from === "user" ? <UserMsg key={m.id} text={m.text} /> : m.from === "lumen" ? <LumenMsg key={m.id} msg={m} agent={agent} /> : <Delegation key={m.id} msg={m} />
+              )}
+              {next && !busy && (
+                <NextStep
+                  data={next}
+                  onClose={() => setNext(null)}
+                  onAnswer={(c: Choice) => {
+                    setNext(null)
+                    setMessages((m) => [...m, { id: `u${Date.now()}`, from: "user", text: c.reply }])
+                    app.setOrb("thinking")
+                    later(() => stream(c.ack), 800)
+                  }}
+                />
               )}
               {app.orb === "thinking" && (
                 <div className="flex items-center gap-3 text-sm text-muted-foreground">
