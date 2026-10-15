@@ -8,6 +8,9 @@ import Testing
 /// Подменённая сеть: отдаёт записанные SSE-ответы по очереди и запоминает запросы
 final class StubAPI: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var responses: [String] = []
+    /// Вместо ответа: код HTTP (401…) или ошибка сети
+    nonisolated(unsafe) static var status = 200
+    nonisolated(unsafe) static var networkError: URLError.Code?
     nonisolated(unsafe) static var requests: [[String: Any]] = []
 
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "api.anthropic.com" }
@@ -22,8 +25,13 @@ final class StubAPI: URLProtocol, @unchecked Sendable {
             stream.close()
             Self.requests.append((try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:])
         }
-        let body = Self.responses.isEmpty ? "" : Self.responses.removeFirst()
-        let resp = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["content-type": "text/event-stream"])!
+        if let code = Self.networkError {
+            client?.urlProtocol(self, didFailWithError: URLError(code))
+            return
+        }
+        let body = Self.status != 200 ? #"{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#
+            : (Self.responses.isEmpty ? "" : Self.responses.removeFirst())
+        let resp = HTTPURLResponse(url: request.url!, statusCode: Self.status, httpVersion: nil, headerFields: ["content-type": "text/event-stream"])!
         client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(body.utf8))
         client?.urlProtocolDidFinishLoading(self)
@@ -128,5 +136,36 @@ final class StubAPI: URLProtocol, @unchecked Sendable {
     #expect(app.chat.messages.last?.error?.contains("лимит") == true)
     // подписка лимитом не ограничена — это другой счёт
     #expect(app.limitReached != nil)
+}
+
+@Test func clearErrorsWithoutKeyOrNetwork() async throws {
+    setenv("LUMEN_KEYCHAIN", "com.roman.lumen.tests", 1)
+    defer {
+        Keychain(service: "com.roman.lumen.tests").delete(Keychain.anthropicKey)
+        StubAPI.status = 200
+        StubAPI.networkError = nil
+    }
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-err-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    let config = URLSessionConfiguration.ephemeral
+    config.protocolClasses = [StubAPI.self]
+    app.urlSession = URLSession(configuration: config)
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .api, theme: .lumen)
+
+    func ask() async throws -> String {
+        app.newChat()
+        app.chat.send("Привет")
+        while app.chat.running != nil { try await Task.sleep(for: .milliseconds(20)) }
+        return app.chat.messages.last?.error ?? ""
+    }
+
+    #expect(try await ask().contains("Нет ключа"))
+    try app.keychain.save("sk-ant-test-" + String(repeating: "x", count: 30), for: Keychain.anthropicKey)
+    StubAPI.status = 401
+    #expect(try await ask().contains("не подошёл"))
+    StubAPI.status = 200
+    StubAPI.networkError = .notConnectedToInternet
+    #expect(try await ask().contains("Нет связи"))
 }
 }

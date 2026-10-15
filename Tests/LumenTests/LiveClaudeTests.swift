@@ -19,6 +19,9 @@ func pointToMCP() {
     }
 }
 
+/// Живые проверки по одной: параллельные процессы claude мешают замерам и тратят лимит разом
+@Suite(.serialized) struct LiveSuite {
+
 @Test(.enabled(if: live)) func liveStopIsFastAndSessionContinues() async throws {
     let cli = try #require(ClaudeCLI.locate())
     let session = try ClaudeSession(cli: cli, config: .init(model: "claude-haiku-5-5",
@@ -211,4 +214,5 @@ func pointToMCP() {
     #expect(planCount > 0, "план сбоку; шаги: \(reply.steps.map(\.text))")
     #expect(reply.next != nil, "карточка «что дальше»: \(reply.text.suffix(300))")
     #expect(!reply.text.contains("<lumen-next>"))
+}
 }
