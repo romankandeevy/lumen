@@ -58,31 +58,43 @@ struct LButton: View {
     }
 }
 
-/// Сегменты-переключатель («ты / вы» и т. п.)
+/// Сегменты-переключатель («ты / вы»): равные половины, выбранная светится как карточки выбора
 struct Segmented<T: Hashable>: View {
     @Binding var value: T
     let options: [(T, String)]
 
     @Environment(\.palette) private var p
+    @Namespace private var pill
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 4) {
             ForEach(options, id: \.0) { id, name in
-                Button { value = id } label: {
+                let active = id == value
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { value = id }
+                } label: {
                     Text(name)
-                        .font(.geist(12))
-                        .foregroundStyle(id == value ? p.foreground : p.mutedFg)
-                        .padding(.horizontal, 12)
-                        .frame(height: 28)
-                        .background(id == value ? p.background : .clear, in: RoundedRectangle(cornerRadius: 6))
-                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(id == value ? p.border : .clear))
+                        .font(.geist(13.5, active ? .medium : .regular))
+                        .foregroundStyle(active ? p.foreground : p.mutedFg)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 36)
+                        .background {
+                            if active {
+                                RoundedRectangle(cornerRadius: 9)
+                                    .fill(p.glow.opacity(0.08))
+                                    .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(p.glow.opacity(0.4)))
+                                    .shadow(color: p.glowSoft, radius: 10)
+                                    .matchedGeometryEffect(id: "pill", in: pill)
+                            }
+                        }
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(2)
-        .background(p.muted.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+        .padding(4)
+        .background(p.input.opacity(0.3), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(p.border))
     }
 }
 

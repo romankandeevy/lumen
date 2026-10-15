@@ -2,8 +2,8 @@ import LumenCore
 import LumenProviders
 import SwiftUI
 
-/// Настройки (`pages/settings-page.tsx`): слева узкое подменю-якоря, справа секции.
-/// Здесь только разделы, которые уже работают.
+/// Настройки (`pages/settings-page.tsx`): слева узкое подменю, справа выбранный раздел —
+/// каждый раздел отдельной вкладкой. Здесь только разделы, которые уже работают.
 struct SettingsView: View {
     @Bindable var app: AppModel
 
@@ -21,33 +21,34 @@ struct SettingsView: View {
             Text("Настройки")
                 .font(.geist(26, .semibold)).tracking(-0.5)
                 .padding(.horizontal, 32).padding(.top, 32).padding(.bottom, 20)
-            ScrollViewReader { proxy in
-                HStack(alignment: .top, spacing: 40) {
-                    nav(proxy)
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 48) {
-                            section(.look) { look }
-                            section(.models, lead: "Через что Lumen думает. Можно держать оба: подписку на каждый день и ключ API про запас.") { models }
-                            section(.data) { data }
+            HStack(alignment: .top, spacing: 40) {
+                nav
+                ScrollView {
+                    Group {
+                        switch current {
+                        case .look: section(.look) { look }
+                        case .models: section(.models, lead: "Через что Lumen думает. Можно держать оба: подписку на каждый день и ключ API про запас.") { models }
+                        case .data: section(.data) { data }
                         }
-                        .padding(.bottom, 200)
-                        .frame(maxWidth: 860, alignment: .leading)
                     }
-                    .scrollIndicators(.hidden)
+                    .padding(.bottom, 48)
+                    .frame(maxWidth: 860, alignment: .leading)
+                    .transition(.opacity)
                 }
-                .padding(.horizontal, 32)
+                .scrollIndicators(.hidden)
+                .id(current) // новая вкладка открывается с начала
             }
+            .padding(.horizontal, 32)
         }
         .foregroundStyle(p.foreground)
         .task { if app.claude == .checking { await app.refreshClaude() } }
     }
 
-    private func nav(_ proxy: ScrollViewProxy) -> some View {
+    private var nav: some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(Section.allCases, id: \.self) { s in
                 Button {
-                    current = s
-                    withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo(s, anchor: .top) }
+                    withAnimation(.easeOut(duration: 0.18)) { current = s }
                 } label: {
                     Text(s.rawValue)
                         .font(.geist(13.5))
@@ -76,7 +77,6 @@ struct SettingsView: View {
             }
             content().padding(.top, 16)
         }
-        .id(s)
     }
 
     // MARK: внешний вид

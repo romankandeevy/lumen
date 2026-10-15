@@ -189,8 +189,10 @@ struct LumenLight: View {
 
     var body: some View {
         ZStack {
-            RadialGradient(colors: [p.glowFaint, .clear], center: UnitPoint(x: 0.06, y: -0.08), startRadius: 0, endRadius: 620)
-            RadialGradient(colors: [p.glowFaint, .clear], center: UnitPoint(x: 0.5, y: 1.2), startRadius: 0, endRadius: 420)
+            // широкие мягкие пятна: свет не должен давать заметных краёв
+            RadialGradient(colors: [p.glowFaint, p.glowFaint.opacity(0.4), .clear], center: UnitPoint(x: 0.1, y: -0.15),
+                           startRadius: 0, endRadius: 1100)
+            RadialGradient(colors: [p.glowFaint.opacity(0.7), .clear], center: UnitPoint(x: 0.6, y: 1.25), startRadius: 0, endRadius: 700)
         }
         .allowsHitTesting(false)
     }

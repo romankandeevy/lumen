@@ -15,15 +15,17 @@ public struct RootView: View {
             Sidebar(app: app)
             SettingsView(app: app)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .background(LumenLight())
         }
+        // свет и фон — одни на всё окно: панель и содержимое переходят друг в друга без ступеньки,
+        // и под скрытым заголовком окна нет тёмной полосы
+        .background(LumenLight().ignoresSafeArea())
         .overlay {
             if !app.prefs.onboarded {
                 OnboardingView(app: app).transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: 0.3), value: app.prefs.onboarded)
-        .background(p.background)
+        .background(p.background.ignoresSafeArea())
         .environment(\.palette, p)
         .environment(\.lessMotion, app.prefs.reducedMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
         .preferredColorScheme(.dark)
@@ -60,8 +62,9 @@ struct Sidebar: View {
         .foregroundStyle(p.foreground)
         .frame(width: 236)
         .frame(maxHeight: .infinity)
-        .background(p.sidebar)
-        .overlay(alignment: .trailing) { p.sidebarBorder.frame(width: 1) }
+        // панель чуть темнее окна, но прозрачная: свет Люмена проходит сквозь неё
+        .background(p.sidebar.opacity(0.45).ignoresSafeArea())
+        .overlay(alignment: .trailing) { p.sidebarBorder.frame(width: 1).ignoresSafeArea() }
     }
 
     private var profile: some View {
