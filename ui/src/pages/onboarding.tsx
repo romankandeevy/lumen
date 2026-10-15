@@ -8,22 +8,20 @@ import { useApp, type Backend, type Theme } from "@/lib/app-state"
 import { cn } from "@/lib/utils"
 
 // Знакомство при первом запуске: имя и обращение → модель → тема.
-// Ответы сразу кладутся в профиль и память — Lumen с первого чата знает, с кем говорит.
+// Ответы сразу кладутся в «обо мне» и память — Lumen с первого чата знает, с кем говорит.
 
 const steps = ["Знакомство", "Модель", "Тема"]
 
 export function Onboarding() {
   const app = useApp()
-  const me = app.profiles.find((p) => p.id === "roma")!
   const [step, setStep] = useState(-1) // -1 — приветствие
-  const [name, setName] = useState(me.call)
-  const [address, setAddress] = useState(me.address)
+  const [name, setName] = useState(app.me.call)
+  const [address, setAddress] = useState(app.me.address)
   const [backend, setBackend] = useState<Backend>(app.backend)
 
   const finish = () => {
-    app.setProfiles((ps) => ps.map((p) => (p.id === "roma" ? { ...p, call: name || p.call, address } : p)))
+    app.setMe((m) => ({ ...m, name: m.name || name.trim(), call: name.trim() || m.call, address }))
     app.setBackend(backend)
-    app.setActiveProfile("roma")
     app.setOnboarded(true)
     app.setOrb("remember")
     setTimeout(() => app.setOrb("idle"), 1200)
@@ -89,7 +87,7 @@ export function Onboarding() {
               {step === 1 && (
                 <>
                   <h2 className="text-xl font-semibold tracking-[-0.02em]">Через что мне думать?</h2>
-                  <p className="mt-1.5 text-sm text-muted-foreground">Можно поменять потом в «Подключениях».</p>
+                  <p className="mt-1.5 text-sm text-muted-foreground">Можно поменять потом в настройках, «Модели и оплата».</p>
                   <div className="mt-6 space-y-2">
                     <Option active={backend === "subscription" || backend === "auto"} onClick={() => setBackend("auto")} icon={<TerminalSquare className="size-4" />} title="Подписка Claude Code" note="Нашёл Claude Code на этом Маке — вход уже есть" />
                     <Option active={backend === "api"} onClick={() => setBackend("api")} icon={<KeyRound className="size-4" />} title="Ключ Anthropic API" note="Вставишь ключ на следующем экране" />
