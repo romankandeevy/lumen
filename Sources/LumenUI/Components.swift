@@ -1,15 +1,26 @@
 import SwiftUI
 
-// Общие элементы из макета (`components/page.tsx`, `components/ui/button`, карточки настроек)
+// Общие элементы — как в макете (shadcn `components/ui/*` + `components/page.tsx`).
+// Скругления из `--radius: 0.75rem`: sm 7.2, md 9.6, lg 12, xl 16.8, 2xl 21.6, 3xl 26.4.
 
-/// Кнопка в стиле shadcn: основная светится, обводка, без фона
+enum R {
+    static let sm: CGFloat = 7.2
+    static let md: CGFloat = 9.6
+    static let lg: CGFloat = 12
+    static let xl: CGFloat = 16.8
+    static let xxl: CGFloat = 21.6
+    static let xxxl: CGFloat = 26.4
+}
+
+/// Кнопка shadcn. Размеры: default h36 px10 text14, sm h32 px12 text14→13, xs h24 px8 text12.
 struct LButton: View {
-    enum Kind { case glow, primary, outline, ghost }
+    enum Kind { case glow, primary, secondary, outline, ghost }
+    enum Size { case lg, normal, sm, xs }
 
     let title: String
     var icon: String?
     var kind: Kind = .outline
-    var small = false
+    var size: Size = .normal
     var busy = false
     let action: () -> Void
 
@@ -17,22 +28,42 @@ struct LButton: View {
     @Environment(\.isEnabled) private var enabled
     @State private var hover = false
 
+    init(title: String, icon: String? = nil, kind: Kind = .outline, size: Size = .normal, small: Bool = false,
+         busy: Bool = false, action: @escaping () -> Void) {
+        self.title = title
+        self.icon = icon
+        self.kind = kind
+        self.size = small ? .sm : size
+        self.busy = busy
+        self.action = action
+    }
+
+    private var height: CGFloat {
+        switch size { case .lg: 40; case .normal: 36; case .sm: 32; case .xs: 24 }
+    }
+
+    private var font: Font {
+        switch size { case .xs: .geist(12, .medium); case .sm: .geist(13, .medium); default: .geist(14, .medium) }
+    }
+
+    private var radius: CGFloat { size == .xs ? R.md : R.lg }
+
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
+            HStack(spacing: size == .xs ? 4 : 6) {
                 if busy {
-                    ProgressView().controlSize(.small).tint(fg)
+                    ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 14, height: 14)
                 } else if let icon {
-                    Image(systemName: icon).font(.system(size: small ? 11 : 12, weight: .medium))
+                    Image(systemName: icon).font(.system(size: size == .xs ? 11 : 13, weight: .medium))
                 }
-                Text(title).font(.geist(small ? 12.5 : 13.5, .medium))
+                Text(title).font(font)
             }
             .foregroundStyle(fg)
-            .padding(.horizontal, small ? 10 : 14)
-            .frame(height: small ? 30 : 36)
-            .background(bg, in: RoundedRectangle(cornerRadius: 9))
-            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(kind == .outline ? p.input : .clear))
-            .contentShape(RoundedRectangle(cornerRadius: 9))
+            .padding(.horizontal, size == .lg ? 16 : (size == .xs ? 8 : (size == .sm ? 12 : 10)))
+            .frame(height: height)
+            .background(bg, in: RoundedRectangle(cornerRadius: radius))
+            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(kind == .outline ? p.input : .clear))
+            .contentShape(RoundedRectangle(cornerRadius: radius))
             .opacity(enabled ? 1 : 0.5)
         }
         .buttonStyle(.plain)
@@ -42,23 +73,25 @@ struct LButton: View {
     private var fg: Color {
         switch kind {
         case .glow: .black
-        case .primary: p.background
-        case .outline: p.foreground
-        case .ghost: hover ? p.foreground : p.mutedFg
+        case .primary: p.primaryFg
+        case .secondary, .outline: p.foreground
+        case .ghost: p.foreground
         }
     }
 
     private var bg: Color {
         switch kind {
         case .glow: hover ? p.glow.opacity(0.85) : p.glow
-        case .primary: hover ? p.foreground.opacity(0.9) : p.foreground
-        case .outline: hover ? p.foreground.opacity(0.06) : p.input.opacity(0.3)
-        case .ghost: hover ? p.foreground.opacity(0.05) : .clear
+        case .primary: hover ? p.primary.opacity(0.8) : p.primary
+        case .secondary: hover ? p.secondary.opacity(0.8) : p.secondary
+        case .outline: hover ? p.input.opacity(0.5) : p.input.opacity(0.3)
+        case .ghost: hover ? p.muted.opacity(0.5) : .clear
         }
     }
 }
 
-/// Сегменты-переключатель («ты / вы»): равные половины, выбранная светится как карточки выбора
+/// Сегменты-переключатель («ты / вы»): равные половины, выбранная светится как карточки выбора.
+/// Здесь сознательно не как в макете: Рома попросил сделать этот выбор красивее (16.10).
 struct Segmented<T: Hashable>: View {
     @Binding var value: T
     let options: [(T, String)]
@@ -74,15 +107,15 @@ struct Segmented<T: Hashable>: View {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { value = id }
                 } label: {
                     Text(name)
-                        .font(.geist(13.5, active ? .medium : .regular))
+                        .font(.geist(14, active ? .medium : .regular))
                         .foregroundStyle(active ? p.foreground : p.mutedFg)
                         .frame(maxWidth: .infinity)
                         .frame(height: 36)
                         .background {
                             if active {
-                                RoundedRectangle(cornerRadius: 9)
+                                RoundedRectangle(cornerRadius: R.md)
                                     .fill(p.glow.opacity(0.08))
-                                    .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(p.glow.opacity(0.4)))
+                                    .overlay(RoundedRectangle(cornerRadius: R.md).strokeBorder(p.glow.opacity(0.4)))
                                     .shadow(color: p.glowSoft, radius: 10)
                                     .matchedGeometryEffect(id: "pill", in: pill)
                             }
@@ -93,17 +126,19 @@ struct Segmented<T: Hashable>: View {
             }
         }
         .padding(4)
-        .background(p.input.opacity(0.3), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(p.border))
+        .background(p.input.opacity(0.3), in: RoundedRectangle(cornerRadius: R.lg))
+        .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
     }
 }
 
-/// Карточка выбора: иконка, заголовок, пояснение, галочка; выбранная светится
+/// Карточка выбора (`Option` в знакомстве, «Через что отвечать» в настройках)
 struct ChoiceCard: View {
     let title: String
     let note: String
     var icon: String?
     let active: Bool
+    /// В настройках карточка чуть светится и без выбора лежит на card/40
+    var settingsStyle = false
     let action: () -> Void
 
     @Environment(\.palette) private var p
@@ -111,35 +146,58 @@ struct ChoiceCard: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 12) {
-                if let icon {
-                    Image(systemName: icon)
-                        .font(.system(size: 13))
-                        .frame(width: 36, height: 36)
-                        .background(p.foreground.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+            Group {
+                if settingsStyle {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(title).font(.geist(14, .medium))
+                            Spacer()
+                            if active { check }
+                        }
+                        Text(note).font(.geist(12)).lineSpacing(3.5).foregroundStyle(p.mutedFg)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } else {
+                    HStack(spacing: 12) {
+                        if let icon {
+                            Image(systemName: icon)
+                                .font(.system(size: 14))
+                                .frame(width: 36, height: 36)
+                                .background(p.foreground.opacity(0.06), in: RoundedRectangle(cornerRadius: R.lg))
+                        }
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(title).font(.geist(14, .medium))
+                            Text(note).font(.geist(12)).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 0)
+                        if active { check }
+                    }
                 }
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title).font(.geist(13.5, .medium))
-                    Text(note).font(.geist(12)).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
-                if active { Image(systemName: "checkmark").font(.system(size: 13, weight: .semibold)).foregroundStyle(p.glow) }
             }
             .foregroundStyle(p.foreground)
             .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(active ? p.glow.opacity(0.06) : (hover ? p.foreground.opacity(0.05) : p.card.opacity(0.4)),
-                        in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(active ? p.glow.opacity(0.5) : p.border))
-            .shadow(color: active ? p.glowSoft : .clear, radius: 12)
-            .contentShape(RoundedRectangle(cornerRadius: 12))
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .background(background, in: RoundedRectangle(cornerRadius: R.xl))
+            .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(active ? p.glow.opacity(0.5) : p.border))
+            .shadow(color: active && settingsStyle ? p.glowSoft : .clear, radius: 12)
+            .contentShape(RoundedRectangle(cornerRadius: R.xl))
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
     }
+
+    private var check: some View {
+        Image(systemName: "checkmark").font(.system(size: 13, weight: .semibold)).foregroundStyle(p.glow)
+    }
+
+    private var background: Color {
+        if active { return p.glow.opacity(0.06) }
+        if settingsStyle { return hover ? p.card : p.card.opacity(0.4) }
+        return hover ? p.foreground.opacity(0.05) : .clear
+    }
 }
 
-/// Карточка настроек с иконкой, заголовком и статусом справа
+/// Карточка настроек с иконкой, заголовком и статусом справа (`Card` в settings-page)
 struct SettingsCard<Content: View>: View {
     let title: String
     let icon: String
@@ -152,19 +210,19 @@ struct SettingsCard<Content: View>: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 12) {
                 Image(systemName: icon)
-                    .font(.system(size: 13))
+                    .font(.system(size: 14))
                     .frame(width: 36, height: 36)
-                    .background(p.foreground.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
-                Text(title).font(.geist(13.5, .medium))
+                    .background(p.foreground.opacity(0.06), in: RoundedRectangle(cornerRadius: R.xl))
+                Text(title).font(.geist(14, .medium))
                 Spacer()
                 status
             }
-            content.padding(.top, 18)
+            content.padding(.top, 20)
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(p.border))
+        .background(p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xxl))
+        .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(p.border))
     }
 }
 
@@ -196,11 +254,11 @@ struct Meter: View {
     @Environment(\.palette) private var p
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
                 Text(label)
                 Spacer()
-                Text("\(value) %, \(note)").foregroundStyle(p.mutedFg).monospacedDigit()
+                Text(note.isEmpty ? "\(value)%" : "\(value)%, \(note)").foregroundStyle(p.mutedFg).monospacedDigit()
             }
             .font(.geist(12))
             GeometryReader { g in
@@ -216,7 +274,7 @@ struct Meter: View {
     }
 }
 
-/// Подпись группы внутри раздела — обычным регистром
+/// Подпись группы внутри страницы — обычным регистром (`GroupTitle`)
 struct GroupTitle: View {
     let text: String
     var aside: String?
@@ -225,7 +283,7 @@ struct GroupTitle: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(text).font(.geist(13.5, .medium))
+            Text(text).font(.geist(14, .medium))
             Spacer()
             if let aside { Text(aside).font(.geist(12)).foregroundStyle(p.mutedFg) }
         }
@@ -233,7 +291,7 @@ struct GroupTitle: View {
     }
 }
 
-/// Поле ввода в стиле макета: светится по краю в фокусе
+/// Поле ввода: светится по краю в фокусе (`.glow-field`)
 struct GlowField<Trailing: View>: View {
     let placeholder: String
     @Binding var text: String
@@ -255,23 +313,97 @@ struct GlowField<Trailing: View>: View {
                 }
             }
             .textFieldStyle(.plain)
-            .font(mono ? .system(size: 12, design: .monospaced) : .geist(15))
+            .font(mono ? .system(size: 12, design: .monospaced) : .geist(16))
             .focused($focused)
             .onSubmit(onSubmit)
             trailing
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, mono ? 12 : 16)
         .frame(height: mono ? 36 : 44)
-        .background(p.input.opacity(0.3), in: RoundedRectangle(cornerRadius: mono ? 9 : 12))
-        .overlay(RoundedRectangle(cornerRadius: mono ? 9 : 12)
-            .strokeBorder(focused ? p.glow.opacity(0.35) : p.border))
-        .shadow(color: focused ? p.glowSoft : .clear, radius: 14)
-        .animation(.easeOut(duration: 0.3), value: focused)
+        .background(p.input.opacity(0.3), in: RoundedRectangle(cornerRadius: R.lg))
+        .overlay(RoundedRectangle(cornerRadius: R.lg)
+            .strokeBorder(focused ? p.glow.opacity(mono ? 0.35 : 0.5) : p.border))
+        .shadow(color: focused && mono ? p.glowSoft : .clear, radius: 16)
+        .animation(.easeOut(duration: 0.4), value: focused)
     }
 }
 
 extension GlowField where Trailing == EmptyView {
     init(placeholder: String, text: Binding<String>, secure: Bool = false, mono: Bool = false, onSubmit: @escaping () -> Void = {}) {
         self.init(placeholder: placeholder, text: text, secure: secure, mono: mono, onSubmit: onSubmit) { EmptyView() }
+    }
+}
+
+/// Переключатель shadcn: 32×18, светится, когда включён
+struct LSwitch: View {
+    @Binding var isOn: Bool
+
+    @Environment(\.palette) private var p
+
+    var body: some View {
+        Button { withAnimation(.easeOut(duration: 0.15)) { isOn.toggle() } } label: {
+            Capsule()
+                .fill(isOn ? p.primary : p.input.opacity(0.8))
+                .frame(width: 32, height: 18)
+                .overlay(alignment: isOn ? .trailing : .leading) {
+                    Circle().fill(isOn ? p.primaryFg : p.foreground).frame(width: 14, height: 14).padding(2)
+                }
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(.isToggle)
+        .accessibilityValue(isOn ? "включено" : "выключено")
+    }
+}
+
+/// Пункт меню-поповера (`Option` в pickers.tsx): иконка, название, пояснение, галочка
+struct PopoverOption<Icon: View>: View {
+    let name: String
+    let note: String
+    let active: Bool
+    @ViewBuilder let icon: Icon
+    let action: () -> Void
+
+    @Environment(\.palette) private var p
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                icon
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(name).font(.geist(14, .medium))
+                    Text(note).font(.geist(12)).foregroundStyle(p.mutedFg)
+                }
+                Spacer(minLength: 0)
+                if active { Image(systemName: "checkmark").font(.system(size: 13, weight: .semibold)).foregroundStyle(p.glow) }
+            }
+            .foregroundStyle(p.foreground)
+            .padding(.horizontal, 8).padding(.vertical, 8)
+            .background(active ? p.muted : (hover ? p.muted.opacity(0.6) : .clear), in: RoundedRectangle(cornerRadius: R.lg))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+    }
+}
+
+/// Поповер в цветах темы (`PopoverContent`): заголовок сверху, отступ 6
+struct PopoverPanel<Content: View>: View {
+    let title: String
+    var width: CGFloat = 288
+    @ViewBuilder let content: Content
+
+    @Environment(\.palette) private var p
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(title).font(.geist(12)).foregroundStyle(p.mutedFg).padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 8)
+            content
+        }
+        .padding(6)
+        .frame(width: width)
+        .background(p.popover)
+        .preferredColorScheme(.dark)
     }
 }

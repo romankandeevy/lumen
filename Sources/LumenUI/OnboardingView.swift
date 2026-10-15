@@ -19,16 +19,16 @@ struct OnboardingView: View {
 
     var body: some View {
         ZStack {
-            p.background.opacity(0.8).ignoresSafeArea()
+            Rectangle().fill(.ultraThinMaterial).overlay(p.background.opacity(0.8)).ignoresSafeArea()
             VStack(spacing: 0) {
                 if step == -1 { hello } else { wizard }
             }
             .padding(40)
             .frame(width: 512)
             .background(LumenLight())
-            .background(p.card.opacity(0.8), in: RoundedRectangle(cornerRadius: 24))
-            .clipShape(RoundedRectangle(cornerRadius: 24))
-            .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(p.border))
+            .background(p.card.opacity(0.8), in: RoundedRectangle(cornerRadius: R.xxxl))
+            .clipShape(RoundedRectangle(cornerRadius: R.xxxl))
+            .overlay(RoundedRectangle(cornerRadius: R.xxxl).strokeBorder(p.border))
             .shadow(color: .black.opacity(0.5), radius: 40, y: 20)
         }
         .onAppear {
@@ -156,8 +156,8 @@ struct OnboardingView: View {
         VStack(alignment: .leading, spacing: 0) {
             heading("Как мне выглядеть?", "Обе тёмные.")
             HStack(spacing: 12) {
-                ThemeCard(app: app, theme: .lumen, name: "Люмен", note: "тёплый свет")
-                ThemeCard(app: app, theme: .mono, name: "Монохром", note: "как Пульт")
+                ThemeCard(app: app, theme: .lumen, name: "Люмен", note: "тёплый свет", compact: true)
+                ThemeCard(app: app, theme: .mono, name: "Монохром", note: "как Пульт", compact: true)
             }
             .padding(.top, 24)
         }
@@ -183,71 +183,109 @@ extension AppModel {
     }
 }
 
-/// Свет Люмена падает на окно сверху слева — от сферы (`.lumen-light`)
+/// Свет Люмена падает на окно сверху слева — от сферы (`.lumen-light::before`):
+/// эллипс 900×520 в 6%/−8% и 600×300 в 50%/120%, оба glow-faint → прозрачно на 70%.
+/// Когда Lumen думает, свет сильнее (`--light-level` 1.9).
 struct LumenLight: View {
+    var level: Double = 1
+
     @Environment(\.palette) private var p
 
     var body: some View {
-        ZStack {
-            // широкие мягкие пятна: свет не должен давать заметных краёв
-            RadialGradient(colors: [p.glowFaint, p.glowFaint.opacity(0.4), .clear], center: UnitPoint(x: 0.1, y: -0.15),
-                           startRadius: 0, endRadius: 1100)
-            RadialGradient(colors: [p.glowFaint.opacity(0.7), .clear], center: UnitPoint(x: 0.6, y: 1.25), startRadius: 0, endRadius: 700)
+        GeometryReader { g in
+            ZStack(alignment: .topLeading) {
+                spot(rx: 900, ry: 520).position(x: g.size.width * 0.06, y: g.size.height * -0.08)
+                spot(rx: 600, ry: 300).position(x: g.size.width * 0.5, y: g.size.height * 1.2)
+            }
         }
+        .opacity(level)
+        .animation(.easeInOut(duration: 1.2), value: level)
         .allowsHitTesting(false)
+    }
+
+    private func spot(rx: CGFloat, ry: CGFloat) -> some View {
+        Rectangle()
+            .fill(EllipticalGradient(stops: [.init(color: p.glowFaint, location: 0), .init(color: .clear, location: 0.7)],
+                                     center: .center, startRadiusFraction: 0, endRadiusFraction: 0.5))
+            .frame(width: rx * 2, height: ry * 2)
     }
 }
 
-/// Карточка темы — миниатюра окна в цветах этой темы
+/// Карточка темы. В настройках (`ThemeCard`): p-2 rounded-2xl, миниатюра окна h-24 в цветах темы.
+/// В знакомстве: rounded-2xl border p-4 на фоне самой темы, сфера 28 и подпись.
 struct ThemeCard: View {
     @Bindable var app: AppModel
     let theme: Theme
     let name: String
     let note: String
+    var compact = false
 
     @Environment(\.palette) private var current
+    @State private var hover = false
 
     var body: some View {
         let t = Palette.of(theme)
         let active = app.prefs.theme == theme
         Button { app.update { $0.theme = theme } } label: {
-            VStack(alignment: .leading, spacing: 0) {
-                ZStack(alignment: .topLeading) {
-                    t.background
-                    HStack(spacing: 0) {
-                        t.sidebar.frame(width: 56)
-                            .overlay(alignment: .topLeading) { Orb(size: 10).environment(\.palette, t).padding(8) }
-                            .overlay(alignment: .trailing) { t.border.frame(width: 1) }
-                        VStack(alignment: .leading, spacing: 6) {
-                            Capsule().fill(t.secondary).frame(width: 60, height: 10).frame(maxWidth: .infinity, alignment: .trailing)
-                            Capsule().fill(t.muted).frame(height: 8).padding(.trailing, 16)
-                            Capsule().fill(t.muted).frame(height: 8).padding(.trailing, 40)
+            Group {
+                if compact {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Orb(size: 28).environment(\.palette, t)
+                        Text(name).font(.geist(14, .medium)).foregroundStyle(t.foreground).padding(.top, 24)
+                        Text(note).font(.geist(12)).foregroundStyle(t.mutedFg)
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(t.background, in: RoundedRectangle(cornerRadius: R.xxl))
+                } else {
+                    VStack(alignment: .leading, spacing: 0) {
+                        preview(t)
+                        HStack {
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(name).font(.geist(14, .medium))
+                                Text(note).font(.geist(12)).foregroundStyle(current.mutedFg)
+                            }
                             Spacer()
-                            RoundedRectangle(cornerRadius: 5).strokeBorder(t.border).frame(height: 16)
-                                .shadow(color: t.glowSoft, radius: 6)
+                            if active { Image(systemName: "checkmark").font(.system(size: 13, weight: .semibold)).foregroundStyle(current.glow) }
                         }
-                        .padding(14)
+                        .padding(.horizontal, 6).padding(.top, 10).padding(.bottom, 4)
                     }
+                    .foregroundStyle(current.foreground)
+                    .padding(8)
                 }
-                .frame(height: 96)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(name).font(.geist(13.5, .medium))
-                        Text(note).font(.geist(12)).foregroundStyle(current.mutedFg)
-                    }
-                    Spacer()
-                    if active { Image(systemName: "checkmark").font(.system(size: 13, weight: .semibold)).foregroundStyle(current.glow) }
-                }
-                .padding(.horizontal, 6).padding(.top, 10).padding(.bottom, 4)
             }
-            .foregroundStyle(current.foreground)
-            .padding(8)
-            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(active ? current.glow.opacity(0.5) : current.border))
+            .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(active ? current.glow.opacity(compact ? 0.6 : 0.5) : (hover ? current.foreground.opacity(0.2) : current.border)))
             .shadow(color: active ? current.glowSoft : .clear, radius: 14)
-            .contentShape(RoundedRectangle(cornerRadius: 16))
+            .contentShape(RoundedRectangle(cornerRadius: R.xxl))
         }
         .buttonStyle(.plain)
+        .onHover { hover = $0 }
+    }
+
+    /// Миниатюра окна: панель 1/4 со сферой 10, строки переписки, поле ввода со свечением
+    private func preview(_ t: Palette) -> some View {
+        GeometryReader { g in
+            ZStack(alignment: .topLeading) {
+                t.background
+                t.sidebar.frame(width: g.size.width / 4)
+                    .overlay(alignment: .topLeading) { Orb(size: 10, animated: false).environment(\.palette, t).padding(8) }
+                    .overlay(alignment: .trailing) { t.border.frame(width: 1) }
+                let left = g.size.width * 0.32, right: CGFloat = 16
+                let w = g.size.width - left - right
+                VStack(alignment: .leading, spacing: 6) {
+                    Capsule().fill(t.secondary).frame(width: w / 2, height: 10).frame(maxWidth: .infinity, alignment: .trailing)
+                    Capsule().fill(t.muted).frame(width: w * 5 / 6, height: 8)
+                    Capsule().fill(t.muted).frame(width: w * 2 / 3, height: 8)
+                }
+                .frame(width: w)
+                .offset(x: left, y: 16)
+                RoundedRectangle(cornerRadius: R.md).strokeBorder(t.border).frame(width: w, height: 16)
+                    .shadow(color: t.glowSoft, radius: 7)
+                    .offset(x: left, y: g.size.height - 12 - 16)
+            }
+        }
+        .frame(height: 96)
+        .clipShape(RoundedRectangle(cornerRadius: R.xl))
     }
 }
 

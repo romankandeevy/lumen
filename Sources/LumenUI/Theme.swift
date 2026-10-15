@@ -5,6 +5,7 @@ import SwiftUI
 /// Цвета тем из макета (`ui/src/index.css`, OKLCH → sRGB). Обе тёмные.
 public struct Palette: Sendable {
     let background, foreground, card, secondary, muted, mutedFg, sidebar, sidebarAccent: Color
+    let primary, primaryFg, popover: Color
     /// Свет Люмена: акцент — не заливка, а свечение
     let glow, glowCore, glowSoftBase, borderBase: Color
 
@@ -22,6 +23,7 @@ public struct Palette: Sendable {
         background: Color(hex: 0x0C0A07), foreground: Color(hex: 0xF0EBE0), card: Color(hex: 0x15110D),
         secondary: Color(hex: 0x221D17), muted: Color(hex: 0x1F1B16), mutedFg: Color(hex: 0x9F978B),
         sidebar: Color(hex: 0x070504), sidebarAccent: Color(hex: 0x1A1510),
+        primary: Color(hex: 0xFAE6BB), primaryFg: Color(hex: 0x1C140C), popover: Color(hex: 0x1A1510),
         glow: Color(hex: 0xFEC766), glowCore: Color(hex: 0xFFF8DB), glowSoftBase: Color(hex: 0xF5B75B),
         borderBase: Color(hex: 0xF7E2B8), isMono: false)
 
@@ -29,6 +31,7 @@ public struct Palette: Sendable {
         background: Color(hex: 0x0C0C0C), foreground: Color(hex: 0xF5F5F5), card: Color(hex: 0x141414),
         secondary: Color(hex: 0x222222), muted: Color(hex: 0x1F1F1F), mutedFg: Color(hex: 0x929292),
         sidebar: Color(hex: 0x060606), sidebarAccent: Color(hex: 0x181818),
+        primary: Color(hex: 0xF5F5F5), primaryFg: Color(hex: 0x0D0D0D), popover: Color(hex: 0x161616),
         glow: Color(hex: 0xE4E4E4), glowCore: Color(hex: 0xFFFFFF), glowSoftBase: Color(hex: 0xFFFFFF),
         borderBase: Color(hex: 0xFFFFFF), isMono: true)
 

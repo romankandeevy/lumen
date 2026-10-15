@@ -20,6 +20,16 @@ public enum Theme: String, Codable, Sendable, CaseIterable {
     case lumen, mono
 }
 
+/// Ширина переписки: чат, агент и боты (`chatWidthClass` в макете)
+public enum ChatWidth: String, Codable, Sendable, CaseIterable {
+    case normal, wide, full
+
+    /// max-w-[44rem] / [60rem] / [88rem]
+    public var points: Double {
+        switch self { case .normal: 704; case .wide: 960; case .full: 1408 }
+    }
+}
+
 /// Кто пользуется Lumen — из знакомства
 public struct Profile: Codable, Sendable, Equatable {
     public var name: String
@@ -40,15 +50,17 @@ public struct Preferences: Codable, Sendable, Equatable {
     /// Последние выбранные в чате модель и «сколько думать» — для нового чата
     public var model: ChatModel
     public var effort: Effort
+    public var chatWidth: ChatWidth
 
     public init(onboarded: Bool = false, backend: Backend = .subscription, theme: Theme = .lumen, reducedMotion: Bool = false,
-                model: ChatModel = .sonnet, effort: Effort = .medium) {
+                model: ChatModel = .sonnet, effort: Effort = .medium, chatWidth: ChatWidth = .normal) {
         self.onboarded = onboarded
         self.backend = backend
         self.theme = theme
         self.reducedMotion = reducedMotion
         self.model = model
         self.effort = effort
+        self.chatWidth = chatWidth
     }
 
     // старые настройки (0.1) без модели и effort читаются с умолчаниями
@@ -60,6 +72,7 @@ public struct Preferences: Codable, Sendable, Equatable {
         reducedMotion = try c.decodeIfPresent(Bool.self, forKey: .reducedMotion) ?? false
         model = try c.decodeIfPresent(ChatModel.self, forKey: .model) ?? .sonnet
         effort = try c.decodeIfPresent(Effort.self, forKey: .effort) ?? .medium
+        chatWidth = try c.decodeIfPresent(ChatWidth.self, forKey: .chatWidth) ?? .normal
     }
 }
 

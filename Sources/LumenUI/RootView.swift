@@ -21,9 +21,8 @@ public struct RootView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        // свет и фон — одни на всё окно: панель и содержимое переходят друг в друга без ступеньки,
-        // и под скрытым заголовком окна нет тёмной полосы
-        .background(LumenLight().ignoresSafeArea())
+        // `.lumen-light` на всём окне: панель полупрозрачная, свет проходит сквозь неё
+        .background(LumenLight(level: app.orb == .thinking ? 1.9 : 1).ignoresSafeArea())
         .overlay {
             if !app.prefs.onboarded {
                 OnboardingView(app: app).transition(.opacity)
@@ -41,8 +40,8 @@ public struct RootView: View {
     }
 }
 
-/// Боковая панель (`App.tsx`): знак и «новый чат», список разговоров, внизу настройки и профиль.
-/// Агент, Боты, Память и остальные разделы появятся здесь, когда заработают.
+/// Боковая панель (`Shell` в App.tsx): знак, список, внизу разделы и профиль.
+/// Вкладки, поиск и разделы, которые ещё не работают, не показываем.
 struct Sidebar: View {
     @Bindable var app: AppModel
 
@@ -50,35 +49,31 @@ struct Sidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                Orb(state: app.orb, size: 18)
-                Text("Lumen").font(.geist(14, .semibold))
+            // место под кнопки окна macOS — в браузерном макете их нет
+            Color.clear.frame(height: 28)
+            HStack(spacing: 10) {
+                Orb(state: app.orb, size: 22)
+                Text("Lumen").font(.geist(15, .semibold)).tracking(-0.15)
                 Spacer()
                 IconButton(icon: "square.and.pencil", help: "Новый чат · ⌘N") { app.newChat() }
                     .keyboardShortcut("n", modifiers: .command)
             }
-            .padding(.leading, 16).padding(.trailing, 10).padding(.top, 40)
-
-            Button { app.newChat() } label: {
-                Label { Text("Новый чат").font(.geist(13.5)) } icon: { Image(systemName: "plus").font(.system(size: 12)) }
-                    .padding(.horizontal, 10).frame(height: 32)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(p.foreground.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 12).padding(.top, 14)
+            .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 0) {
+                    NewButton(title: "Новый чат") { app.newChat() }
+                        .padding(.bottom, 12)
                     ForEach(groups, id: \.0) { name, items in
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(name).font(.geist(11.5)).foregroundStyle(p.mutedFg).padding(.horizontal, 10).padding(.bottom, 4)
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(name).font(.geist(12)).foregroundStyle(p.mutedFg)
+                                .padding(.horizontal, 10).padding(.bottom, 4)
                             ForEach(items) { c in ChatRow(app: app, c: c) }
                         }
+                        .padding(.bottom, 12)
                     }
                 }
-                .padding(.horizontal, 12).padding(.vertical, 14)
+                .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 12)
             }
             .scrollIndicators(.never)
 
@@ -87,19 +82,19 @@ struct Sidebar: View {
                     app.page = .settings(.look)
                 }
             }
-            .padding(.horizontal, 8).padding(.top, 6)
-            .overlay(alignment: .top) { p.sidebarBorder.frame(height: 1) }
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .overlay(alignment: .top) { p.border.frame(height: 1) }
 
             Button { app.page = .settings(.models) } label: { profile }
                 .buttonStyle(.plain)
-                .padding(8)
+                .padding([.horizontal, .bottom], 12)
         }
         .foregroundStyle(p.foreground)
         .frame(width: 256)
         .frame(maxHeight: .infinity)
-        // панель чуть темнее окна, но прозрачная: свет Люмена проходит сквозь неё
-        .background(p.sidebar.opacity(0.45).ignoresSafeArea())
-        .overlay(alignment: .trailing) { p.sidebarBorder.frame(width: 1).ignoresSafeArea() }
+        // bg-sidebar/70 + backdrop-blur-sm
+        .background(p.sidebar.opacity(0.7).ignoresSafeArea())
+        .overlay(alignment: .trailing) { p.border.frame(width: 1).ignoresSafeArea() }
     }
 
     /// «Сегодня» и «Раньше», как в макете
@@ -110,20 +105,7 @@ struct Sidebar: View {
     }
 
     private var profile: some View {
-        HStack(spacing: 10) {
-            Text(String(app.profile.name.prefix(1)).uppercased())
-                .font(.geist(12, .semibold))
-                .frame(width: 30, height: 30)
-                .background(p.secondary, in: Circle())
-            VStack(alignment: .leading, spacing: 1) {
-                Text(app.profile.name.isEmpty ? "Без имени" : app.profile.name).font(.geist(13.5, .medium))
-                Text(plan).font(.geist(11.5)).foregroundStyle(p.mutedFg).lineLimit(1)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(10)
-        .background(p.foreground.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
-        .contentShape(Rectangle())
+        ProfileCard(name: app.profile.name, plan: plan)
     }
 
     private var plan: String {
@@ -136,7 +118,59 @@ struct Sidebar: View {
     }
 }
 
-/// Строка разговора: заголовок и время, активная — со световой чертой слева
+/// Карточка профиля внизу панели: m-3 rounded-xl border bg-card/40 px-2.5 py-2
+struct ProfileCard: View {
+    let name: String
+    let plan: String
+
+    @Environment(\.palette) private var p
+    @State private var hover = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(String(name.prefix(1)).uppercased())
+                .font(.geist(12, .medium))
+                .frame(width: 28, height: 28)
+                .background(p.foreground.opacity(0.1), in: Circle())
+            VStack(alignment: .leading, spacing: 0) {
+                Text(name.isEmpty ? "Без имени" : name).font(.geist(14)).lineLimit(1)
+                Text(plan).font(.geist(12)).foregroundStyle(p.mutedFg).lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 8)
+        .background(hover ? p.card : p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xl))
+        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
+        .contentShape(Rectangle())
+        .onHover { hover = $0 }
+    }
+}
+
+/// «+ Новый чат»: h-8 rounded-lg bg-foreground/[0.06] px-2.5 text-sm
+struct NewButton: View {
+    let title: String
+    let action: () -> Void
+
+    @Environment(\.palette) private var p
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: "plus").font(.system(size: 14))
+                Text(title).font(.geist(14))
+            }
+            .padding(.horizontal, 10).frame(height: 32)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(p.foreground.opacity(hover ? 0.1 : 0.06), in: RoundedRectangle(cornerRadius: R.lg))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+    }
+}
+
+/// Строка разговора (`Row`): px-2.5 py-1.5 text-sm text-foreground/80, активная — bg-foreground/[0.07] и световая черта
 struct ChatRow: View {
     @Bindable var app: AppModel
     let c: Conversation
@@ -149,16 +183,21 @@ struct ChatRow: View {
     var body: some View {
         Button { app.openChat(c) } label: {
             HStack(spacing: 8) {
-                Text(c.title).font(.geist(13.5)).lineLimit(1)
+                Text(c.title).font(.geist(14)).lineLimit(1)
                     .foregroundStyle(active || hover ? p.foreground : p.foreground.opacity(0.8))
                 Spacer(minLength: 4)
-                Text(when).font(.geist(11)).foregroundStyle(p.mutedFg)
+                if app.chat.conversation?.id == c.id && app.chat.busy {
+                    ProgressView().controlSize(.mini).tint(p.glow)
+                } else {
+                    Text(when).font(.geist(11)).foregroundStyle(p.mutedFg)
+                }
             }
-            .padding(.horizontal, 10).frame(height: 30)
-            .background(active ? p.foreground.opacity(0.07) : (hover ? p.foreground.opacity(0.04) : .clear),
-                        in: RoundedRectangle(cornerRadius: 8))
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .frame(minHeight: 32)
+            .background(active ? p.foreground.opacity(0.07) : (hover ? p.foreground.opacity(0.05) : .clear),
+                        in: RoundedRectangle(cornerRadius: R.lg))
             .overlay(alignment: .leading) {
-                if active { Capsule().fill(p.glow).frame(width: 2).padding(.vertical, 7).shadow(color: p.glow, radius: 5) }
+                if active { GlowBar() }
             }
             .contentShape(Rectangle())
         }
@@ -169,19 +208,39 @@ struct ChatRow: View {
         }
     }
 
-    private var when: String {
+    /// «сейчас», «2 ч», «12 окт» — как в макете
+    private var when: String { RelativeWhen.string(c.updatedAt) }
+}
+
+enum RelativeWhen {
+    static func string(_ d: Date, now: Date = Date()) -> String {
+        let s = now.timeIntervalSince(d)
+        if s < 60 { return "сейчас" }
+        if s < 3600 { return "\(Int(s / 60)) мин" }
+        if Calendar.current.isDateInToday(d) { return "\(Int(s / 3600)) ч" }
+        if Calendar.current.isDateInYesterday(d) { return "вчера" }
         let f = DateFormatter()
         f.locale = Locale(identifier: "ru_RU")
-        f.dateFormat = Calendar.current.isDateInToday(c.updatedAt) ? "HH:mm" : "d MMM"
-        return f.string(from: c.updatedAt)
+        f.dateFormat = "d MMM"
+        return f.string(from: d).replacingOccurrences(of: ".", with: "")
     }
 }
 
-/// Пункт нижнего меню панели
+/// Световая черта слева у активного пункта: top-1.5 bottom-1.5 w-[2px] bg-glow, свечение 10px
+struct GlowBar: View {
+    @Environment(\.palette) private var p
+
+    var body: some View {
+        Capsule().fill(p.glow).frame(width: 2).padding(.vertical, 6).shadow(color: p.glow, radius: 5)
+    }
+}
+
+/// Пункт нижнего меню (`NavItem`): h-8 gap-2.5 px-2.5 text-sm text-foreground/75
 struct NavRow: View {
     let title: String
     let icon: String
     let active: Bool
+    var trailing: String?
     let action: () -> Void
 
     @Environment(\.palette) private var p
@@ -189,21 +248,29 @@ struct NavRow: View {
 
     var body: some View {
         Button(action: action) {
-            Label { Text(title).font(.geist(13.5)) } icon: { Image(systemName: icon).font(.system(size: 13)) }
-                .padding(.horizontal, 10).frame(height: 32)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(active ? p.sidebarAccent : (hover ? p.foreground.opacity(0.04) : .clear), in: RoundedRectangle(cornerRadius: 8))
-                .contentShape(Rectangle())
+            HStack(spacing: 10) {
+                Image(systemName: icon).font(.system(size: 14)).foregroundStyle(active ? p.glow : p.mutedFg).frame(width: 16)
+                Text(title).font(.geist(14))
+                Spacer(minLength: 0)
+                if let trailing { Text(trailing).font(.geist(12)).foregroundStyle(p.mutedFg).monospacedDigit() }
+            }
+            .foregroundStyle(active || hover ? p.foreground : p.foreground.opacity(0.75))
+            .padding(.horizontal, 10).frame(height: 32)
+            .background(active ? p.foreground.opacity(0.07) : (hover ? p.foreground.opacity(0.05) : .clear),
+                        in: RoundedRectangle(cornerRadius: R.lg))
+            .overlay(alignment: .leading) { if active { GlowBar() } }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
     }
 }
 
-/// Маленькая кнопка-иконка
+/// Кнопка-иконка 28×28 rounded-lg, иконка 16, приглушённая
 struct IconButton: View {
     let icon: String
     let help: String
+    var active = false
     let action: () -> Void
 
     @Environment(\.palette) private var p
@@ -211,10 +278,10 @@ struct IconButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: icon).font(.system(size: 13))
-                .foregroundStyle(hover ? p.foreground : p.mutedFg)
+            Image(systemName: icon).font(.system(size: 14))
+                .foregroundStyle(hover || active ? p.foreground : p.mutedFg)
                 .frame(width: 28, height: 28)
-                .background(hover ? p.foreground.opacity(0.05) : .clear, in: RoundedRectangle(cornerRadius: 8))
+                .background(active ? p.secondary : (hover ? p.foreground.opacity(0.05) : .clear), in: RoundedRectangle(cornerRadius: R.lg))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -68,6 +68,9 @@ public final class AppModel {
 
     // MARK: разговоры
 
+    /// Сколько фактов помнит Lumen — для пустого чата
+    var memoryCount: Int { (try? store.memories().count) ?? 0 }
+
     func reloadConversations() {
         conversations = (try? store.conversations()) ?? []
     }
