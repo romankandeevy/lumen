@@ -11,6 +11,8 @@ public final class AppModel {
     let paths: AppPaths
     let store: Store
     let keychain = Keychain()
+    /// Сеть для Anthropic API — в тестах подменяется записанными ответами
+    var urlSession: URLSession = .shared
 
     var profile: Profile
     var prefs: Preferences
@@ -74,6 +76,11 @@ public final class AppModel {
         }
         conversations = (try? store.conversations()) ?? []
         memories = (try? store.memories()) ?? []
+        writeMemoryFiles()
+        // выход из приложения: процессы claude не должны пережить Lumen
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.chat.closeAll() }
+        }
         agentFolder = prefs.recentFolders.lazy.map { URL(fileURLWithPath: $0) }
             .first { FileManager.default.fileExists(atPath: $0.path) }
     }
@@ -136,7 +143,7 @@ public final class AppModel {
     }
 
     func deleteChat(_ c: Conversation) {
-        if chat.conversation?.id == c.id { chat.startNew() }
+        chat.forget(c.id)
         try? store.deleteConversation(c.id)
         reloadConversations()
     }

@@ -15,7 +15,8 @@ struct Orb: View {
     @Environment(\.lessMotion) private var lessMotion
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: lessMotion || !animated)) { tl in
+        // в покое сфера дышит медленно (5,5 с) — 15 кадров в секунду хватает; думает или пишет — 30
+        TimelineView(.animation(minimumInterval: state == .idle ? 1 / 15 : 1 / 30, paused: lessMotion || !animated)) { tl in
             let t = lessMotion || !animated ? 2.75 : tl.date.timeIntervalSinceReferenceDate
             ZStack {
                 halo(t)

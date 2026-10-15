@@ -5,7 +5,8 @@ import Security
 public struct Keychain: Sendable {
     public let service: String
 
-    public init(service: String = "com.roman.lumen") {
+    /// LUMEN_KEYCHAIN — другая «папка» в Связке ключей, чтобы тесты не трогали настоящий ключ
+    public init(service: String = ProcessInfo.processInfo.environment["LUMEN_KEYCHAIN"] ?? "com.roman.lumen") {
         self.service = service
     }
 

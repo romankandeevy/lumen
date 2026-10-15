@@ -7,10 +7,11 @@ import LumenStorage
 /// файлы USER.md и MEMORY.md как вид на базу (§5.7, решение §18.10).
 extension AppModel {
     func reloadMemories() {
+        let pinnedBefore = memories.filter(\.pinned).map(\.text)
         memories = (try? store.memories()) ?? []
         writeMemoryFiles()
-        // системный промпт чата содержит закреплённые факты — пусть следующий ход возьмёт новые
-        chat.memoryChanged()
+        // в системном промпте чата только закреплённые факты: поменялись они — следующий ход возьмёт новые
+        if memories.filter(\.pinned).map(\.text) != pinnedBefore { chat.memoryChanged() }
     }
 
     @discardableResult

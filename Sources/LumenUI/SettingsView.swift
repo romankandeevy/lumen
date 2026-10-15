@@ -379,10 +379,15 @@ struct SubscriptionCard: View {
         }
     }
 
-    private func resetNote(_ d: Date?) -> String {
-        guard let d else { return "" }
+    private static let formatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "ru_RU")
+        return f
+    }()
+
+    private func resetNote(_ d: Date?) -> String {
+        guard let d else { return "" }
+        let f = Self.formatter
         f.dateFormat = Calendar.current.isDate(d, inSameDayAs: Date()) ? "'сброс в' HH:mm"
             : (Calendar.current.isDateInTomorrow(d) ? "'сброс завтра в' HH:mm" : "'сброс' d MMM 'в' HH:mm")
         return f.string(from: d)

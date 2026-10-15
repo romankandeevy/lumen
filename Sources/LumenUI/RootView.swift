@@ -241,7 +241,7 @@ struct ChatRow: View {
     @State private var hover = false
 
     private var active: Bool { app.page == .chat && app.chat.conversation?.id == c.id }
-    private var running: Bool { app.chat.conversation?.id == c.id && app.chat.busy }
+    private var running: Bool { app.chat.running?.id == c.id }
 
     var body: some View {
         Button { app.openChat(c) } label: {
@@ -291,16 +291,21 @@ struct ChatRow: View {
 }
 
 enum RelativeWhen {
+    /// Один на всё приложение: DateFormatter дорого создавать на каждую строку списка
+    private static let day: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ru_RU")
+        f.dateFormat = "d MMM"
+        return f
+    }()
+
     static func string(_ d: Date, now: Date = Date()) -> String {
         let s = now.timeIntervalSince(d)
         if s < 60 { return "сейчас" }
         if s < 3600 { return "\(Int(s / 60)) мин" }
         if Calendar.current.isDateInToday(d) { return "\(Int(s / 3600)) ч" }
         if Calendar.current.isDateInYesterday(d) { return "вчера" }
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "ru_RU")
-        f.dateFormat = "d MMM"
-        return f.string(from: d).replacingOccurrences(of: ".", with: "")
+        return day.string(from: d).replacingOccurrences(of: ".", with: "")
     }
 }
 

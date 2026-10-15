@@ -307,6 +307,17 @@ struct Composer: View {
                 .frame(minHeight: 48, alignment: .topLeading)
             HStack(spacing: 2) {
                 if agent { folderPicker }
+                if chat.busyElsewhere, let other = chat.running {
+                    Button { app.openChat(other) } label: {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.mini).tint(p.glow)
+                            Text("Отвечаю в «\(other.title)»").lineLimit(1)
+                        }
+                        .font(.geist(12)).foregroundStyle(p.mutedFg)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.leading, 6)
+                }
                 Spacer()
                 modelPicker
                 effortPicker
@@ -331,7 +342,7 @@ struct Composer: View {
     }
 
     private func send() {
-        guard !chat.busy, canSend, ready else { return }
+        guard chat.running == nil, canSend, ready else { return }
         chat.send(draft)
         draft = ""
     }
@@ -431,8 +442,9 @@ struct Composer: View {
                     .shadow(color: canSend ? p.glowSoft : .clear, radius: 8)
             }
             .buttonStyle(.plain)
-            .disabled(!canSend || !ready)
-            .help(ready ? "Отправить · ↩" : "Сначала выбери папку проекта")
+            .disabled(!canSend || !ready || chat.busyElsewhere)
+            .help(!ready ? "Сначала выбери папку проекта"
+                  : chat.busyElsewhere ? "Lumen ещё отвечает в «\(chat.running?.title ?? "")»" : "Отправить · ↩")
         }
     }
 }

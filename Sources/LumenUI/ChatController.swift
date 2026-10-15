@@ -13,26 +13,37 @@ final class ChatController {
     /// Открытый разговор и его сообщения
     private(set) var conversation: Conversation?
     private(set) var messages: [ChatMessage] = []
-    /// Идёт ход: текст ответа копится здесь, в базу — по окончании
-    private(set) var streaming: ChatMessage?
-    private(set) var thinking = false
+    /// Разговор, в котором сейчас идёт ход. Ход один на всё приложение и не прерывается,
+    /// если открыть другой разговор: ответ допишется в фоне и сохранится.
+    private(set) var running: Conversation?
+    /// Текст и шаги идущего хода; в базу — по окончании
+    private var turnMessage: ChatMessage?
+    private var turnThinking = false
 
     @ObservationIgnored private var sessions: [String: ClaudeSession] = [:]
     @ObservationIgnored private var turnTask: Task<Void, Never>?
     @ObservationIgnored private var stopRequested = false
     @ObservationIgnored private var turnStart = Date()
+    /// Дельты текста копятся и уходят в интерфейс раз в 40 мс (§10.1): без этого окно перерисовывается на каждый токен
+    @ObservationIgnored private var pendingText = ""
+    @ObservationIgnored private var flushScheduled = false
 
     init(app: AppModel) {
         self.app = app
     }
 
-    var busy: Bool { streaming != nil || thinking }
+    private var here: Bool { running != nil && running?.id == conversation?.id }
+    /// Ход идёт в открытом разговоре
+    var busy: Bool { here }
+    /// Ход идёт в другом разговоре — отправить сейчас нельзя
+    var busyElsewhere: Bool { running != nil && !here }
+    var streaming: ChatMessage? { here ? turnMessage : nil }
+    var thinking: Bool { here && turnThinking }
 
     // MARK: открыть / новый
 
     func open(_ c: Conversation) {
         guard conversation?.id != c.id else { return }
-        stop()
         conversation = c
         messages = (try? app.store.messages(in: c.id)) ?? []
     }
@@ -44,7 +55,6 @@ final class ChatController {
 
     /// Новый чат ещё не в базе: появится в списке после первого сообщения
     func startNew() {
-        stop()
         conversation = nil
         messages = []
     }
@@ -66,7 +76,7 @@ final class ChatController {
 
     func send(_ raw: String) {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !busy else { return }
+        guard !text.isEmpty, running == nil else { return }
         var c: Conversation
         if let existing = conversation {
             c = existing
@@ -92,7 +102,9 @@ final class ChatController {
 
         stopRequested = false
         turnStart = Date()
-        thinking = true
+        running = c
+        turnMessage = nil
+        turnThinking = true
         app.orb = .thinking
         let history = messages
         turnTask = Task { [weak self] in
@@ -102,7 +114,8 @@ final class ChatController {
             } else {
                 await self.runAPI(c, history: history)
             }
-            self.thinking = false
+            self.turnThinking = false
+            self.running = nil
             self.app.orb = .idle
             self.turnTask = nil
             self.app.reloadConversations()
@@ -111,11 +124,23 @@ final class ChatController {
 
     /// «Стоп»: подписка — сообщение `interrupt` процессу, API — обрыв соединения
     func stop() {
-        guard busy else { return }
+        guard let c = running else { return }
         stopRequested = true
-        if let c = conversation {
-            if c.usesCLI { sessions[c.id]?.interrupt() } else { turnTask?.cancel() }
-        }
+        if c.usesCLI { sessions[c.id]?.interrupt() } else { turnTask?.cancel() }
+    }
+
+    /// Разговор удалён — его процесс больше не нужен
+    func forget(_ id: String) {
+        if running?.id == id { stop() }
+        sessions[id]?.close()
+        sessions[id] = nil
+        if conversation?.id == id { startNew() }
+    }
+
+    /// Выход из приложения: погасить все процессы claude
+    func closeAll() {
+        for s in sessions.values { s.close() }
+        sessions.removeAll()
     }
 
     private func runCLI(_ c: Conversation, text: String, hadTurnsBefore: Bool) async {
@@ -211,9 +236,11 @@ final class ChatController {
         // ход целиком (с вызовами инструментов) — чтобы в истории он повторился как был
         var turn: [[String: Any]] = []
         do {
+            var api = AnthropicAPI(key: key)
+            api.session = app.urlSession
             for _ in 0..<6 {
                 var finished: (String, String)?
-                for try await ev in AnthropicAPI(key: key).chat(request) {
+                for try await ev in api.chat(request) {
                     switch ev {
                     case .textDelta(let t):
                         answer += t
@@ -264,28 +291,42 @@ final class ChatController {
     }
 
     private func appendStreaming(_ t: String, _ c: Conversation) {
-        if thinking {
-            thinking = false
-            app.orb = .idle
+        if turnThinking {
+            turnThinking = false
+            if here { app.orb = .writing }
         }
-        if streaming == nil { streaming = ChatMessage(conversationID: c.id, role: .assistant, text: "", model: c.model) }
-        streaming?.text += t
+        if turnMessage == nil { turnMessage = ChatMessage(conversationID: c.id, role: .assistant, text: "", model: c.model) }
+        pendingText += t
+        guard !flushScheduled else { return }
+        flushScheduled = true
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(40))
+            self?.flushText()
+        }
+    }
+
+    private func flushText() {
+        flushScheduled = false
+        guard !pendingText.isEmpty else { return }
+        turnMessage?.text += pendingText
+        pendingText = ""
     }
 
     private func appendStep(_ step: AgentStep, _ c: Conversation) {
-        if thinking {
-            thinking = false
-            app.orb = .idle
+        if turnThinking {
+            turnThinking = false
+            if here { app.orb = .idle }
         }
-        if streaming == nil { streaming = ChatMessage(conversationID: c.id, role: .assistant, text: "", model: c.model) }
-        streaming?.steps.append(step)
+        if turnMessage == nil { turnMessage = ChatMessage(conversationID: c.id, role: .assistant, text: "", model: c.model) }
+        turnMessage?.steps.append(step)
     }
 
     private func finish(_ c: Conversation, text: String, apiContent: String? = nil, stopped: Bool = false, error: String? = nil,
                         changes: ChangeSet? = nil) {
         // шаги показываем у агента; в чате вызовы памяти видны плашками «Запомнил» и «Опирался на»
-        let steps = c.kind == .agent ? (streaming?.steps ?? []) : []
-        streaming = nil
+        flushText()
+        let steps = c.kind == .agent ? (turnMessage?.steps ?? []) : []
+        turnMessage = nil
         let remembered = (try? app.store.memoryUses(conversationID: c.id, since: turnStart, action: "remember")) ?? []
         let recalled = (try? app.store.memoryUses(conversationID: c.id, since: turnStart, action: "recall")) ?? []
         let m = ChatMessage(conversationID: c.id, role: .assistant, text: text, apiContent: apiContent,
@@ -300,7 +341,7 @@ final class ChatController {
 
     /// Память поменялась: процессы чата гасим, следующий ход поднимет их с новым системным промптом (`--resume`)
     func memoryChanged() {
-        for (id, s) in sessions where id != conversation?.id || !busy {
+        for (id, s) in sessions where id != running?.id {
             if conversationKind(id) == .chat {
                 s.close()
                 sessions[id] = nil
