@@ -8,8 +8,11 @@ public struct AppPaths: Sendable {
         self.root = root
     }
 
-    /// ~/Library/Application Support/Lumen
+    /// ~/Library/Application Support/Lumen. Для проверок — другая папка через LUMEN_HOME.
     public static var standard: AppPaths {
+        if let custom = ProcessInfo.processInfo.environment["LUMEN_HOME"], !custom.isEmpty {
+            return AppPaths(root: URL(fileURLWithPath: custom, isDirectory: true))
+        }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return AppPaths(root: base.appendingPathComponent("Lumen", isDirectory: true))
     }
