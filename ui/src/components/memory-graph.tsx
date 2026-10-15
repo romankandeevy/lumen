@@ -117,11 +117,11 @@ export function MemoryGraph({ memories, openThread }: { memories: Memory[]; open
         "link",
         forceLink<GNode, GLink>(links)
           .id((d) => d.id)
-          .distance((l) => (l.kind === "core" ? 150 : l.kind === "own" ? 46 : 120))
+          .distance((l) => (l.kind === "core" ? 170 : l.kind === "own" ? ((l.source as GNode).id === "me" ? 95 : 52) : 130))
           .strength((l) => (l.kind === "cross" ? 0.05 : l.kind === "core" ? 0.35 : 0.9))
       )
-      .force("charge", forceManyBody<GNode>().strength((d) => (d.group === "fact" || d.group === "decision" ? -45 : d.group === "me" ? -600 : -260)))
-      .force("collide", forceCollide<GNode>().radius((d) => d.r + 5))
+      .force("charge", forceManyBody<GNode>().strength((d) => (d.group === "fact" || d.group === "decision" ? -90 : d.group === "me" ? -700 : -280)))
+      .force("collide", forceCollide<GNode>().radius((d) => d.r + (d.group === "fact" || d.group === "decision" ? 12 : 8)))
       .force("center", forceCenter(0, 0))
       .force("x", forceX(0).strength(0.03))
       .force("y", forceY(0).strength(0.04))
@@ -242,7 +242,7 @@ export function MemoryGraph({ memories, openThread }: { memories: Memory[]; open
       ctx.textBaseline = "top"
       nodes.forEach((n) => {
         const isFact = n.group === "fact" || n.group === "decision"
-        const show = !isFact || labels || k > 1.7 || n.id === focus || (focus && near?.has(n.id))
+        const show = !isFact || labels || k > 2.2 || n.id === focus
         if (!show) return
         const on = lit(n.id)
         const size = (isFact ? 10.5 : n.group === "me" ? 13.5 : 12.5) / Math.max(k, 0.8)
