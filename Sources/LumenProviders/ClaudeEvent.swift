@@ -1,4 +1,5 @@
 import Foundation
+import LumenCore
 
 /// Событие из `claude -p --output-format stream-json` (§2.2).
 /// Декодер терпимый: формат меняется от версии к версии, незнакомое не роняет разговор.
@@ -6,8 +7,8 @@ public enum ClaudeEvent: Sendable, Equatable {
     case started(sessionID: String, model: String, tools: [String])
     /// Кусок текста ответа (при --include-partial-messages)
     case textDelta(String)
-    /// Модель вызвала инструмент
-    case toolUse(name: String)
+    /// Модель вызвала инструмент — человеческой строкой
+    case step(AgentStep)
     case rateLimit(RateLimit)
     case retry(attempt: Int, error: String)
     case finished(TurnResult)
@@ -29,6 +30,17 @@ public enum ClaudeEvent: Sendable, Equatable {
         public let inputTokens: Int
         public let outputTokens: Int
         public let cacheReadTokens: Int
+    }
+
+    /// Все события строки: в одном сообщении может быть несколько вызовов инструментов
+    public static func decodeAll(_ line: Data) -> [ClaudeEvent] {
+        if let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any], obj["type"] as? String == "assistant" {
+            let content = (obj["message"] as? [String: Any])?["content"] as? [[String: Any]] ?? []
+            return content.filter { $0["type"] as? String == "tool_use" }.map {
+                .step(AgentStep.from(tool: $0["name"] as? String ?? "", input: $0["input"] as? [String: Any] ?? [:]))
+            }
+        }
+        return decode(line).map { [$0] } ?? []
     }
 
     /// Разбирает одну строку вывода. Пустые и служебные строки → nil.
@@ -57,7 +69,7 @@ public enum ClaudeEvent: Sendable, Equatable {
             // целые сообщения: текст уже пришёл дельтами, отсюда берём только вызовы инструментов
             let content = (obj["message"] as? [String: Any])?["content"] as? [[String: Any]] ?? []
             if let tool = content.first(where: { $0["type"] as? String == "tool_use" }) {
-                return .toolUse(name: tool["name"] as? String ?? "")
+                return .step(AgentStep.from(tool: tool["name"] as? String ?? "", input: tool["input"] as? [String: Any] ?? [:]))
             }
             return nil
         case ("user", _):

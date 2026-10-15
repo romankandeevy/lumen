@@ -60,17 +60,29 @@ struct Sidebar: View {
             }
             .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
 
+            TabSwitch(app: app).padding(.horizontal, 12)
+
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    NewButton(title: "Новый чат") { app.newChat() }
-                        .padding(.bottom, 12)
-                    ForEach(groups, id: \.0) { name, items in
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(name).font(.geist(12)).foregroundStyle(p.mutedFg)
-                                .padding(.horizontal, 10).padding(.bottom, 4)
-                            ForEach(items) { c in ChatRow(app: app, c: c) }
+                    if app.tab == .chat {
+                        NewButton(title: "Новый чат") { app.newChat() }
+                            .padding(.bottom, 12)
+                        ForEach(groups, id: \.0) { name, items in
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(name).font(.geist(12)).foregroundStyle(p.mutedFg)
+                                    .padding(.horizontal, 10).padding(.bottom, 4)
+                                ForEach(items) { c in ChatRow(app: app, c: c) }
+                            }
+                            .padding(.bottom, 12)
                         }
-                        .padding(.bottom, 12)
+                    } else {
+                        NewButton(title: "Новая задача") { app.newAgentTask() }
+                            .padding(.bottom, 12)
+                        if !sessions.isEmpty {
+                            Text("Сессии").font(.geist(12)).foregroundStyle(p.mutedFg)
+                                .padding(.horizontal, 10).padding(.bottom, 4)
+                            ForEach(sessions) { c in ChatRow(app: app, c: c) }
+                        }
                     }
                 }
                 .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 12)
@@ -97,10 +109,13 @@ struct Sidebar: View {
         .overlay(alignment: .trailing) { p.border.frame(width: 1).ignoresSafeArea() }
     }
 
+    private var sessions: [Conversation] { app.conversations.filter { $0.kind == .agent } }
+
     /// «Сегодня» и «Раньше», как в макете
     private var groups: [(String, [Conversation])] {
-        let today = app.conversations.filter { Calendar.current.isDateInToday($0.updatedAt) }
-        let earlier = app.conversations.filter { !Calendar.current.isDateInToday($0.updatedAt) }
+        let chats = app.conversations.filter { $0.kind == .chat }
+        let today = chats.filter { Calendar.current.isDateInToday($0.updatedAt) }
+        let earlier = chats.filter { !Calendar.current.isDateInToday($0.updatedAt) }
         return [("Сегодня", today), ("Раньше", earlier)].filter { !$0.1.isEmpty }
     }
 
@@ -146,6 +161,49 @@ struct ProfileCard: View {
     }
 }
 
+/// Две вкладки, как Chat / Code в Claude (`tablist` в макете): mx-3 rounded-xl bg-foreground/[0.05] p-0.5.
+/// «Боты» появятся, когда заработают.
+struct TabSwitch: View {
+    @Bindable var app: AppModel
+
+    @Environment(\.palette) private var p
+
+    var body: some View {
+        HStack(spacing: 2) {
+            tab(.chat, "Чат", "message")
+            tab(.agent, "Агент", "terminal")
+        }
+        .padding(2)
+        .background(p.foreground.opacity(0.05), in: RoundedRectangle(cornerRadius: R.xl))
+    }
+
+    private func tab(_ t: AppModel.Tab, _ name: String, _ icon: String) -> some View {
+        let active = app.tab == t
+        return Button {
+            guard app.tab != t else { return }
+            app.tab = t
+            // открыть последний разговор этой вкладки или пустой
+            if let last = app.conversations.first(where: { $0.kind == (t == .agent ? .agent : .chat) }) {
+                app.openChat(last)
+            } else {
+                app.chat.startNew()
+                app.page = .chat
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: icon).font(.system(size: 12)).foregroundStyle(active ? p.glow : p.mutedFg)
+                Text(name).font(.geist(13))
+            }
+            .foregroundStyle(active ? p.foreground : p.mutedFg)
+            .frame(maxWidth: .infinity).frame(height: 32)
+            .background(active ? p.background : .clear, in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(active ? p.border : .clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 /// «+ Новый чат»: h-8 rounded-lg bg-foreground/[0.06] px-2.5 text-sm
 struct NewButton: View {
     let title: String
@@ -179,17 +237,33 @@ struct ChatRow: View {
     @State private var hover = false
 
     private var active: Bool { app.page == .chat && app.chat.conversation?.id == c.id }
+    private var running: Bool { app.chat.conversation?.id == c.id && app.chat.busy }
 
     var body: some View {
         Button { app.openChat(c) } label: {
-            HStack(spacing: 8) {
-                Text(c.title).font(.geist(14)).lineLimit(1)
-                    .foregroundStyle(active || hover ? p.foreground : p.foreground.opacity(0.8))
-                Spacer(minLength: 4)
-                if app.chat.conversation?.id == c.id && app.chat.busy {
-                    ProgressView().controlSize(.mini).tint(p.glow)
-                } else {
+            HStack(alignment: c.kind == .agent ? .top : .center, spacing: 8) {
+                if c.kind == .agent {
+                    // как в макете: ноутбук (на этом Маке) или крутилка, пока работает
+                    Group {
+                        if running { ProgressView().controlSize(.mini).tint(p.glow) } else { Image(systemName: "laptopcomputer").font(.system(size: 12)) }
+                    }
+                    .foregroundStyle(p.mutedFg).frame(width: 20, height: 18)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(c.title).font(.geist(14)).lineLimit(1)
+                            .foregroundStyle(active || hover ? p.foreground : p.foreground.opacity(0.8))
+                        Text(URL(fileURLWithPath: c.folder ?? "").lastPathComponent).font(.geist(11)).foregroundStyle(p.mutedFg).lineLimit(1)
+                    }
+                    Spacer(minLength: 4)
                     Text(when).font(.geist(11)).foregroundStyle(p.mutedFg)
+                } else {
+                    Text(c.title).font(.geist(14)).lineLimit(1)
+                        .foregroundStyle(active || hover ? p.foreground : p.foreground.opacity(0.8))
+                    Spacer(minLength: 4)
+                    if running {
+                        ProgressView().controlSize(.mini).tint(p.glow)
+                    } else {
+                        Text(when).font(.geist(11)).foregroundStyle(p.mutedFg)
+                    }
                 }
             }
             .padding(.horizontal, 10).padding(.vertical, 6)

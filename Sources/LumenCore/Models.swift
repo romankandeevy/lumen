@@ -51,6 +51,8 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var model: ChatModel
     public var effort: Effort
     public var chatWidth: ChatWidth
+    /// Папки, где недавно работал агент — первая выбрана для новой задачи
+    public var recentFolders: [String] = []
 
     public init(onboarded: Bool = false, backend: Backend = .subscription, theme: Theme = .lumen, reducedMotion: Bool = false,
                 model: ChatModel = .sonnet, effort: Effort = .medium, chatWidth: ChatWidth = .normal) {
@@ -73,6 +75,7 @@ public struct Preferences: Codable, Sendable, Equatable {
         model = try c.decodeIfPresent(ChatModel.self, forKey: .model) ?? .sonnet
         effort = try c.decodeIfPresent(Effort.self, forKey: .effort) ?? .medium
         chatWidth = try c.decodeIfPresent(ChatWidth.self, forKey: .chatWidth) ?? .normal
+        recentFolders = try c.decodeIfPresent([String].self, forKey: .recentFolders) ?? []
     }
 }
 

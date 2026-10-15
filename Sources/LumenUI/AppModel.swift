@@ -20,6 +20,11 @@ public final class AppModel {
     enum Page: Equatable { case chat, settings(SettingsView.Section) }
 
     var page: Page = .chat
+    /// Вкладка панели: Чат или Агент
+    enum Tab { case chat, agent }
+    var tab: Tab = .chat
+    /// Папка для новой задачи агента
+    var agentFolder: URL?
     var conversations: [Conversation] = []
     @ObservationIgnored private(set) lazy var chat = ChatController(app: self)
 
@@ -64,9 +69,47 @@ public final class AppModel {
             keyState = .saved
         }
         conversations = (try? store.conversations()) ?? []
+        agentFolder = prefs.recentFolders.lazy.map { URL(fileURLWithPath: $0) }
+            .first { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     // MARK: разговоры
+
+    /// Агент по умолчанию думает Opus на высоком уровне, как в макете; если Opus недоступен — Sonnet
+    var defaultAgentModel: ChatModel {
+        availableModels(for: .subscription).contains(.opus) ? .opus : .sonnet
+    }
+
+    func rememberFolder(_ url: URL) {
+        update {
+            $0.recentFolders.removeAll { $0 == url.path }
+            $0.recentFolders.insert(url.path, at: 0)
+            $0.recentFolders = Array($0.recentFolders.prefix(8))
+        }
+    }
+
+    var recentFolders: [URL] {
+        prefs.recentFolders.map { URL(fileURLWithPath: $0) }.filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Выбрать"
+        panel.message = "Папка проекта для агента"
+        if panel.runModal() == .OK, let url = panel.url {
+            agentFolder = url
+            rememberFolder(url)
+        }
+    }
+
+    func newAgentTask() {
+        tab = .agent
+        chat.startNew()
+        page = .chat
+    }
 
     /// Сколько фактов помнит Lumen — для пустого чата
     var memoryCount: Int { (try? store.memories().count) ?? 0 }
@@ -76,11 +119,13 @@ public final class AppModel {
     }
 
     func openChat(_ c: Conversation) {
+        tab = c.kind == .agent ? .agent : .chat
         chat.open(c)
         page = .chat
     }
 
     func newChat() {
+        if tab == .agent { return newAgentTask() }
         chat.startNew()
         page = .chat
     }

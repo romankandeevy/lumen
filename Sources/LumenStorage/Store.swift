@@ -62,6 +62,16 @@ public final class Store: Sendable {
                 t.column("createdAt", .datetime).notNull()
             }
         }
+        m.registerMigration("v3-agent") { db in
+            try db.alter(table: "conversation") { t in
+                t.add(column: "kind", .text).notNull().defaults(to: "chat")
+                t.add(column: "folder", .text)
+            }
+            try db.alter(table: "message") { t in
+                t.add(column: "steps", .jsonText).notNull().defaults(to: "[]")
+                t.add(column: "changes", .jsonText)
+            }
+        }
         return m
     }
 

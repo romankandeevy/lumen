@@ -11,16 +11,21 @@ struct ChatView: View {
 
     private var chat: ChatController { app.chat }
     private var backend: Backend { chat.conversation?.backend ?? app.prefs.backend }
+    private var agent: Bool { chat.conversation.map { $0.kind == .agent } ?? (app.tab == .agent) }
+    private var folder: URL? { chat.conversation?.folder.map { URL(fileURLWithPath: $0) } ?? app.agentFolder }
 
     var body: some View {
         VStack(spacing: 0) {
             header
             if chat.messages.isEmpty && !chat.busy {
-                empty.frame(maxWidth: .infinity, maxHeight: .infinity)
+                Group {
+                    if agent { AgentEmpty(app: app) { draft = $0 } } else { empty }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 transcript
             }
-            Composer(app: app, draft: $draft, backend: backend)
+            Composer(app: app, draft: $draft, backend: backend, agent: agent)
         }
         .foregroundStyle(p.foreground)
     }
@@ -28,11 +33,27 @@ struct ChatView: View {
     /// h-14 border-b px-5 gap-3: знак 28 со сферой 18, заголовок text-sm medium, подпись text-xs
     private var header: some View {
         HStack(spacing: 12) {
-            Orb(state: app.orb, size: 18).frame(width: 28, height: 28)
+            if agent {
+                Image(systemName: "folder").font(.system(size: 14)).foregroundStyle(p.glow)
+                    .frame(width: 28, height: 28)
+                    .background(p.foreground.opacity(0.07), in: RoundedRectangle(cornerRadius: R.lg))
+            } else {
+                Orb(state: app.orb, size: 18).frame(width: 28, height: 28)
+            }
             VStack(alignment: .leading, spacing: 0) {
-                Text(chat.conversation?.title ?? "Новый чат").font(.geist(14, .medium)).lineLimit(1)
-                Text("Чат — просто разговор, Lumen ничего не трогает" + (backend == .api ? " · через API" : ""))
+                Text(chat.conversation?.title ?? (agent ? "Новая задача" : "Новый чат")).font(.geist(14, .medium)).lineLimit(1)
+                if agent {
+                    HStack(spacing: 6) {
+                        Text("Агент в папке \(folder?.lastPathComponent ?? "—")")
+                        Text("·").foregroundStyle(p.foreground.opacity(0.2))
+                        Image(systemName: "laptopcomputer").font(.system(size: 10))
+                        Text("на этом Маке" + (backend == .api ? ", по ключу API" : ""))
+                    }
                     .font(.geist(12)).foregroundStyle(p.mutedFg).lineLimit(1)
+                } else {
+                    Text("Чат — просто разговор, Lumen ничего не трогает" + (backend == .api ? " · через API" : ""))
+                        .font(.geist(12)).foregroundStyle(p.mutedFg).lineLimit(1)
+                }
             }
             Spacer()
         }
@@ -64,10 +85,10 @@ struct ChatView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 28) {
                     ForEach(chat.messages) { m in
-                        MessageRow(message: m).id(m.id)
+                        MessageRow(message: m, chat: chat).id(m.id)
                     }
                     if let s = chat.streaming {
-                        MessageRow(message: s, streaming: true)
+                        MessageRow(message: s, chat: chat, streaming: true)
                     } else if chat.thinking {
                         HStack(spacing: 12) {
                             Orb(state: .thinking, size: 22)
@@ -143,6 +164,7 @@ enum Plural {
 /// Одно сообщение: своё — пузырём справа (`UserMsg`), ответ Lumen — со сферой слева (`LumenMsg`)
 struct MessageRow: View {
     let message: ChatMessage
+    var chat: ChatController?
     var streaming = false
 
     @Environment(\.palette) private var p
@@ -164,8 +186,14 @@ struct MessageRow: View {
             HStack(alignment: .top, spacing: 14) {
                 Orb(state: streaming ? .writing : .idle, size: 22, animated: streaming).padding(.top, 2)
                 VStack(alignment: .leading, spacing: 12) {
+                    if !message.steps.isEmpty {
+                        StepsView(steps: message.steps, live: streaming)
+                    }
                     if !message.text.isEmpty {
                         RichText(text: message.text)
+                    }
+                    if let changes = message.changes, let chat {
+                        ChangeCard(message: message, changes: changes, chat: chat)
                     }
                     if message.stopped {
                         Label("Остановлено", systemImage: "stop.circle").font(.geist(12)).foregroundStyle(p.mutedFg)
@@ -246,20 +274,24 @@ struct Composer: View {
     @Bindable var app: AppModel
     @Binding var draft: String
     let backend: Backend
+    var agent = false
 
     @Environment(\.palette) private var p
     @FocusState private var focused: Bool
     @State private var modelOpen = false
     @State private var effortOpen = false
+    @State private var folderOpen = false
 
     private var chat: ChatController { app.chat }
-    private var model: ChatModel { chat.conversation?.model ?? app.prefs.model }
-    private var effort: Effort { chat.conversation?.effort ?? app.prefs.effort }
+    private var model: ChatModel { chat.conversation?.model ?? (agent ? app.defaultAgentModel : app.prefs.model) }
+    private var effort: Effort { chat.conversation?.effort ?? (agent ? .high : app.prefs.effort) }
+    /// Агенту без папки отправлять нечего
+    private var ready: Bool { !agent || chat.conversation != nil || app.agentFolder != nil }
     private var canSend: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            TextField("Просто напиши. ⌥↩ — новая строка", text: $draft, axis: .vertical)
+            TextField(agent ? "Что сделать в проекте? ⌥↩ — новая строка" : "Просто напиши. ⌥↩ — новая строка", text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.geist(14))
                 .lineSpacing(3)
@@ -268,6 +300,7 @@ struct Composer: View {
                 .onSubmit(send)
                 .frame(minHeight: 48, alignment: .topLeading)
             HStack(spacing: 2) {
+                if agent { folderPicker }
                 Spacer()
                 modelPicker
                 effortPicker
@@ -292,9 +325,40 @@ struct Composer: View {
     }
 
     private func send() {
-        guard !chat.busy, canSend else { return }
+        guard !chat.busy, canSend, ready else { return }
         chat.send(draft)
         draft = ""
+    }
+
+    /// `FolderPicker`: папка проекта; у начатой сессии папка уже не меняется
+    private var folderPicker: some View {
+        let current = chat.conversation?.folder.map { URL(fileURLWithPath: $0) } ?? app.agentFolder
+        return PickerButton(open: $folderOpen) {
+            Image(systemName: "folder").font(.system(size: 12)).foregroundStyle(p.glow)
+            Text(current?.lastPathComponent ?? "Выбрать папку").font(.geist(12))
+        } panel: {
+            PopoverPanel(title: "Папка проекта", width: 256) {
+                ForEach(app.recentFolders, id: \.self) { f in
+                    PopoverOption(name: f.lastPathComponent, note: f.deletingLastPathComponent().path.replacingOccurrences(of: NSHomeDirectory(), with: "~"),
+                                  active: f.standardizedFileURL.path == current?.standardizedFileURL.path) {
+                        Image(systemName: "folder").font(.system(size: 14)).foregroundStyle(p.mutedFg)
+                    } action: {
+                        app.agentFolder = f
+                        folderOpen = false
+                    }
+                }
+                Button {
+                    folderOpen = false
+                    app.chooseFolder()
+                } label: {
+                    Text("Другая папка…").font(.geist(12)).foregroundStyle(p.mutedFg)
+                        .padding(.horizontal, 8).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .disabled(chat.conversation != nil || chat.busy)
     }
 
     /// `ModelPicker`: Sparkles text-glow + название text-xs medium + стрелка
@@ -361,8 +425,8 @@ struct Composer: View {
                     .shadow(color: canSend ? p.glowSoft : .clear, radius: 8)
             }
             .buttonStyle(.plain)
-            .disabled(!canSend)
-            .help("Отправить · ↩")
+            .disabled(!canSend || !ready)
+            .help(ready ? "Отправить · ↩" : "Сначала выбери папку проекта")
         }
     }
 }

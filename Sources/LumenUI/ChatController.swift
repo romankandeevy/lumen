@@ -61,10 +61,19 @@ final class ChatController {
     func send(_ raw: String) {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !busy else { return }
-        var c = conversation ?? Conversation(title: Self.title(from: text), backend: app.prefs.backend,
-                                             model: app.prefs.model, effort: app.prefs.effort)
+        var c: Conversation
+        if let existing = conversation {
+            c = existing
+        } else if app.tab == .agent {
+            guard let folder = app.agentFolder else { return }
+            c = Conversation(title: Self.title(from: text), kind: .agent, folder: folder.path, backend: app.prefs.backend,
+                             model: app.defaultAgentModel, effort: .high)
+            app.rememberFolder(folder)
+        } else {
+            c = Conversation(title: Self.title(from: text), backend: app.prefs.backend, model: app.prefs.model, effort: app.prefs.effort)
+        }
         let isNew = conversation == nil
-        if c.backend == .subscription && c.cliSessionID == nil { c.cliSessionID = UUID().uuidString.lowercased() }
+        if c.usesCLI && c.cliSessionID == nil { c.cliSessionID = UUID().uuidString.lowercased() }
         do {
             try app.store.save(c)
             let user = try app.store.save(ChatMessage(conversationID: c.id, role: .user, text: text))
@@ -81,7 +90,7 @@ final class ChatController {
         let history = messages
         turnTask = Task { [weak self] in
             guard let self else { return }
-            if c.backend == .subscription {
+            if c.usesCLI {
                 await self.runCLI(c, text: text, hadTurnsBefore: history.contains { $0.role == .assistant && $0.error == nil })
             } else {
                 await self.runAPI(c, history: history)
@@ -97,8 +106,9 @@ final class ChatController {
     func stop() {
         guard busy else { return }
         stopRequested = true
-        if let id = conversation?.id { sessions[id]?.interrupt() }
-        if conversation?.backend == .api { turnTask?.cancel() }
+        if let c = conversation {
+            if c.usesCLI { sessions[c.id]?.interrupt() } else { turnTask?.cancel() }
+        }
     }
 
     private func runCLI(_ c: Conversation, text: String, hadTurnsBefore: Bool) async {
@@ -106,6 +116,10 @@ final class ChatController {
             finish(c, text: "", error: "Claude Code не найден. Поставь его и войди в Настройках → Модели и оплата.")
             return
         }
+        // агент: что было изменено в папке до хода — чтобы показать только его правки
+        let git = c.folder.map { Git(folder: URL(fileURLWithPath: $0)) }
+        var before: Git.Snapshot?
+        if let git, await git.isRepo { before = try? await git.snapshot() }
         do {
             let session = try cliSession(for: c, cli: cli, resume: hadTurnsBefore)
             var answer = ""
@@ -115,22 +129,28 @@ final class ChatController {
                 case .textDelta(let t):
                     answer += t
                     appendStreaming(t, c)
+                case .step(let step):
+                    appendStep(step, c)
                 case .finished(let r):
                     result = r
                 default: break
                 }
             }
+            var changes: ChangeSet?
+            if let git, let before, let files = try? await git.changes(since: before), !files.isEmpty {
+                changes = ChangeSet(files: files)
+            }
             guard let result else {
                 sessions[c.id] = nil
-                finish(c, text: answer, error: Self.cliError(session.errorOutput))
+                finish(c, text: answer, error: Self.cliError(session.errorOutput), changes: changes)
                 return
             }
             if stopRequested {
-                finish(c, text: answer, stopped: true)
+                finish(c, text: answer, stopped: true, changes: changes)
             } else if result.ok {
-                finish(c, text: answer.isEmpty ? result.text : answer)
+                finish(c, text: answer.isEmpty ? result.text : answer, changes: changes)
             } else {
-                finish(c, text: answer, error: Self.cliError(result.text))
+                finish(c, text: answer, error: Self.cliError(result.text), changes: changes)
             }
         } catch {
             finish(c, text: "", error: error.localizedDescription)
@@ -148,9 +168,18 @@ final class ChatController {
             sessions[oldest]?.close()
             sessions[oldest] = nil
         }
-        let s = try ClaudeSession(cli: cli, config: .init(
-            model: c.model.rawValue, effort: c.effort.rawValue, systemPrompt: app.systemPrompt(),
-            tools: [], userSettings: false, sessionID: c.cliSessionID ?? UUID().uuidString.lowercased(), resume: resume))
+        let sid = c.cliSessionID ?? UUID().uuidString.lowercased()
+        var config: ClaudeSession.Config
+        if c.kind == .agent, let folder = c.folder {
+            config = .agent(model: c.model.rawValue, effort: c.effort.rawValue, persona: app.agentPrompt(),
+                            folder: URL(fileURLWithPath: folder), sessionID: sid, resume: resume)
+            // агент по ключу: тот же claude, но платит ключ (§2.4 техплана)
+            if c.backend == .api, let key = app.keychain.read(Keychain.anthropicKey) { config.extraEnv["ANTHROPIC_API_KEY"] = key }
+        } else {
+            config = .init(model: c.model.rawValue, effort: c.effort.rawValue, systemPrompt: app.systemPrompt(),
+                           tools: [], userSettings: false, sessionID: sid, resume: resume)
+        }
+        let s = try ClaudeSession(cli: cli, config: config)
         sessions[c.id] = s
         return s
     }
@@ -194,11 +223,64 @@ final class ChatController {
         streaming?.text += t
     }
 
-    private func finish(_ c: Conversation, text: String, apiContent: String? = nil, stopped: Bool = false, error: String? = nil) {
+    private func appendStep(_ step: AgentStep, _ c: Conversation) {
+        if thinking {
+            thinking = false
+            app.orb = .idle
+        }
+        if streaming == nil { streaming = ChatMessage(conversationID: c.id, role: .assistant, text: "", model: c.model) }
+        streaming?.steps.append(step)
+    }
+
+    private func finish(_ c: Conversation, text: String, apiContent: String? = nil, stopped: Bool = false, error: String? = nil,
+                        changes: ChangeSet? = nil) {
+        let steps = streaming?.steps ?? []
         streaming = nil
         let m = ChatMessage(conversationID: c.id, role: .assistant, text: text, apiContent: apiContent,
-                            model: c.model, stopped: stopped, error: error)
+                            model: c.model, stopped: stopped, error: error, steps: steps, changes: changes)
         if let saved = try? app.store.save(m), conversation?.id == c.id { messages.append(saved) }
+    }
+
+    // MARK: карточка «Изменения»
+
+    private func git(for m: ChatMessage) -> Git? {
+        guard let folder = conversation?.folder, m.changes != nil else { return nil }
+        return Git(folder: URL(fileURLWithPath: folder))
+    }
+
+    func diff(_ m: ChatMessage) async -> String {
+        guard let git = git(for: m), let files = m.changes?.files else { return "" }
+        do { return try await git.diff(files) } catch { return error.localizedDescription }
+    }
+
+    /// Ошибка последнего действия с изменениями — показывается в карточке
+    private(set) var changeError: [Int64: String] = [:]
+
+    func commit(_ m: ChatMessage) async {
+        guard let git = git(for: m), let set = m.changes, set.state == .applied else { return }
+        do {
+            try await git.commit(set.files, message: conversation?.title ?? "Правки Lumen")
+            update(m) { $0.changes?.state = .committed }
+        } catch {
+            if let id = m.id { changeError[id] = error.localizedDescription }
+        }
+    }
+
+    func revert(_ m: ChatMessage) async {
+        guard let git = git(for: m), let set = m.changes, set.state == .applied else { return }
+        do {
+            try await git.revert(set.files)
+            update(m) { $0.changes?.state = .reverted }
+        } catch {
+            if let id = m.id { changeError[id] = error.localizedDescription }
+        }
+    }
+
+    private func update(_ m: ChatMessage, _ change: (inout ChatMessage) -> Void) {
+        guard let i = messages.firstIndex(where: { $0.id == m.id }) else { return }
+        change(&messages[i])
+        if let id = m.id { changeError[id] = nil }
+        _ = try? app.store.save(messages[i])
     }
 
     // MARK: мелочи
@@ -225,7 +307,21 @@ final class ChatController {
     }
 }
 
+extension Conversation {
+    /// Агент всегда работает через claude (и по подписке, и по ключу), чат — через claude только по подписке
+    var usesCLI: Bool { kind == .agent || backend == .subscription }
+}
+
 extension AppModel {
+    /// Дописывается к системному промпту Claude Code у агента: кто такой Lumen и правило про push
+    func agentPrompt() -> String {
+        var lines = ["Ты — Lumen, агент на Маке. Отвечай по-русски, по делу."]
+        if !profile.name.isEmpty { lines.append("Собеседника зовут \(profile.name), обращайся на \(profile.address == .ty ? "«ты»" : "«вы»").") }
+        lines.append("Push, публикацию и выкатку не делай: это только с явного OK, и делает их человек.")
+        lines.append("В конце хода коротко скажи, что сделано и что не проверено.")
+        return lines.joined(separator: "\n")
+    }
+
     /// Системный промпт Lumen (SOUL v0): кто он, с кем говорит, закреплённые факты.
     /// Детерминированный — одинаковый от хода к ходу, поэтому кэшируется.
     func systemPrompt() -> String {

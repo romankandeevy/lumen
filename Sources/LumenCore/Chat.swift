@@ -61,11 +61,81 @@ public enum Effort: String, Codable, Sendable, CaseIterable, Identifiable {
     public var level: Int { Effort.allCases.firstIndex(of: self) ?? 0 }
 }
 
-/// Разговор во вкладке «Чат». Через что он думает, выбирается при создании и не меняется:
+/// Чат — просто разговор; агент — работа в папке проекта
+public enum ConversationKind: String, Codable, Sendable { case chat, agent }
+
+/// Шаг агента: что он делал (читал, правил, запускал) — из вызовов инструментов
+public struct AgentStep: Codable, Sendable, Equatable, Hashable {
+    public enum Kind: String, Codable, Sendable { case read, edit, run, search, web, think, other }
+    public var kind: Kind
+    public var text: String
+
+    public init(kind: Kind, text: String) {
+        self.kind = kind
+        self.text = text
+    }
+
+    /// Человеческая строка из имени инструмента и его входа
+    public static func from(tool: String, input: [String: Any]) -> AgentStep {
+        func file(_ k: String) -> String { ((input[k] as? String) ?? "").split(separator: "/").last.map(String.init) ?? "" }
+        switch tool {
+        case "Read": return .init(kind: .read, text: "Читает \(file("file_path"))")
+        case "Edit", "MultiEdit": return .init(kind: .edit, text: "Правит \(file("file_path"))")
+        case "Write": return .init(kind: .edit, text: "Пишет \(file("file_path"))")
+        case "NotebookEdit": return .init(kind: .edit, text: "Правит \(file("notebook_path"))")
+        case "Bash":
+            let cmd = (input["description"] as? String) ?? (input["command"] as? String) ?? ""
+            return .init(kind: .run, text: "Запускает: " + String(cmd.prefix(80)))
+        case "Grep": return .init(kind: .search, text: "Ищет «\((input["pattern"] as? String ?? "").prefix(40))»")
+        case "Glob": return .init(kind: .search, text: "Ищет файлы \((input["pattern"] as? String ?? "").prefix(40))")
+        case "WebSearch": return .init(kind: .web, text: "Ищет в интернете «\((input["query"] as? String ?? "").prefix(40))»")
+        case "WebFetch": return .init(kind: .web, text: "Открывает \((input["url"] as? String ?? "").prefix(60))")
+        case "TodoWrite": return .init(kind: .think, text: "Обновляет план")
+        case "Task", "Agent": return .init(kind: .think, text: "Отдаёт часть работы помощнику")
+        default: return .init(kind: .other, text: tool.hasPrefix("mcp__") ? tool.components(separatedBy: "__").last ?? tool : tool)
+        }
+    }
+}
+
+/// Изменённый агентом файл (карточка «Изменения»)
+public struct FileChange: Codable, Sendable, Equatable, Hashable {
+    public var path: String
+    /// M — изменён, A — новый, D — удалён
+    public var status: String
+    public var added: Int
+    public var removed: Int
+    /// Файл был изменён ещё до хода агента — его не откатываем, чтобы не потерять чужую работу
+    public var preexisting: Bool
+
+    public init(path: String, status: String, added: Int, removed: Int, preexisting: Bool = false) {
+        self.path = path
+        self.status = status
+        self.added = added
+        self.removed = removed
+        self.preexisting = preexisting
+    }
+}
+
+/// Карточка «Изменения» после хода агента
+public struct ChangeSet: Codable, Sendable, Equatable {
+    public enum State: String, Codable, Sendable { case applied, committed, reverted }
+    public var files: [FileChange]
+    public var state: State
+
+    public init(files: [FileChange], state: State = .applied) {
+        self.files = files
+        self.state = state
+    }
+}
+
+/// Разговор во вкладке «Чат» или «Агент». Через что он думает, выбирается при создании и не меняется:
 /// у подписки история живёт в сессии `claude`, у API — в базе Lumen.
 public struct Conversation: Codable, Sendable, Equatable, Identifiable, Hashable {
     public var id: String
     public var title: String
+    public var kind: ConversationKind
+    /// Папка проекта — только у агента
+    public var folder: String?
     public var backend: Backend
     public var model: ChatModel
     public var effort: Effort
@@ -74,10 +144,13 @@ public struct Conversation: Codable, Sendable, Equatable, Identifiable, Hashable
     public var createdAt: Date
     public var updatedAt: Date
 
-    public init(id: String = UUID().uuidString.lowercased(), title: String = "", backend: Backend, model: ChatModel,
-                effort: Effort, cliSessionID: String? = nil, createdAt: Date = Date(), updatedAt: Date = Date()) {
+    public init(id: String = UUID().uuidString.lowercased(), title: String = "", kind: ConversationKind = .chat, folder: String? = nil,
+                backend: Backend, model: ChatModel, effort: Effort, cliSessionID: String? = nil,
+                createdAt: Date = Date(), updatedAt: Date = Date()) {
         self.id = id
         self.title = title
+        self.kind = kind
+        self.folder = folder
         self.backend = backend
         self.model = model
         self.effort = effort
@@ -103,10 +176,15 @@ public struct ChatMessage: Codable, Sendable, Equatable, Identifiable {
     public var stopped: Bool
     /// Понятная ошибка вместо ответа
     public var error: String?
+    /// Шаги агента за этот ход
+    public var steps: [AgentStep]
+    /// Что агент поменял в файлах
+    public var changes: ChangeSet?
     public var createdAt: Date
 
     public init(id: Int64? = nil, conversationID: String, role: Role, text: String, apiContent: String? = nil,
-                model: ChatModel? = nil, stopped: Bool = false, error: String? = nil, createdAt: Date = Date()) {
+                model: ChatModel? = nil, stopped: Bool = false, error: String? = nil, steps: [AgentStep] = [],
+                changes: ChangeSet? = nil, createdAt: Date = Date()) {
         self.id = id
         self.conversationID = conversationID
         self.role = role
@@ -115,6 +193,8 @@ public struct ChatMessage: Codable, Sendable, Equatable, Identifiable {
         self.model = model
         self.stopped = stopped
         self.error = error
+        self.steps = steps
+        self.changes = changes
         self.createdAt = createdAt
     }
 }

@@ -3,6 +3,7 @@ import Testing
 @testable import LumenCore
 @testable import LumenProviders
 @testable import LumenUI
+@testable import LumenStorage
 
 // Живые проверки на настоящем `claude` по подписке. Тратят немного лимита, поэтому только по запросу:
 //   LUMEN_LIVE=1 swift test --filter Live
@@ -74,4 +75,54 @@ private let live = ProcessInfo.processInfo.environment["LUMEN_LIVE"] == "1"
     while app.chat.busy { try await Task.sleep(for: .milliseconds(100)) }
     #expect(app.chat.messages.last?.text.contains("Ярослав") == true)
     #expect(try app.store.messages(in: app.chat.conversation!.id).count == 6)
+}
+
+@MainActor @Test(.enabled(if: live)) func liveAgentEditsCommitsAndReverts() async throws {
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("lumen-agent-\(UUID().uuidString)")
+    let repo = root.appendingPathComponent("proj")
+    try fm.createDirectory(at: repo, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: root) }
+    func sh(_ args: String...) async throws { _ = try await Shell.run(URL(fileURLWithPath: "/usr/bin/env"), args, cwd: repo) }
+    try "hello\n".write(to: repo.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await sh("git", "init", "-q")
+    try await sh("git", "add", ".")
+    try await sh("git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init")
+
+    let app = try AppModel(paths: AppPaths(root: root.appendingPathComponent("home")))
+    await app.refreshClaude()
+    app.finishOnboarding(name: "Тест", address: .ty, backend: .subscription, theme: .lumen)
+    app.tab = .agent
+    app.agentFolder = repo
+    app.newAgentTask()
+    app.chat.send("Допиши в конец файла a.txt строку world и создай файл b.txt со словом new. Больше ничего не делай.")
+    // модель агента — Haiku, чтобы тест был быстрым
+    app.chat.set(model: .haiku, effort: .low)
+    while app.chat.busy { try await Task.sleep(for: .milliseconds(200)) }
+
+    let reply = try #require(app.chat.messages.last)
+    #expect(reply.error == nil, "\(reply.error ?? "")")
+    #expect(!reply.steps.isEmpty)
+    let changes = try #require(reply.changes)
+    #expect(Set(changes.files.map(\.path)) == ["a.txt", "b.txt"])
+    #expect(app.chat.conversation?.kind == .agent)
+    #expect(app.recentFolders.first?.resolvingSymlinksInPath() == repo.resolvingSymlinksInPath())
+
+    let diff = await app.chat.diff(reply)
+    #expect(diff.contains("+world"))
+
+    await app.chat.revert(reply)
+    #expect(app.chat.messages.last?.changes?.state == .reverted)
+    #expect(try String(contentsOf: repo.appendingPathComponent("a.txt"), encoding: .utf8) == "hello\n")
+    #expect(!fm.fileExists(atPath: repo.appendingPathComponent("b.txt").path))
+
+    // второй ход в той же сессии: правка и коммит кнопкой
+    app.chat.send("Создай файл c.txt со словом ok. Больше ничего не делай.")
+    while app.chat.busy { try await Task.sleep(for: .milliseconds(200)) }
+    let second = try #require(app.chat.messages.last)
+    #expect(second.changes?.files.map(\.path) == ["c.txt"])
+    await app.chat.commit(second)
+    #expect(app.chat.messages.last?.changes?.state == .committed)
+    let log = try await Shell.run(URL(fileURLWithPath: "/usr/bin/env"), ["git", "log", "--oneline"], cwd: repo)
+    #expect(log.stdout.split(separator: "\n").count == 2)
 }

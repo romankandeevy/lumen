@@ -78,3 +78,29 @@ enum Snap {
         Orb(state: .idle, size: 22, animated: false).scaleEffect(4)
     }.frame(width: 400, height: 240).background(Palette.lumen.card).environment(\.palette, .lumen), "orb", size: CGSize(width: 400, height: 240))
 }
+
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotAgent() async throws {
+    Snap.registerFonts()
+    let app = try Snap.app()
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .subscription, theme: .lumen)
+    let folders = ["lumen", "shelf", "island", "prog-dashboard"].map { FileManager.default.temporaryDirectory.appendingPathComponent($0) }
+    for f in folders.reversed() {
+        try? FileManager.default.createDirectory(at: f, withIntermediateDirectories: true)
+        app.rememberFolder(f)
+    }
+    app.agentFolder = folders[0]
+    app.newAgentTask()
+    try await Snap.save(RootView(app: app), "04-agent-empty")
+
+    let c = Conversation(title: "Почему падает Shelf?", kind: .agent, folder: folders[1].path, backend: .subscription, model: .sonnet, effort: .high)
+    try app.store.save(c)
+    try app.store.save(ChatMessage(conversationID: c.id, role: .user, text: "Почему падает Shelf при двойном щелчке?"))
+    try app.store.save(ChatMessage(conversationID: c.id, role: .assistant,
+        text: "Нашёл: `ShelfStorage.remove(at:)` вызывается дважды, второй раз — с индексом, которого уже нет. Добавил проверку индекса.",
+        steps: [.init(kind: .read, text: "Читает ShelfStorage.swift"), .init(kind: .search, text: "Ищет «remove(at:»"),
+                .init(kind: .edit, text: "Правит ShelfStorage.swift"), .init(kind: .run, text: "Запускает: ./build.sh")],
+        changes: ChangeSet(files: [FileChange(path: "Sources/ShelfStorage.swift", status: "M", added: 2, removed: 1)])))
+    app.reloadConversations()
+    app.openChat(c)
+    try await Snap.save(RootView(app: app), "05-agent-session")
+}

@@ -17,10 +17,19 @@ public final class ClaudeSession: @unchecked Sendable {
         public var resume: Bool
         public var cwd: URL?
         public var extraEnv: [String: String]
+        /// Дописать к системному промпту Claude Code (агент), а не заменить его
+        public var appendSystemPrompt: String?
+        /// Что разрешено без вопросов и что запрещено даже при обходе (`--allowedTools` / `--disallowedTools`)
+        public var allowedTools: [String]
+        public var disallowedTools: [String]
 
         public init(model: String, effort: String? = nil, systemPrompt: String? = nil, tools: [String]? = [],
                     userSettings: Bool = false, sessionID: String = UUID().uuidString.lowercased(),
-                    resume: Bool = false, cwd: URL? = nil, extraEnv: [String: String] = [:]) {
+                    resume: Bool = false, cwd: URL? = nil, extraEnv: [String: String] = [:],
+                    appendSystemPrompt: String? = nil, allowedTools: [String] = [], disallowedTools: [String] = []) {
+            self.appendSystemPrompt = appendSystemPrompt
+            self.allowedTools = allowedTools
+            self.disallowedTools = disallowedTools
             self.model = model
             self.effort = effort
             self.systemPrompt = systemPrompt
@@ -32,13 +41,25 @@ public final class ClaudeSession: @unchecked Sendable {
             self.extraEnv = extraEnv
         }
 
-        /// Аргументы командной строки. Флаги-списки (`--tools`) съедают следующий аргумент,
+        /// Агент в папке проекта: все инструменты Claude Code, настройки пользователя (сессия видна на острове),
+    /// правка и команды без вопросов, push запрещён (docs/spikes.md, спайк агента)
+    public static func agent(model: String, effort: String?, persona: String, folder: URL, sessionID: String, resume: Bool) -> Config {
+        Config(model: model, effort: effort, tools: nil, userSettings: true, sessionID: sessionID, resume: resume, cwd: folder,
+               appendSystemPrompt: persona,
+               allowedTools: ["Read", "Edit", "Write", "MultiEdit", "NotebookEdit", "Glob", "Grep", "Bash", "WebFetch", "WebSearch", "TodoWrite", "Task"],
+               disallowedTools: ["Bash(git push:*)", "Bash(git push)"])
+    }
+
+    /// Аргументы командной строки. Флаги-списки (`--tools`) съедают следующий аргумент,
         /// поэтому текст запроса в аргументы не кладём никогда — он идёт через stdin.
         public var arguments: [String] {
             var a = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
                      "--include-partial-messages", "--model", model, "--permission-mode", "dontAsk"]
             if let effort { a += ["--effort", effort] }
             if let systemPrompt { a += ["--system-prompt", systemPrompt] }
+            if let appendSystemPrompt { a += ["--append-system-prompt", appendSystemPrompt] }
+            if !allowedTools.isEmpty { a += ["--allowedTools"] + allowedTools }
+            if !disallowedTools.isEmpty { a += ["--disallowedTools"] + disallowedTools }
             if let tools { a += ["--tools", tools.joined(separator: ",")] }
             if !userSettings { a += ["--setting-sources", "", "--strict-mcp-config"] }
             a += resume ? ["--resume", sessionID] : ["--session-id", sessionID]
@@ -71,7 +92,7 @@ public final class ClaudeSession: @unchecked Sendable {
             let chunk = h.availableData
             guard let self, !chunk.isEmpty else { return }
             for line in lines.append(chunk) {
-                if let ev = ClaudeEvent.decode(line) { self.deliver(ev) }
+                for ev in ClaudeEvent.decodeAll(line) { self.deliver(ev) }
             }
         }
         errors.fileHandleForReading.readabilityHandler = { [weak self] h in
