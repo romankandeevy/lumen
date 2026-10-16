@@ -16,7 +16,31 @@ public enum ClaudeEvent: Sendable, Equatable {
     /// Агент обновил план (TodoWrite, TaskCreate, TaskUpdate)
     case plan(PlanItem.Change)
     case finished(TurnResult)
+    /// Агент просит разрешения (режимы «Спрашивать», «Принимать правки», «Авто», «План» — выход из плана)
+    case permission(PermissionRequest)
     case unknown(String)
+
+    public struct PermissionRequest: Sendable, Equatable, Identifiable {
+        public let id: String
+        public let tool: String
+        /// Вход инструмента как JSON — чтобы отдать его обратно как есть
+        public let inputJSON: String
+        public let description: String
+
+        public init(id: String, tool: String, inputJSON: String, description: String) {
+            self.id = id
+            self.tool = tool
+            self.inputJSON = inputJSON
+            self.description = description
+        }
+
+        public var input: [String: Any] {
+            (try? JSONSerialization.jsonObject(with: Data(inputJSON.utf8)) as? [String: Any]) ?? [:]
+        }
+
+        /// Человеческая строка: что именно хочет сделать
+        public var step: AgentStep { AgentStep.from(tool: tool, input: input) }
+    }
 
     public struct RateLimit: Sendable, Equatable {
         public let status: String
@@ -72,6 +96,13 @@ public enum ClaudeEvent: Sendable, Equatable {
         let subtype = obj["subtype"] as? String
 
         switch (type, subtype) {
+        case ("control_request", _):
+            guard let req = obj["request"] as? [String: Any], req["subtype"] as? String == "can_use_tool",
+                  let id = obj["request_id"] as? String else { return nil }
+            let input = req["input"] as? [String: Any] ?? [:]
+            let json = String(decoding: (try? JSONSerialization.data(withJSONObject: input)) ?? Data("{}".utf8), as: UTF8.self)
+            return .permission(.init(id: id, tool: req["tool_name"] as? String ?? "", inputJSON: json,
+                                     description: req["description"] as? String ?? ""))
         case ("system", "init"):
             return .started(sessionID: obj["session_id"] as? String ?? "",
                             model: obj["model"] as? String ?? "",

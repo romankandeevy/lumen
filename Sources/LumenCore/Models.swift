@@ -61,9 +61,14 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var contextOpen = false
     /// Левая панель спрятана (кнопка рядом с кнопками окна, как в Claude)
     public var sidebarHidden = false
+    /// Ширина левой панели и правой (контекст, паспорт бота) — тянутся за край, не шире половины окна
+    public var sidebarWidth: Double = 256
+    public var panelWidth: Double = 320
     /// Модель и «сколько думать» для новой задачи агента (у чата — `model` и `effort`)
     public var agentModel: ChatModel?
     public var agentEffort: Effort?
+    /// Режим новой задачи агента
+    public var agentMode: AgentMode = .auto
     /// Получать бета-версии (1.0.1, 1.0.2…), а не только стабильные
     public var betaUpdates = false
 
@@ -93,9 +98,12 @@ public struct Preferences: Codable, Sendable, Equatable {
         monthlyLimit = try c.decodeIfPresent(Int.self, forKey: .monthlyLimit) ?? 100
         contextOpen = try c.decodeIfPresent(Bool.self, forKey: .contextOpen) ?? false
         sidebarHidden = try c.decodeIfPresent(Bool.self, forKey: .sidebarHidden) ?? false
+        sidebarWidth = try c.decodeIfPresent(Double.self, forKey: .sidebarWidth) ?? 256
+        panelWidth = try c.decodeIfPresent(Double.self, forKey: .panelWidth) ?? 320
         betaUpdates = try c.decodeIfPresent(Bool.self, forKey: .betaUpdates) ?? false
         agentModel = try? c.decodeIfPresent(ChatModel.self, forKey: .agentModel)
         agentEffort = try? c.decodeIfPresent(Effort.self, forKey: .agentEffort)
+        agentMode = (try? c.decodeIfPresent(AgentMode.self, forKey: .agentMode)) ?? .auto
     }
 }
 

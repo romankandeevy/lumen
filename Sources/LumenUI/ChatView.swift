@@ -151,6 +151,9 @@ struct ChatView: View {
                     }
                     if let s = chat.streaming {
                         MessageRow(message: s, chat: chat, streaming: true)
+                    }
+                    if let ask = chat.pendingPermission, ask.conversationID == chat.conversation?.id {
+                        PermissionCard(chat: chat, ask: ask.request).id("permission-\(ask.request.id)")
                     } else if chat.thinking {
                         HStack(spacing: 12) {
                             if let b = app.bot(chat.turnBot) {
@@ -174,6 +177,7 @@ struct ChatView: View {
             .onChange(of: chat.messages.count) { withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("bottom", anchor: .bottom) } }
             .onChange(of: chat.streaming?.text.count) { proxy.scrollTo("bottom", anchor: .bottom) }
             .onChange(of: chat.conversation?.id) { proxy.scrollTo("bottom", anchor: .bottom) }
+            .onChange(of: chat.pendingPermission?.request.id) { withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("bottom", anchor: .bottom) } }
         }
     }
 }
@@ -400,6 +404,7 @@ struct Composer: View {
     @State private var modelOpen = false
     @State private var effortOpen = false
     @State private var folderOpen = false
+    @State private var modeOpen = false
 
     private var chat: ChatController { app.chat }
     private var model: ChatModel { chat.conversation?.model ?? (agent ? app.defaultAgentModel : app.prefs.model) }
@@ -454,7 +459,7 @@ struct Composer: View {
                 .onSubmit(send)
                 .frame(minHeight: big ? 96 : 48, alignment: .topLeading)
             HStack(spacing: 2) {
-                if agent { folderPicker }
+                if agent { folderPicker; modePicker }
                 if chat.busyElsewhere, let other = chat.running {
                     Button { app.openChat(other) } label: {
                         HStack(spacing: 6) {
@@ -555,6 +560,35 @@ struct Composer: View {
             }
         }
         .disabled(chat.busy)
+    }
+
+    /// Режим агента: как в Claude Code, Shift+Tab — следующий
+    private var mode: AgentMode { chat.conversation?.mode ?? app.prefs.agentMode }
+
+    private var modePicker: some View {
+        PickerButton(open: $modeOpen) {
+            Icon(mode.icon, 14).foregroundStyle(mode == .bypassPermissions ? Palette.destructive : p.glow)
+            Text(mode.name).font(.geist(12))
+        } panel: {
+            PopoverPanel(title: "Режим · Shift+Tab — следующий", width: 300) {
+                ForEach(AgentMode.allCases) { m in
+                    PopoverOption(name: m.name, note: m.note, active: m == mode) {
+                        Icon(m.icon, 16).foregroundStyle(m == .bypassPermissions ? Palette.destructive : p.mutedFg)
+                    } action: {
+                        chat.set(mode: m)
+                        modeOpen = false
+                    }
+                }
+            }
+        }
+        .background {
+            Button("") {
+                let all = AgentMode.allCases
+                chat.set(mode: all[((all.firstIndex(of: mode) ?? 0) + 1) % all.count])
+            }
+            .keyboardShortcut(.tab, modifiers: .shift).opacity(0)
+        }
+        .help("Режим: \(mode.note)")
     }
 
     /// `EffortPicker`: столбики уровня + название text-xs

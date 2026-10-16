@@ -467,3 +467,105 @@ struct NextStepCard: View {
         }
     }
 }
+
+/// Агент спрашивает «можно?» — как запрос разрешения в Claude Code. Для готового плана — свой вид.
+struct PermissionCard: View {
+    let chat: ChatController
+    let ask: ClaudeEvent.PermissionRequest
+
+    @Environment(\.palette) private var p
+    @State private var note = ""
+    @State private var revising = false
+
+    var body: some View {
+        if ask.tool == "ExitPlanMode" { plan } else { permission }
+    }
+
+    // MARK: разрешение
+
+    private var permission: some View {
+        let step = ask.step
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Icon("hand", 15).foregroundStyle(p.glow)
+                Text("Можно?").tw(13, .medium, lh: 18)
+                Text(step.text).tw(13, lh: 18).foregroundStyle(p.mutedFg).lineLimit(1)
+            }
+            if let detail {
+                ScrollView {
+                    Text(detail).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 180)
+                .padding(10)
+                .background(p.background.opacity(0.6), in: RoundedRectangle(cornerRadius: R.lg))
+                .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
+            }
+            HStack(spacing: 8) {
+                LButton(title: "Разрешить", icon: "check", kind: .primary, small: true) { chat.answerPermission(allow: true) }
+                    .keyboardShortcut(.return, modifiers: .command)
+                LButton(title: "Разрешать до конца разговора", kind: .outline, small: true) { chat.answerPermission(allow: true, always: true) }
+                LButton(title: "Отклонить", kind: .ghost, small: true) { chat.answerPermission(allow: false) }
+                    .keyboardShortcut(.escape, modifiers: [])
+                Spacer(minLength: 0)
+                Text("⌘↵ — разрешить · Esc — отклонить").tw(11, lh: 14).foregroundStyle(p.mutedFg)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(p.glow.opacity(0.05), in: RoundedRectangle(cornerRadius: R.xl))
+        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.glow.opacity(0.3)))
+    }
+
+    /// Что именно: команда, файл и правка
+    private var detail: String? {
+        let i = ask.input
+        switch ask.tool {
+        case "Bash": return i["command"] as? String
+        case "Write":
+            let text = (i["content"] as? String ?? "").prefix(1200)
+            return "\(i["file_path"] as? String ?? "")\n\n\(text)"
+        case "Edit":
+            let old = (i["old_string"] as? String ?? "").split(separator: "\n", omittingEmptySubsequences: false).prefix(12).map { "- " + $0 }
+            let new = (i["new_string"] as? String ?? "").split(separator: "\n", omittingEmptySubsequences: false).prefix(12).map { "+ " + $0 }
+            return "\(i["file_path"] as? String ?? "")\n\n" + (old + new).joined(separator: "\n")
+        case "WebFetch": return i["url"] as? String
+        default:
+            let json = ask.inputJSON
+            return json == "{}" ? nil : String(json.prefix(800))
+        }
+    }
+
+    // MARK: план готов
+
+    private var plan: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Icon("list-checks", 15).foregroundStyle(p.glow)
+                Text("План готов — выполнить?").tw(13, .medium, lh: 18)
+            }
+            RichText(text: ask.input["plan"] as? String ?? "")
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(p.background.opacity(0.6), in: RoundedRectangle(cornerRadius: R.lg))
+                .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
+            if revising {
+                HStack(spacing: 8) {
+                    GlowField(placeholder: "Что поменять в плане", text: $note) { chat.answerPlan(run: nil, note: note) }
+                    LButton(title: "Отправить", kind: .outline, small: true) { chat.answerPlan(run: nil, note: note) }
+                }
+            }
+            HStack(spacing: 8) {
+                LButton(title: "Выполнить · принимать правки", icon: "check", kind: .primary, small: true) { chat.answerPlan(run: .acceptEdits) }
+                    .keyboardShortcut(.return, modifiers: .command)
+                LButton(title: "Авто", kind: .outline, small: true) { chat.answerPlan(run: .auto) }
+                LButton(title: "Спрашивать каждый шаг", kind: .outline, small: true) { chat.answerPlan(run: .manual) }
+                LButton(title: "Доработать", kind: .ghost, small: true) { revising = true }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(p.glow.opacity(0.05), in: RoundedRectangle(cornerRadius: R.xl))
+        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.glow.opacity(0.3)))
+    }
+}

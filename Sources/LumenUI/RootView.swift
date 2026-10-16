@@ -11,6 +11,7 @@ public struct RootView: View {
 
     public var body: some View {
         let p = Palette.of(app.prefs.theme)
+        GeometryReader { g in
         HStack(spacing: 0) {
             if !app.prefs.sidebarHidden { Sidebar(app: app).transition(.move(edge: .leading)) }
             Group {
@@ -27,6 +28,8 @@ public struct RootView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .environment(\.windowWidth, g.size.width)
         }
         .ignoresSafeArea(.container, edges: .top)
         .animation(.easeOut(duration: 0.2), value: app.prefs.sidebarHidden)
@@ -75,6 +78,7 @@ public struct RootView: View {
 /// Вкладки, поиск и разделы, которые ещё не работают, не показываем.
 struct Sidebar: View {
     @Bindable var app: AppModel
+    @Environment(\.windowWidth) private var windowWidth
 
     private var skillsActive: Bool {
         switch app.page {
@@ -152,8 +156,12 @@ struct Sidebar: View {
                 .padding([.horizontal, .bottom], 12)
         }
         .foregroundStyle(p.foreground)
-        .frame(width: 256)
+        .frame(width: CGFloat(ResizeHandle.clamp(app.prefs.sidebarWidth, min: 220, window: Double(windowWidth))))
         .frame(maxHeight: .infinity)
+        .overlay(alignment: .trailing) {
+            ResizeHandle(side: .trailing, width: $app.prefs.sidebarWidth, minWidth: 220) { app.update { _ in } }
+                .offset(x: 4).ignoresSafeArea()
+        }
         // bg-sidebar/70 + backdrop-blur-sm
         .background(p.sidebar.opacity(0.7).ignoresSafeArea())
         .overlay(alignment: .trailing) { p.border.frame(width: 1).ignoresSafeArea() }

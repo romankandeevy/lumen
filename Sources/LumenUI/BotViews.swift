@@ -225,6 +225,7 @@ struct BotPassport: View {
     let bot: Bot
 
     @Environment(\.palette) private var p
+    @Environment(\.windowWidth) private var windowWidth
 
     var body: some View {
         ScrollView {
@@ -280,9 +281,12 @@ struct BotPassport: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollIndicators(.never)
-        .frame(width: 280)
+        .frame(width: CGFloat(ResizeHandle.clamp(app.prefs.panelWidth, min: 280, window: Double(windowWidth))))
         .background(p.sidebar.opacity(0.5))
         .overlay(alignment: .leading) { p.border.frame(width: 1) }
+        .overlay(alignment: .leading) {
+            ResizeHandle(side: .leading, width: $app.prefs.panelWidth, minWidth: 280) { app.update { _ in } }.offset(x: -4)
+        }
         .foregroundStyle(p.foreground)
     }
 

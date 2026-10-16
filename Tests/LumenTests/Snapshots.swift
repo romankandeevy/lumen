@@ -383,3 +383,33 @@ enum Snap {
     app.page = .botEditor(nil)
     try await Snap.save(RootView(app: app), "55-bot-new-describe")
 }
+
+/// Режимы: выбор в поле агента, «Можно?», план готов; широкая левая панель
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotModes() async throws {
+    Snap.registerFonts()
+    let app = try Snap.app()
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .subscription, theme: .lumen)
+    app.update { $0.agentMode = .manual }
+    app.tab = .agent
+    app.newAgentTask()
+    try await Snap.save(RootView(app: app), "60-agent-mode")
+
+    var c = Conversation(title: "Почистить логи", kind: .agent, folder: NSHomeDirectory(), backend: .subscription, model: .sonnet, effort: .high)
+    c.mode = .manual
+    try app.store.save(c)
+    try app.store.save(ChatMessage(conversationID: c.id, role: .user, text: "Удали старые логи сборки"))
+    app.reloadConversations()
+    app.openChat(c)
+    app.chat.pendingPermission = .init(conversationID: c.id, request: .init(id: "r1", tool: "Bash",
+        inputJSON: #"{"command":"rm -rf build/logs/2026-09-*","description":"Удаляет логи за сентябрь"}"#, description: ""))
+    try await Snap.save(RootView(app: app), "61-permission")
+
+    let plan = "## План\n1. Найти логи старше 30 дней в build/logs.\n2. Показать список и размер.\n3. Удалить их одной командой.\n4. Проверить, что сборка не сломалась."
+    let planJSON = String(decoding: try JSONSerialization.data(withJSONObject: ["plan": plan]), as: UTF8.self)
+    app.chat.pendingPermission = .init(conversationID: c.id, request: .init(id: "r2", tool: "ExitPlanMode", inputJSON: planJSON, description: ""))
+    try await Snap.save(RootView(app: app), "62-plan-ready")
+
+    app.chat.pendingPermission = nil
+    app.update { $0.sidebarWidth = 900 } // шире половины — упрётся в половину окна
+    try await Snap.save(RootView(app: app), "63-wide-sidebar")
+}

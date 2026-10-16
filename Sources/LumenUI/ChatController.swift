@@ -23,6 +23,16 @@ final class ChatController {
     @ObservationIgnored private var sessions: [String: ClaudeSession] = [:]
     /// Идущие ходы ChatGPT — для «Стоп»
     @ObservationIgnored private var codexRuns: [String: CodexRun] = [:]
+    /// Вопрос агента «можно?» — ждёт ответа человека (режимы «Спрашивать», «Принимать правки», «Авто», «План»)
+    struct PendingPermission: Equatable {
+        let conversationID: String
+        let request: ClaudeEvent.PermissionRequest
+    }
+    var pendingPermission: PendingPermission?
+    /// «Разрешать такое до конца разговора»: инструменты, на которые больше не спрашиваем
+    @ObservationIgnored private var alwaysAllowed: [String: Set<String>] = [:]
+    /// Режим, в котором сейчас живёт процесс разговора
+    @ObservationIgnored private var sessionModes: [String: AgentMode] = [:]
     /// Разговор бота, который сейчас выполняет задачу из этого чата (@id) — для «Стоп»
     @ObservationIgnored private var delegateRunning: String?
     /// Чей ответ идёт: бот (его знак вместо сферы) или Lumen
@@ -92,6 +102,39 @@ final class ChatController {
         messages = []
     }
 
+    /// Режим агента: у начатой задачи меняется сразу, на ходу; у новой — запоминается для следующей
+    func set(mode: AgentMode) {
+        app.update { $0.agentMode = mode }
+        guard var c = conversation, c.kind == .agent else { return }
+        c.mode = mode
+        conversation = c
+        try? app.store.save(c)
+        if let s = sessions[c.id], s.isRunning, sessionModes[c.id] != mode {
+            s.setMode(mode.rawValue)
+            sessionModes[c.id] = mode
+        }
+    }
+
+    /// Ответ на вопрос агента
+    func answerPermission(allow: Bool, always: Bool = false, message: String? = nil) {
+        guard let p = pendingPermission, let s = sessions[p.conversationID] else { pendingPermission = nil; return }
+        if allow && always { alwaysAllowed[p.conversationID, default: []].insert(p.request.tool) }
+        s.respond(p.request.id, allow: allow, inputJSON: p.request.inputJSON, message: message)
+        pendingPermission = nil
+        if running?.id == p.conversationID { app.orb = .thinking }
+    }
+
+    /// План готов: выполнить в выбранном режиме или доработать
+    func answerPlan(run mode: AgentMode?, note: String? = nil) {
+        guard let p = pendingPermission, p.request.tool == "ExitPlanMode" else { return }
+        if let mode {
+            answerPermission(allow: true)
+            set(mode: mode)
+        } else {
+            answerPermission(allow: false, message: note.map { "Доработай план: \($0)" } ?? "Человек просит доработать план.")
+        }
+    }
+
     /// Модель и «сколько думать» для следующего хода
     func set(model: ChatModel? = nil, effort: Effort? = nil) {
         // новая задача агента помнит свои модель и «сколько думать», чат — свои
@@ -119,6 +162,7 @@ final class ChatController {
             guard let folder = app.agentFolder else { return }
             c = Conversation(title: Self.title(from: text), kind: .agent, folder: folder.path, backend: app.prefs.backend,
                              model: app.defaultAgentModel, effort: app.prefs.agentEffort ?? .high)
+            c.mode = app.prefs.agentMode
             app.rememberFolder(folder)
         } else {
             c = Conversation(title: Self.title(from: text), backend: app.prefs.backend, model: app.prefs.model, effort: app.prefs.effort)
@@ -244,6 +288,10 @@ final class ChatController {
     func stop() {
         guard let c = running else { return }
         stopRequested = true
+        if let p = pendingPermission, p.conversationID == c.id {
+            sessions[c.id]?.respond(p.request.id, allow: false, message: "Человек остановил задачу.")
+            pendingPermission = nil
+        }
         if let d = delegateRunning { sessions[d]?.interrupt() } else if c.model.isGPT { codexRuns[c.id]?.stop() } else if c.usesCLI { sessions[c.id]?.interrupt() } else { turnTask?.cancel() }
     }
 
@@ -330,11 +378,20 @@ final class ChatController {
                     appendStep(step, c)
                 case .plan(let change):
                     updatePlan(change, c)
+                case .permission(let req):
+                    // разрешено «до конца разговора» — не спрашиваем снова
+                    if alwaysAllowed[c.id]?.contains(req.tool) == true {
+                        session.respond(req.id, allow: true, inputJSON: req.inputJSON)
+                    } else {
+                        pendingPermission = PendingPermission(conversationID: c.id, request: req)
+                        if here { app.orb = .idle }
+                    }
                 case .finished(let r):
                     result = r
                 default: break
                 }
             }
+            if pendingPermission?.conversationID == c.id { pendingPermission = nil }
             var changes: ChangeSet?
             if let git, let before, let files = try? await git.changes(since: before), !files.isEmpty {
                 changes = ChangeSet(files: files)
@@ -392,7 +449,8 @@ final class ChatController {
             memory = (bin.path, ["LUMEN_DB": app.paths.database.path, "LUMEN_CONVERSATION_ID": c.id, "LUMEN_CONVERSATION_TITLE": c.title,
                                  "LUMEN_SKILLS_DIR": app.paths.skills.path, "LUMEN_SKILLS": "*"])
         }
-        let turn = CodexCLI.Turn(model: c.model.rawValue, effort: c.effort.rawValue, agent: c.kind == .agent,
+        // у ChatGPT нет вопросов на ходу: «План» — только чтение, остальные режимы — правка в своей папке
+        let turn = CodexCLI.Turn(model: c.model.rawValue, effort: c.effort.rawValue, agent: c.kind == .agent && c.mode != .plan,
                                  folder: folder, threadID: c.cliSessionID, memoryServer: memory)
         do {
             let run = try codex.run(turn, prompt: prompt)
@@ -450,6 +508,11 @@ final class ChatController {
     /// Тёплый процесс на разговор. Если сменились модель или effort — перезапуск с `--resume`.
     private func cliSession(for c: Conversation, cli: ClaudeCLI, resume: Bool) throws -> ClaudeSession {
         if let s = sessions[c.id], s.isRunning, s.config.model == c.model.rawValue, s.config.effort == c.effort.rawValue {
+            // режим меняется на ходу, без перезапуска
+            if c.kind == .agent, let mode = c.mode, sessionModes[c.id] != mode {
+                s.setMode(mode.rawValue)
+                sessionModes[c.id] = mode
+            }
             return s
         }
         sessions[c.id]?.close()
@@ -471,8 +534,10 @@ final class ChatController {
             // позванный бот может работать минутами — MCP-вызову delegate даём до 15 минут
             if bot.capabilities.contains(.bots) { config.extraEnv["MCP_TOOL_TIMEOUT"] = "900000" }
         } else if c.kind == .agent, let folder = c.folder {
+            let mode = c.mode ?? app.prefs.agentMode
             config = .agent(model: c.model.rawValue, effort: c.effort.rawValue, persona: app.agentPrompt(for: c),
-                            folder: URL(fileURLWithPath: folder), sessionID: sid, resume: resume)
+                            folder: URL(fileURLWithPath: folder), sessionID: sid, resume: resume, mode: mode.rawValue)
+            sessionModes[c.id] = mode
             // агент по ключу: тот же claude, но платит ключ (§2.4 техплана)
             if c.backend == .api, let key = app.keychain.read(Keychain.anthropicKey) { config.extraEnv["ANTHROPIC_API_KEY"] = key }
         } else {

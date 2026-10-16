@@ -7,6 +7,7 @@ struct ContextPanel: View {
     @Bindable var app: AppModel
 
     @Environment(\.palette) private var p
+    @Environment(\.windowWidth) private var windowWidth
 
     private var chat: ChatController { app.chat }
     private var conversation: Conversation? { chat.conversation }
@@ -89,9 +90,12 @@ struct ContextPanel: View {
             }
         }
         .scrollIndicators(.never)
-        .frame(width: 320)
+        .frame(width: CGFloat(ResizeHandle.clamp(app.prefs.panelWidth, min: 280, window: Double(windowWidth))))
         .background(p.sidebar.opacity(0.5))
         .overlay(alignment: .leading) { p.border.frame(width: 1) }
+        .overlay(alignment: .leading) {
+            ResizeHandle(side: .leading, width: $app.prefs.panelWidth, minWidth: 280) { app.update { _ in } }.offset(x: -4)
+        }
         .foregroundStyle(p.foreground)
     }
 

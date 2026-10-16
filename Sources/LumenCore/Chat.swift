@@ -96,6 +96,47 @@ public enum Effort: String, Codable, Sendable, CaseIterable, Identifiable {
     public var level: Int { Effort.allCases.firstIndex(of: self) ?? 0 }
 }
 
+/// Режим работы агента — те же пять, что в Claude Code (`--permission-mode`)
+public enum AgentMode: String, Codable, Sendable, CaseIterable, Identifiable {
+    case plan
+    case manual
+    case acceptEdits
+    case auto
+    case bypassPermissions
+
+    public var id: String { rawValue }
+
+    public var name: String {
+        switch self {
+        case .plan: "План"
+        case .manual: "Спрашивать"
+        case .acceptEdits: "Принимать правки"
+        case .auto: "Авто"
+        case .bypassPermissions: "Обход"
+        }
+    }
+
+    public var note: String {
+        switch self {
+        case .plan: "только читает и предлагает план, ничего не меняет"
+        case .manual: "каждую правку и команду спрашивает у тебя"
+        case .acceptEdits: "правит файлы сам, команды спрашивает"
+        case .auto: "сам решает, что безопасно, рискованное спрашивает"
+        case .bypassPermissions: "всё без вопросов, кроме push"
+        }
+    }
+
+    public var icon: String {
+        switch self {
+        case .plan: "list-checks"
+        case .manual: "hand"
+        case .acceptEdits: "pencil"
+        case .auto: "sparkles"
+        case .bypassPermissions: "zap"
+        }
+    }
+}
+
 /// Чат — просто разговор; агент — работа в папке проекта
 public enum ConversationKind: String, Codable, Sendable { case chat, agent, bot }
 
@@ -284,6 +325,8 @@ public struct Conversation: Codable, Sendable, Equatable, Identifiable, Hashable
     public var projectID: String?
     /// Постоянный разговор этого бота (kind = .bot)
     public var botID: String?
+    /// Режим агента в этом разговоре
+    public var mode: AgentMode?
     public var createdAt: Date
     public var updatedAt: Date
 

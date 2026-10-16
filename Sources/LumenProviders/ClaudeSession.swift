@@ -24,6 +24,9 @@ public final class ClaudeSession: @unchecked Sendable {
         public var disallowedTools: [String]
         /// Файл с MCP-серверами (lumen-mcp — память)
         public var mcpConfig: String?
+        /// `--permission-mode`; с вопросами (не dontAsk/bypass) разрешения спрашиваются у Lumen через stdio
+        public var permissionMode = "dontAsk"
+        public var asksHost: Bool { permissionMode != "dontAsk" && permissionMode != "bypassPermissions" }
 
         public init(model: String, effort: String? = nil, systemPrompt: String? = nil, tools: [String]? = [],
                     userSettings: Bool = false, sessionID: String = UUID().uuidString.lowercased(),
@@ -44,20 +47,23 @@ public final class ClaudeSession: @unchecked Sendable {
         }
 
         /// Агент в папке проекта: все инструменты Claude Code, настройки пользователя (сессия видна на острове),
-    /// правка и команды без вопросов, push запрещён (docs/spikes.md, спайк агента)
-    public static func agent(model: String, effort: String?, persona: String, folder: URL, sessionID: String, resume: Bool) -> Config {
-        Config(model: model, effort: effort, tools: nil, userSettings: true, sessionID: sessionID, resume: resume, cwd: folder,
-               appendSystemPrompt: persona,
-               allowedTools: ["Read", "Edit", "Write", "MultiEdit", "NotebookEdit", "Glob", "Grep", "Bash", "WebFetch", "WebSearch",
-                              "TodoWrite", "Task", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "ToolSearch"],
-               disallowedTools: ["Bash(git push:*)", "Bash(git push)"])
+    /// push запрещён в любом режиме (docs/spikes.md, спайк агента). Режим решает, что спрашивать у человека:
+    /// чтение и план всегда без вопросов, остальное — по режиму (`--permission-mode` + вопросы через stdio).
+    public static func agent(model: String, effort: String?, persona: String, folder: URL, sessionID: String, resume: Bool,
+                             mode: String = "auto") -> Config {
+        let quiet = ["Read", "Glob", "Grep", "TodoWrite", "Task", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "ToolSearch", "WebSearch"]
+        var c = Config(model: model, effort: effort, tools: nil, userSettings: true, sessionID: sessionID, resume: resume, cwd: folder,
+                       appendSystemPrompt: persona, allowedTools: quiet, disallowedTools: ["Bash(git push:*)", "Bash(git push)"])
+        c.permissionMode = mode
+        return c
     }
 
     /// Аргументы командной строки. Флаги-списки (`--tools`) съедают следующий аргумент,
         /// поэтому текст запроса в аргументы не кладём никогда — он идёт через stdin.
         public var arguments: [String] {
             var a = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-                     "--include-partial-messages", "--model", model, "--permission-mode", "dontAsk"]
+                     "--include-partial-messages", "--model", model, "--permission-mode", permissionMode]
+            if asksHost { a += ["--permission-prompt-tool", "stdio"] }
             if let effort { a += ["--effort", effort] }
             // свой промпт чата меняется (закреплённые факты) — пусть claude берёт его заново при --resume
             if let systemPrompt { a += ["--system-prompt", systemPrompt, "--system-prompt-snapshot", "off"] }
@@ -147,6 +153,29 @@ public final class ClaudeSession: @unchecked Sendable {
         let msg: [String: Any] = ["type": "control_request",
                                   "request_id": "stop-" + UUID().uuidString.lowercased(),
                                   "request": ["subtype": "interrupt"]]
+        guard process.isRunning, var data = try? JSONSerialization.data(withJSONObject: msg) else { return }
+        data.append(0x0A)
+        try? input.fileHandleForWriting.write(contentsOf: data)
+    }
+
+    /// Ответ на запрос разрешения: разрешить (вход как был) или отклонить с объяснением для модели
+    public func respond(_ id: String, allow: Bool, inputJSON: String? = nil, message: String? = nil) {
+        var response: [String: Any] = ["behavior": allow ? "allow" : "deny"]
+        if allow {
+            response["updatedInput"] = (try? JSONSerialization.jsonObject(with: Data((inputJSON ?? "{}").utf8))) ?? [:]
+        } else {
+            response["message"] = message ?? "Человек не разрешил."
+        }
+        send(["type": "control_response", "response": ["subtype": "success", "request_id": id, "response": response]])
+    }
+
+    /// Сменить режим на ходу, без перезапуска (как setPermissionMode в Agent SDK)
+    public func setMode(_ mode: String) {
+        send(["type": "control_request", "request_id": "mode-" + UUID().uuidString.lowercased(),
+              "request": ["subtype": "set_permission_mode", "mode": mode]])
+    }
+
+    private func send(_ msg: [String: Any]) {
         guard process.isRunning, var data = try? JSONSerialization.data(withJSONObject: msg) else { return }
         data.append(0x0A)
         try? input.fileHandleForWriting.write(contentsOf: data)
