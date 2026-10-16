@@ -31,6 +31,7 @@ import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { BotAvatar, botStyle } from "@/components/bot-avatar"
+import { AgentNew, VariantSwitch, type AgentVariant } from "@/components/agent-new"
 import { LumenOrb } from "@/components/lumen-orb"
 import { NextStep, type Choice, type NextStepData } from "@/components/next-step"
 import { PlanList, type PlanItem } from "@/components/plan-list"
@@ -250,6 +251,10 @@ export function ChatPage({ chatId }: { chatId: string }) {
   const [plan, setPlan] = useState<PlanItem[]>(plans[chatId] ?? [])
   const [sandbox, setSandbox] = useState(false)
   const [next, setNext] = useState<NextStepData | null>(agent ? (nextSteps[chatId] ?? null) : null)
+  // вариант нового экрана агента (только в макете): A / B / C
+  const [variant, setVariantState] = useState<AgentVariant>(() => (localStorage.getItem("lumen-agent-variant") as AgentVariant) || "a")
+  const setVariant = (v: AgentVariant) => (setVariantState(v), localStorage.setItem("lumen-agent-variant", v))
+  const agentNew = agent && messages.length === 0
   const busy = app.orb === "thinking" || app.orb === "writing"
   const scroller = useRef<HTMLDivElement>(null)
   const timers = useRef<number[]>([])
@@ -433,10 +438,22 @@ export function ChatPage({ chatId }: { chatId: string }) {
           </Tooltip>
         </header>
 
+        {agentNew && <VariantSwitch value={variant} onChange={setVariant} />}
         <div ref={scroller} className="min-h-0 flex-1 overflow-auto">
           {messages.length === 0 ? (
             agent ? (
-              <AgentEmpty project={project} setProject={setProject} where={where} setWhere={setWhere} onPick={setDraft} />
+              <AgentNew
+                variant={variant}
+                project={project}
+                setProject={setProject}
+                model={model}
+                setModel={setModel}
+                effort={effort}
+                setEffort={setEffort}
+                draft={draft}
+                setDraft={setDraft}
+                send={() => send()}
+              />
             ) : (
               <ChatEmpty onPick={setDraft} />
             )
@@ -467,7 +484,8 @@ export function ChatPage({ chatId }: { chatId: string }) {
           )}
         </div>
 
-        <Composer
+        {/* у вариантов A и C поле — по центру экрана; у B — как обычно внизу */}
+        {!(agentNew && variant !== "b") && <Composer
           agent={agent}
           draft={draft}
           setDraft={setDraft}
@@ -484,7 +502,7 @@ export function ChatPage({ chatId }: { chatId: string }) {
           setWhere={setWhere}
           tools={tools}
           setTools={setTools}
-        />
+        />}
       </section>
 
       {sandbox && <Sandbox onClose={() => setSandbox(false)} />}
@@ -743,64 +761,6 @@ function ChatEmpty({ onPick }: { onPick: (t: string) => void }) {
       </Button>
       <div className="mt-5 flex flex-wrap justify-center gap-2">
         {ideas.map((i) => (
-          <button key={i} onClick={() => onPick(i)} className="rounded-full border bg-card/50 px-3.5 py-1.5 text-sm hover:border-glow/40 hover:bg-card">
-            {i}
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function AgentEmpty({
-  project,
-  setProject,
-  where,
-  setWhere,
-  onPick,
-}: {
-  project: string
-  setProject: (v: string) => void
-  where: "mac" | "cloud"
-  setWhere: (v: "mac" | "cloud") => void
-  onPick: (t: string) => void
-}) {
-  return (
-    <div className="mx-auto flex h-full max-w-[44rem] flex-col justify-center px-6">
-      <h2 className="text-2xl font-semibold tracking-[-0.02em]">Что сделать?</h2>
-      <p className="mt-1.5 text-sm text-muted-foreground">Агент работает в папке проекта: читает, правит, собирает. Push и выкатка — только с твоего OK.</p>
-      <p className="mt-6 mb-2 text-xs text-muted-foreground">Папка</p>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {projects.map((x) => (
-          <button
-            key={x}
-            onClick={() => setProject(x)}
-            className={cn("flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-sm transition-colors", x === project ? "border-glow/50 bg-glow/[0.06]" : "bg-card/40 hover:bg-card")}
-          >
-            <Folder className={cn("size-4 shrink-0", x === project ? "text-glow" : "text-muted-foreground")} />
-            <span className="truncate">{x}</span>
-          </button>
-        ))}
-      </div>
-      <p className="mt-5 mb-2 text-xs text-muted-foreground">Где</p>
-      <div className="flex gap-2">
-        {(
-          [
-            ["mac", Laptop, "Этот Мак"],
-            ["cloud", Cloud, "Облако (API)"],
-          ] as const
-        ).map(([id, Icon, name]) => (
-          <button
-            key={id}
-            onClick={() => setWhere(id)}
-            className={cn("flex items-center gap-2 rounded-xl border px-3 py-2 text-sm", where === id ? "border-glow/50 bg-glow/[0.06]" : "bg-card/40 hover:bg-card")}
-          >
-            <Icon className="size-4" /> {name}
-          </button>
-        ))}
-      </div>
-      <div className="mt-6 flex flex-wrap gap-2">
-        {["Найди и почини падение", "Собери и проверь сборку", "Обнови ПЛАН.md", "@tester прогони сценарии"].map((i) => (
           <button key={i} onClick={() => onPick(i)} className="rounded-full border bg-card/50 px-3.5 py-1.5 text-sm hover:border-glow/40 hover:bg-card">
             {i}
           </button>
