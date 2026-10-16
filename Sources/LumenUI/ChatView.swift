@@ -309,7 +309,18 @@ struct RichText: View {
         return out
     }
 
-    static func markdown(_ s: String) -> AttributedString {
+    /// Разобранные куски: во время стрима текст меняется 30 раз в секунду, а готовые абзацы — нет
+    @MainActor private static var parsed: [String: AttributedString] = [:]
+
+    @MainActor static func markdown(_ s: String) -> AttributedString {
+        if let hit = parsed[s] { return hit }
+        let out = parseMarkdown(s)
+        if parsed.count > 400 { parsed.removeAll() }
+        parsed[s] = out
+        return out
+    }
+
+    private static func parseMarkdown(_ s: String) -> AttributedString {
         // заголовки «## …» и «**…**» в начале строки — жирным, списки оставляем как есть
         let cleaned = s.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
             let l = String(line)
