@@ -61,8 +61,6 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var contextOpen = false
     /// Левая панель спрятана (кнопка рядом с кнопками окна, как в Claude)
     public var sidebarHidden = false
-    /// Живой фон в чате: свет Люмена медленно перетекает
-    public var liveBackground = true
     /// Получать бета-версии (1.0.1, 1.0.2…), а не только стабильные
     public var betaUpdates = false
 
@@ -92,7 +90,6 @@ public struct Preferences: Codable, Sendable, Equatable {
         monthlyLimit = try c.decodeIfPresent(Int.self, forKey: .monthlyLimit) ?? 100
         contextOpen = try c.decodeIfPresent(Bool.self, forKey: .contextOpen) ?? false
         sidebarHidden = try c.decodeIfPresent(Bool.self, forKey: .sidebarHidden) ?? false
-        liveBackground = try c.decodeIfPresent(Bool.self, forKey: .liveBackground) ?? true
         betaUpdates = try c.decodeIfPresent(Bool.self, forKey: .betaUpdates) ?? false
     }
 }

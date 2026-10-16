@@ -38,7 +38,6 @@ struct ChatView: View {
                 Composer(app: app, draft: $draft, backend: backend, agent: agent)
             }
         }
-        .background { if app.prefs.liveBackground { ChatBackdrop(state: app.orb).ignoresSafeArea() } }
         .foregroundStyle(p.foreground)
     }
 
@@ -384,16 +383,9 @@ struct Composer: View {
         .padding(.horizontal, big ? 0 : 20).padding(.bottom, big ? 0 : 20).padding(.top, big ? 0 : 4)
         .frame(maxWidth: .infinity)
         // from-background to-transparent над полем
-        // градиент сверху переходит в сплошной фон под полем — иначе живой фон виден полосой ниже градиента
-        .background {
-            VStack(spacing: 0) {
-                LinearGradient(colors: [p.background.opacity(0), p.background], startPoint: .top, endPoint: .bottom).frame(height: 40)
-                p.background
-            }
-            .padding(.top, -40)
-            .ignoresSafeArea(edges: .bottom)
-            .allowsHitTesting(false)
-            .opacity(big ? 0 : 1)
+        .background(alignment: .top) {
+            LinearGradient(colors: [p.background.opacity(0), p.background], startPoint: .top, endPoint: .bottom)
+                .frame(height: 40).offset(y: -40).allowsHitTesting(false)
         }
         .onAppear { focused = true }
     }

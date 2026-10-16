@@ -90,11 +90,6 @@ struct SettingsView: View {
             }
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 12) {
-                    LSwitch(isOn: Binding(get: { app.prefs.liveBackground }, set: { v in app.update { $0.liveBackground = v } }))
-                    Text("Живой фон в чате").font(.geist(14))
-                    Text("свет медленно перетекает, ярче — когда Lumen думает и пишет").font(.geist(12)).foregroundStyle(p.mutedFg)
-                }
-                HStack(spacing: 12) {
                     LSwitch(isOn: Binding(get: { app.prefs.reducedMotion }, set: { v in app.update { $0.reducedMotion = v } }))
                     Text("Меньше движения").font(.geist(14))
                     Text("сфера не дышит, свет не мерцает").font(.geist(12)).foregroundStyle(p.mutedFg)
