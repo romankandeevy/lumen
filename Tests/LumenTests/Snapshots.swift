@@ -298,3 +298,39 @@ enum Snap {
     app.openChat(c)
     try await Snap.save(RootView(app: app), "34-mention")
 }
+
+/// Граф памяти (как mockups: memory-graph): «Меньше движения» — раскладка сразу до покоя
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotGraph() async throws {
+    Snap.registerFonts()
+    let app = try Snap.app()
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .subscription, theme: .lumen)
+    app.update { $0.reducedMotion = true }
+    for name in ["Lumen", "Shelf", "Пульт", "Island", "kandeev.com", "FlowLocal"] { try app.store.save(Project(name: name)) }
+    app.reloadProjects()
+    let facts: [(MemoryKind, String, Bool)] = [
+        (.you, "Рома делает Mac-приложения на Swift и сайты; работает в ~/Documents/prog", true),
+        (.pref, "Не двигать существующие кнопки, когда внедряю мокап или фичу, — только по просьбе", true),
+        (.pref, "Отвечать коротко, по-русски, простыми словами", false),
+        (.decision, "Интерфейс Mac-приложений — только SwiftUI: Пульт, Island, Shelf, Lumen", false),
+        (.project, "Shelf: вкладку «Полка» убрали, файлы идут в Буфер — это видно в Island", false),
+        (.project, "kandeev.com — папин сайт; превью в ветке preview, прод — только по OK", false),
+        (.decision, "HandPilot пробовали и бросили — не предлагать снова", false),
+        (.you, "Говорит голосом через FlowLocal — в тексте бывают оговорки", false),
+        (.project, "Lumen: v1 — память, люди, характер и боты-агенты", false),
+        (.decision, "Lumen: только тёмные темы — «Люмен» и «Монохром»", false),
+        (.project, "Island: тень должна следовать за островом", false),
+        (.project, "FlowLocal v3.0: нейтральные цвета, яркий зелёный", false),
+        (.people, "Папа — хозяин kandeev.com; на сайте без цен и кейсов с цифрами", false),
+        (.people, "Лёша помогает с дизайном Пульта", false),
+        (.project, "Пульт v1.0 выпущен, тёмный монохром", false),
+    ]
+    for (k, t, pin) in facts {
+        var f = MemoryFact(kind: k, text: t, source: "Lumen: замысел")
+        f.pinned = pin
+        _ = try app.store.save(f)
+    }
+    app.reloadMemories()
+    app.page = .memory
+    app.memoryMode = .graph
+    try await Snap.save(RootView(app: app), "40-graph")
+}

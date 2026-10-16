@@ -219,6 +219,7 @@ struct FlowChips: View {
 enum Plural {
     /// «1 факт», «3 факта», «15 фактов»
     static func facts(_ n: Int) -> String { "\(n) " + form(n, "факт", "факта", "фактов") }
+    static func links(_ n: Int) -> String { "\(n) " + form(n, "связь", "связи", "связей") }
     static func bots(_ n: Int) -> String { "\(n) " + form(n, "бот", "бота", "ботов") }
 
     static func form(_ n: Int, _ one: String, _ few: String, _ many: String) -> String {

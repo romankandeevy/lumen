@@ -2,19 +2,19 @@ import LumenCore
 import SwiftUI
 
 /// «Что Lumen знает» (`pages/memory-page.tsx`): факты с источником (закрепить / изменить / забыть)
-/// и поиск по прошлым разговорам. Граф появится в 1.1, когда заработает.
+/// граф связей (GraphView.swift) и поиск по прошлым разговорам.
 struct MemoryView: View {
     @Bindable var app: AppModel
 
     @Environment(\.palette) private var p
-    @State private var view: Mode = .facts
     @State private var kind: MemoryKind?
     @State private var query = ""
     @State private var adding = false
     @State private var file: URL?
     @State private var hits: [ConversationHit] = []
 
-    enum Mode: Hashable { case facts, talks }
+    enum Mode: Hashable { case facts, graph, talks }
+    @State private var graph: GraphModel?
 
     private var shown: [MemoryFact] {
         let base = app.memories.filter { kind == nil || $0.kind == kind }
@@ -31,9 +31,26 @@ struct MemoryView: View {
         } content: {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 12) {
-                    MiniSegmented(value: $view, options: [(.facts, "Факты, \(app.memories.count)"), (.talks, "Прошлые разговоры")])
-                    SearchField(text: $query, placeholder: view == .facts ? "Найти факт" : "Найти в разговорах: слово, проект, файл")
+                    MiniSegmented(value: $app.memoryMode, options: [(.facts, "Факты, \(app.memories.count)"), (.graph, "Граф"), (.talks, "Прошлые разговоры")])
+                    if app.memoryMode != .graph {
+                        SearchField(text: $query, placeholder: app.memoryMode == .facts ? "Найти факт" : "Найти в разговорах: слово, проект, файл")
+                    } else {
+                        Spacer()
+                    }
                 }
+                if app.memoryMode == .graph {
+                    Group {
+                        if let graph {
+                            GraphView(app: app, model: graph)
+                        } else {
+                            Color.clear.onAppear { graph = GraphModel(graph: app.memoryGraph()) }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(minHeight: 480)
+                    .padding(.bottom, 24)
+                    .onChange(of: app.memories) { graph?.update(app.memoryGraph()) }
+                } else {
                 // xl:grid-cols-[1fr_280px]: на широком окне файлы и настройки сбоку, иначе — снизу
                 ScrollView {
                     ViewThatFits(in: .horizontal) {
@@ -46,18 +63,19 @@ struct MemoryView: View {
                     .padding(.bottom, 40)
                 }
                 .scrollIndicators(.never)
+                }
             }
         }
         .sheet(isPresented: $adding) { AddFactSheet(app: app) { adding = false }.environment(\.palette, p) }
         .sheet(item: $file) { url in MemoryFileSheet(app: app, url: url) { file = nil }.environment(\.palette, p) }
         .overlay(alignment: .bottom) { forgottenBanner }
         .onChange(of: query) { searchTalks() }
-        .onChange(of: view) { searchTalks() }
+        .onChange(of: app.memoryMode) { searchTalks() }
     }
 
     @ViewBuilder private var main: some View {
             VStack(alignment: .leading, spacing: 16) {
-                if view == .facts {
+                if app.memoryMode == .facts {
                     HStack(spacing: 6) {
                         KindChip(name: "Всё", active: kind == nil) { kind = nil }
                         ForEach(MemoryKind.allCases) { k in KindChip(name: k.name, active: kind == k) { kind = k } }
@@ -154,7 +172,7 @@ struct MemoryView: View {
     }
 
     private func searchTalks() {
-        guard view == .talks else { return }
+        guard app.memoryMode == .talks else { return }
         hits = (try? app.store.searchConversations(query)) ?? []
     }
 

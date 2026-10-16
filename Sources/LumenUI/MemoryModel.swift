@@ -86,3 +86,17 @@ enum Money {
         String(format: "%.2f", v).replacingOccurrences(of: ".", with: ",")
     }
 }
+
+extension AppModel {
+    /// Граф памяти: ты, проекты (проекты Lumen и папки агента), люди из фактов и сами факты
+    func memoryGraph() -> MemoryGraph {
+        var names = projects.map(\.name)
+        let folders = conversations.compactMap(\.folder) + prefs.recentFolders
+        for f in folders {
+            let name = URL(fileURLWithPath: f).lastPathComponent
+            // папки ботов и временные — не проекты
+            if !f.hasPrefix(paths.root.path), !names.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) { names.append(name) }
+        }
+        return MemoryGraph(facts: memories, me: profile.name, projects: names)
+    }
+}

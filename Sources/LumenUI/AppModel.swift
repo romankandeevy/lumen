@@ -26,6 +26,8 @@ public final class AppModel {
     }
 
     var page: Page = .chat
+    /// Вид страницы памяти: факты, граф, прошлые разговоры
+    var memoryMode: MemoryView.Mode = .facts
     /// Вся память — для страницы «Что Lumen знает», счётчика и плашек в чате
     var memories: [MemoryFact] = []
     /// Последний забытый факт — чтобы «Вернуть»
