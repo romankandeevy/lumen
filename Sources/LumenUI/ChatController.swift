@@ -239,7 +239,18 @@ final class ChatController {
         let b = app.botConversation(for: bot)
         let earlier = (try? app.store.messages(in: b.id)) ?? []
         let hadTurns = earlier.contains { $0.role == .assistant && $0.error == nil }
-        let taskText = "Задача из чата «\(c.title)»:\n\(task)"
+        // бот должен понимать, где он: это новый разговор, а не продолжение его собственного (Рома, 16.10)
+        let context = ((try? app.store.messages(in: c.id)) ?? []).dropLast().suffix(6).map { m -> String in
+            let who = m.role == .user ? (app.profile.name.isEmpty ? "Человек" : app.profile.name) : (m.botID.map { "@\($0)" } ?? "Lumen")
+            return "\(who): \(m.text.prefix(600))"
+        }.joined(separator: "\n")
+        var taskText = """
+        Тебя позвали через @\(bot.id) из другого разговора — «\(c.title)». Это новая задача оттуда: отвечай на неё, \
+        а свою прошлую переписку в этом чате не продолжай и не ссылайся на неё, если о ней не спрашивают. \
+        Твой ответ увидят в том разговоре.
+        """
+        if !context.isEmpty { taskText += "\n\nЧто было в том разговоре перед этим:\n\(context)" }
+        taskText += "\n\nЗадача:\n\(task)"
         _ = try? app.store.save(ChatMessage(conversationID: b.id, role: .user, text: taskText))
         app.botRuns[bot.id] = c.title
         defer { app.botRuns[bot.id] = nil }
@@ -555,7 +566,10 @@ final class ChatController {
         if let mcp = try? app.writeMCPConfig(for: c, memoryReadOnly: bot.map { !$0.can.contains(.memory) } ?? false) {
             config.mcpConfig = mcp.path
             // у бота разрешённое уже посчитано в BotPermissions
-            if bot == nil { config.allowedTools += ["mcp__lumen__remember", "mcp__lumen__recall", "mcp__lumen__load_skill", "mcp__lumen__read_skill_file"] }
+            if bot == nil {
+                config.allowedTools += ["mcp__lumen__remember", "mcp__lumen__recall", "mcp__lumen__load_skill", "mcp__lumen__read_skill_file",
+                                        "mcp__lumen__list_skills", "mcp__lumen__create_skill", "mcp__lumen__find_skills", "mcp__lumen__install_skill"]
+            }
         }
         let s = try ClaudeSession(cli: cli, config: config)
         sessions[c.id] = s
@@ -741,6 +755,7 @@ final class ChatController {
             let id = saved?.id
             Task { await app.learn(task: task, answer: visible, steps: steps, bot: bot, messageID: id, conversationID: c.id) }
         }
+        app.reloadSkills()
         if !remembered.isEmpty {
             app.reloadMemories()
             app.flash()
@@ -894,8 +909,19 @@ extension AppModel {
             """)
         if let block = projectBlock(for: c) { lines.append(block) }
         if let skills = SkillLibrary.promptBlock(skillLibrary.enabled()) { lines.append(skills) }
+        lines.append(selfRules)
         lines.append(memoryRules)
         return lines.joined(separator: "\n")
+    }
+
+    /// Что Lumen умеет сам с собой: навыки (создать, найти, поставить)
+    var selfRules: String {
+        """
+        Ты умеешь достраивать себя навыками (SKILL.md, формат agentskills.io): list_skills — какие есть; create_skill — создать новый; \
+        find_skills и install_skill — найти и поставить готовый из каталога skills.sh. Когда просят научиться чему-то, сделать навык \
+        или приём повторяется — сделай навык сам, не отказывайся. Ботов человек создаёт во вкладке «Боты» — подскажи, если спрашивают. \
+        Коннекторов к внешним сервисам пока нет — так и скажи, если просят.
+        """
     }
 
     /// Библиотека навыков Lumen
@@ -915,6 +941,7 @@ extension AppModel {
         lines.append("Это чат: у тебя нет доступа к файлам и командам этого Мака.")
         if let block = projectBlock(for: c) { lines.append(block) }
         if let skills = SkillLibrary.promptBlock(skillLibrary.enabled()) { lines.append(skills) }
+        lines.append(selfRules)
         lines.append(memoryRules)
         return lines.joined(separator: "\n")
     }

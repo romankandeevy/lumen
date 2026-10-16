@@ -58,13 +58,13 @@ struct LButton: View {
                 }
                 Text(title).font(font)
             }
-            .foregroundStyle(fg)
+            .foregroundStyle(enabled ? fg : p.mutedFg.opacity(0.7))
             .padding(.horizontal, size == .lg ? 16 : (size == .xs ? 8 : (size == .sm ? 12 : 10)))
             .frame(height: height)
-            .background(bg, in: RoundedRectangle(cornerRadius: radius))
-            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(kind == .outline ? p.input : .clear))
+            // неактивная — не бледный бежевый, а спокойная серая плашка: видно, что нажать пока нельзя
+            .background(enabled ? bg : (kind == .ghost ? .clear : p.foreground.opacity(0.06)), in: RoundedRectangle(cornerRadius: radius))
+            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(kind == .outline || (!enabled && kind != .ghost) ? p.input : .clear))
             .contentShape(RoundedRectangle(cornerRadius: radius))
-            .opacity(enabled ? 1 : 0.5)
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }

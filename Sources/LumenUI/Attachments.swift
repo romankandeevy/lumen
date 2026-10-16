@@ -62,6 +62,25 @@ extension AppModel {
         return Attachment(id: id, name: base + ".jpg", kind: .image, mime: "image/jpeg", path: dest.path, size: data.count, width: tw, height: th)
     }
 
+    /// Файлы из перетаскивания или буфера: сначала ссылки на файлы, иначе — сама картинка
+    func attach(_ providers: [NSItemProvider], add: @escaping @MainActor (Attachment) -> Void) {
+        for item in providers {
+            if item.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                _ = item.loadObject(ofClass: URL.self) { url, _ in
+                    guard let url else { return }
+                    Task { @MainActor in if let a = self.importAttachment(url) { add(a) } }
+                }
+            } else if item.canLoadObject(ofClass: NSImage.self) {
+                _ = item.loadObject(ofClass: NSImage.self) { image, _ in
+                    let data = (image as? NSImage)?.tiffRepresentation
+                    Task { @MainActor in
+                        if let data, let img = NSImage(data: data), let a = self.importImage(img, name: "Картинка") { add(a) }
+                    }
+                }
+            }
+        }
+    }
+
     /// «+»: выбрать файлы и картинки
     func chooseAttachments() -> [Attachment] {
         let panel = NSOpenPanel()

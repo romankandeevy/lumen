@@ -10,6 +10,7 @@ struct ChatView: View {
     @Environment(\.palette) private var p
     @State private var draft = ""
     @State private var attachments: [Attachment] = []
+    @State private var dropping = false
 
     private var chat: ChatController { app.chat }
     private var backend: Backend { chat.conversation?.backend ?? app.prefs.backend }
@@ -48,6 +49,26 @@ struct ChatView: View {
             }
         }
         .foregroundStyle(p.foreground)
+        // файлы и картинки можно бросить в любое место разговора, не только в поле
+        .onDrop(of: [.fileURL, .image], isTargeted: $dropping) { providers in
+            app.attach(providers) { attachments.append($0) }
+            return true
+        }
+        .overlay {
+            if dropping {
+                ZStack {
+                    p.background.opacity(0.7)
+                    VStack(spacing: 10) {
+                        Icon("paperclip", 28).foregroundStyle(p.glow)
+                        Text("Отпусти — прикреплю").tw(16, .medium, lh: 22)
+                    }
+                }
+                .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(p.glow.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [6, 5])).padding(12))
+                .allowsHitTesting(false)
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: dropping)
     }
 
     /// h-14 border-b px-5 gap-3: знак 28 со сферой 18, заголовок text-sm medium, подпись text-xs
@@ -417,7 +438,6 @@ struct Composer: View {
     @State private var effortOpen = false
     @State private var folderOpen = false
     @State private var modeOpen = false
-    @State private var dropping = false
 
     private var chat: ChatController { app.chat }
     private var model: ChatModel { chat.conversation?.model ?? (agent ? app.defaultAgentModel : app.prefs.model) }
@@ -503,13 +523,7 @@ struct Composer: View {
         .background(p.card.opacity(0.6), in: RoundedRectangle(cornerRadius: R.xxl))
         // без свечения в фокусе (Рома, 16.10): ровная рамка
         .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(focused ? p.foreground.opacity(0.14) : p.border))
-        // перетащили файлы — рамка светится
-        .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(p.glow.opacity(dropping ? 0.6 : 0), lineWidth: 1.5))
-        .onDrop(of: [.fileURL, .image], isTargeted: $dropping) { providers in
-            take(providers)
-            return true
-        }
-        .onPasteCommand(of: [.fileURL, .png, .tiff, .jpeg]) { providers in take(providers) }
+        .onPasteCommand(of: [.fileURL, .png, .tiff, .jpeg]) { providers in app.attach(providers) { attachments.append($0) } }
         .frame(maxWidth: big ? .infinity : Self.width)
         .padding(.horizontal, big ? 0 : 20).padding(.bottom, big ? 0 : 20).padding(.top, big ? 0 : 4)
         .frame(maxWidth: .infinity)
@@ -519,26 +533,6 @@ struct Composer: View {
                 .frame(height: 40).offset(y: -40).allowsHitTesting(false)
         }
         .onAppear { focused = true }
-    }
-
-    /// Файлы из перетаскивания или буфера: сначала ссылки на файлы, иначе — сама картинка
-    private func take(_ providers: [NSItemProvider]) {
-        for item in providers {
-            if item.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-                _ = item.loadObject(ofClass: URL.self) { url, _ in
-                    guard let url else { return }
-                    Task { @MainActor in if let a = app.importAttachment(url) { attachments.append(a) } }
-                }
-            } else if item.canLoadObject(ofClass: NSImage.self) {
-                _ = item.loadObject(ofClass: NSImage.self) { image, _ in
-                    guard let image = image as? NSImage else { return }
-                    let data = image.tiffRepresentation
-                    Task { @MainActor in
-                        if let data, let img = NSImage(data: data), let a = app.importImage(img, name: "Картинка") { attachments.append(a) }
-                    }
-                }
-            }
-        }
     }
 
     private func send() {

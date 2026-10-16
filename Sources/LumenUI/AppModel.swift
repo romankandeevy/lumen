@@ -16,6 +16,9 @@ public final class AppModel {
 
     var profile: Profile
     var prefs: Preferences
+    /// Ширина панелей — отдельно от настроек: пока тянут, перерисовывается только панель, сохраняется в конце
+    var sidebarWidth: Double = 256
+    var panelWidth: Double = 320
     var orb: Orb.State = .idle
 
     // MARK: окно
@@ -112,10 +115,13 @@ public final class AppModel {
         store = try Store(path: paths.database)
         profile = store.profile
         prefs = store.preferences
+        sidebarWidth = prefs.sidebarWidth
+        panelWidth = prefs.panelWidth
         if let key = keychain.read(Keychain.anthropicKey) {
             savedKeyTail = String(key.suffix(4))
             keyState = .saved
         }
+        migrateSingleKey()
         conversations = (try? store.conversations()) ?? []
         memories = (try? store.memories()) ?? []
         projects = (try? store.projects()) ?? []
@@ -450,6 +456,40 @@ public final class AppModel {
 
     // MARK: ключ API
 
+    /// Ключи: каждый лежит в Связке ключей под своим именем, выбранный — ещё и в основном слоте,
+    /// откуда его берут чат, агент и подсказки. Так переключение ключа не трогает остальной код.
+    static func keyAccount(_ id: String) -> String { Keychain.anthropicKey + "." + id }
+
+    /// Старый единственный ключ → первый в списке
+    func migrateSingleKey() {
+        guard prefs.apiKeys.isEmpty, let key = keychain.read(Keychain.anthropicKey) else { return }
+        let e = ApiKeyEntry(name: "Ключ 1", tail: String(key.suffix(4)))
+        try? keychain.save(key, for: Self.keyAccount(e.id))
+        update { $0.apiKeys = [e]; $0.activeKeyID = e.id }
+    }
+
+    func useKey(_ id: String) {
+        guard let key = keychain.read(Self.keyAccount(id)) else { return }
+        try? keychain.save(key, for: Keychain.anthropicKey)
+        update { $0.activeKeyID = id }
+        savedKeyTail = String(key.suffix(4))
+        keyState = .saved
+    }
+
+    func renameKey(_ id: String, _ name: String) {
+        let n = name.trimmingCharacters(in: .whitespaces)
+        guard !n.isEmpty else { return }
+        update { p in if let i = p.apiKeys.firstIndex(where: { $0.id == id }) { p.apiKeys[i].name = n } }
+    }
+
+    func deleteKey(_ id: String) {
+        keychain.delete(Self.keyAccount(id))
+        update { $0.apiKeys.removeAll { $0.id == id } }
+        if prefs.activeKeyID == id {
+            if let next = prefs.apiKeys.first { useKey(next.id) } else { forgetKey() }
+        }
+    }
+
     func checkKey(_ typed: String) async {
         let key = typed.trimmingCharacters(in: .whitespacesAndNewlines)
         let candidate = key.isEmpty ? keychain.read(Keychain.anthropicKey) : key
@@ -467,6 +507,14 @@ public final class AppModel {
             do {
                 try keychain.save(candidate, for: Keychain.anthropicKey)
                 savedKeyTail = String(candidate.suffix(4))
+                // новый ключ — в список и сразу в работу; тот же ключ второй раз не добавляем
+                if !key.isEmpty, !prefs.apiKeys.contains(where: { keychain.read(Self.keyAccount($0.id)) == candidate }) {
+                    let e = ApiKeyEntry(name: "Ключ \(prefs.apiKeys.count + 1)", tail: String(candidate.suffix(4)))
+                    try keychain.save(candidate, for: Self.keyAccount(e.id))
+                    update { $0.apiKeys.append(e); $0.activeKeyID = e.id }
+                } else if let same = prefs.apiKeys.first(where: { keychain.read(Self.keyAccount($0.id)) == candidate }) {
+                    update { $0.activeKeyID = same.id }
+                }
                 keyState = .ok
             } catch {
                 keyState = .error(error.localizedDescription)
@@ -479,6 +527,7 @@ public final class AppModel {
 
     func forgetKey() {
         keychain.delete(Keychain.anthropicKey)
+        update { $0.activeKeyID = nil }
         savedKeyTail = nil
         keyState = .none
     }

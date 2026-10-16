@@ -149,10 +149,10 @@ struct Sidebar: View {
                 .padding([.horizontal, .bottom], 12)
         }
         .foregroundStyle(p.foreground)
-        .frame(width: CGFloat(ResizeHandle.clamp(app.prefs.sidebarWidth, min: 220, window: Double(windowWidth))))
+        .frame(width: CGFloat(ResizeHandle.clamp(app.sidebarWidth, min: 220, window: Double(windowWidth))))
         .frame(maxHeight: .infinity)
         .overlay(alignment: .trailing) {
-            ResizeHandle(side: .trailing, width: $app.prefs.sidebarWidth, minWidth: 220) { app.update { _ in } }
+            ResizeHandle(side: .trailing, width: $app.sidebarWidth, minWidth: 220) { app.update { $0.sidebarWidth = app.sidebarWidth } }
                 .offset(x: 4).ignoresSafeArea()
         }
         // bg-sidebar/70 + backdrop-blur-sm

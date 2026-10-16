@@ -293,6 +293,8 @@ struct ThemeCard: View {
 struct KeyField: View {
     @Bindable var app: AppModel
     @Binding var key: String
+    /// В настройках, когда ключи уже есть: поле для нового ключа
+    var adding = false
 
     @Environment(\.palette) private var p
     @State private var show = false
@@ -300,7 +302,7 @@ struct KeyField: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                GlowField(placeholder: app.savedKeyTail.map { "sk-ant-…  (сохранён, ••••\($0))" } ?? "sk-ant-…",
+                GlowField(placeholder: adding ? "sk-ant-… — новый ключ" : (app.savedKeyTail.map { "sk-ant-…  (сохранён, ••••\($0))" } ?? "sk-ant-…"),
                           text: $key, secure: !show, mono: true, onSubmit: check) {
                     Button { show.toggle() } label: {
                         Icon(show ? "eye-off" : "eye", 16).foregroundStyle(p.mutedFg)
@@ -308,17 +310,23 @@ struct KeyField: View {
                     .buttonStyle(.plain)
                     .help(show ? "Скрыть ключ" : "Показать ключ")
                 }
-                LButton(title: "Проверить", kind: .outline, busy: app.keyState == .checking, action: check)
-                    .disabled(key.isEmpty && app.savedKeyTail == nil)
+                LButton(title: adding ? "Проверить и добавить" : "Проверить", kind: .outline, busy: app.keyState == .checking, action: check)
+                    .disabled(adding ? key.isEmpty : (key.isEmpty && app.savedKeyTail == nil))
             }
             if let error = keyError {
                 Text(error).font(.geist(12)).foregroundStyle(Palette.destructive)
             } else if app.keyState == .ok {
-                Text("Ключ работает и сохранён").font(.geist(12)).foregroundStyle(Palette.ok)
+                Text(addedNote).font(.geist(12)).foregroundStyle(Palette.ok)
             }
             Text("Ключ хранится в Связке ключей macOS и никуда не уходит, кроме Anthropic.")
                 .font(.geist(12)).foregroundStyle(p.mutedFg)
         }
+    }
+
+    /// Что стало с ключом — понятно, а не «сохранён»: какой ключ теперь используется
+    private var addedNote: String {
+        guard let e = app.prefs.apiKeys.first(where: { $0.id == app.prefs.activeKeyID }) else { return "Ключ работает" }
+        return "Ключ работает — используется «\(e.name)» (…\(e.tail))"
     }
 
     private func check() {

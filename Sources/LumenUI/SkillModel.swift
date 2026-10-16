@@ -58,6 +58,23 @@ extension AppModel {
         }
     }
 
+    /// Перевод на русский для английских описаний (Haiku). Уже переведённое — из файла, без запроса.
+    func translateToRussian(_ text: String) async -> String? {
+        let letters = text.unicodeScalars.filter { CharacterSet.letters.contains($0) }
+        let latin = letters.filter { $0.isASCII }.count
+        guard letters.count > 0, Double(latin) / Double(letters.count) > 0.6 else { return text } // уже не английский
+        let file = paths.skills.appendingPathComponent(".hub/translations.json")
+        var cache = (try? JSONDecoder().decode([String: String].self, from: Data(contentsOf: file))) ?? [:]
+        if let hit = cache[text] { return hit }
+        guard let ru = await quickAsk("Переведи на русский, коротко и естественно, без пояснений и кавычек:\n\n\(text)",
+                                      system: "Ты переводчик. Отвечай только переводом.") else { return nil }
+        let clean = ru.trimmingCharacters(in: .whitespacesAndNewlines)
+        cache[text] = clean
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? JSONEncoder().encode(cache).write(to: file, options: .atomic)
+        return clean
+    }
+
     /// Поставить из каталога skills.sh
     func installFromDirectory(_ e: SkillsDirectory.Entry) async -> String {
         do {
@@ -80,19 +97,8 @@ extension AppModel {
 
     // MARK: создание с Lumen
 
-    /// Правила хорошего навыка (по skill-creator от Anthropic и спецификации agentskills.io)
-    static let skillRules = """
-    Как писать навык, чтобы он работал:
-    1. name — коротко, латиницей в нижнем регистре через дефис (до 64 знаков).
-    2. description — главное поле: модель решает по нему, брать ли навык. Скажи, ЧТО навык делает и КОГДА его брать: \
-    перечисли конкретные фразы и ситуации. Пиши чуть настойчиво («используй всегда, когда…, даже если не сказано прямо»). До 1024 знаков.
-    3. body — инструкции в markdown для модели: шаги в повелительном наклонении; у важных шагов — зачем (модель лучше следует, \
-    когда понимает причину, чем жирным НУЖНО); точный формат результата; один-два коротких примера «вход → результат»; \
-    что делать в трудных случаях. Без воды и общих слов. До 500 строк; если больше — оставь суть, подробности опиши как отдельный файл.
-    4. Навык общий, а не под один пример. Ничего опасного и неожиданного: без скачивания и запуска чужих скриптов, без чтения ключей и паролей.
-    5. tests — две реальные просьбы, на которых навык стоит попробовать.
-    Язык описания и инструкций — язык человека (обычно русский).
-    """
+    /// Правила хорошего навыка — общие с lumen-mcp (SkillFormat.authoringRules)
+    static var skillRules: String { SkillFormat.authoringRules }
 
     /// Черновик навыка: модель пишет, потом перечитывает свежим взглядом и улучшает, потом проверка по стандарту
     func draftSkill(_ request: String, context: String? = nil) async -> Result<SkillDraft, SkillDraftError> {

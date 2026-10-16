@@ -305,3 +305,30 @@ import Testing
     app.openChat(task)          // открыть снова — вкладка сама становится «Агентом»
     #expect(app.tab == .agent && app.chat.conversation?.id == task.id)
 }
+
+/// Несколько ключей API: старый единственный становится «Ключ 1», выбранный — в основном слоте, удаление переключает
+@MainActor @Test func severalApiKeys() throws {
+    setenv("LUMEN_KEYCHAIN", "com.roman.lumen.tests.keys", 1)
+    let kc = Keychain(service: "com.roman.lumen.tests.keys")
+    defer { for a in [Keychain.anthropicKey] { kc.delete(a) } }
+    try kc.save("sk-ant-api03-first-" + String(repeating: "a", count: 30) + "AAAA", for: Keychain.anthropicKey)
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-keys-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    #expect(app.prefs.apiKeys.map(\.name) == ["Ключ 1"] && app.prefs.apiKeys.first?.tail == "AAAA")
+    let first = try #require(app.prefs.apiKeys.first)
+    #expect(app.prefs.activeKeyID == first.id)
+
+    // второй ключ (как после «Проверить и добавить»)
+    let second = ApiKeyEntry(name: "Ключ 2", tail: "BBBB")
+    try kc.save("sk-ant-api03-second-" + String(repeating: "b", count: 30) + "BBBB", for: AppModel.keyAccount(second.id))
+    app.update { $0.apiKeys.append(second) }
+    app.useKey(second.id)
+    #expect(app.prefs.activeKeyID == second.id)
+    #expect(kc.read(Keychain.anthropicKey)?.hasSuffix("BBBB") == true)
+    app.renameKey(second.id, "Рабочий")
+    #expect(app.prefs.apiKeys.last?.name == "Рабочий")
+    app.deleteKey(second.id)
+    #expect(app.prefs.activeKeyID == first.id && kc.read(Keychain.anthropicKey)?.hasSuffix("AAAA") == true)
+    for e in app.prefs.apiKeys { kc.delete(AppModel.keyAccount(e.id)) }
+}

@@ -286,3 +286,34 @@ private let live = ProcessInfo.processInfo.environment["LUMEN_LIVE"] == "1"
     #expect(b.entries[0].lockSource == "skills.sh:vercel-labs/skills/find-skills")
     #expect(SkillsCatalog.short(3_881_956) == "3,9 млн" && SkillsCatalog.short(155_405) == "155 тыс." && SkillsCatalog.short(812) == "812")
 }
+
+/// Lumen достраивает себя: из обычного чата создаёт навык, а потом им пользуется; находит и ставит навык с skills.sh
+@MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["LUMEN_LIVE"] == "1"))
+func liveLumenManagesSkillsFromChat() async throws {
+    pointToMCP()
+    let home = tempDir("lumen-liveself")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    await app.refreshClaude()
+    app.finishOnboarding(name: "Тест", address: .ty, backend: .subscription, theme: .lumen)
+    app.newChat()
+    app.chat.set(model: .sonnet, effort: .low)
+    app.chat.send("Сделай себе навык day-summary: когда прошу «итоги дня», отвечай ровно тремя строками: «Сделано: …», «Не сделано: …», «Завтра: …».")
+    while app.chat.busy { try await Task.sleep(for: .milliseconds(300)) }
+    #expect(app.chat.messages.last?.error == nil, "\(app.chat.messages.last?.error ?? "")")
+    let skill = try #require(app.skillLibrary.skill("day-summary"), "навык не создан; ответ: \(app.chat.messages.last?.text ?? "")")
+    #expect(skill.info.enabled && app.skills.contains { $0.name == "day-summary" })
+
+    app.newChat()
+    app.chat.set(model: .haiku, effort: .low)
+    app.chat.send("итоги дня: доделал вложения, не успел ключи API")
+    while app.chat.busy { try await Task.sleep(for: .milliseconds(300)) }
+    let reply = try #require(app.chat.messages.last?.text)
+    #expect(reply.contains("Сделано") && reply.contains("Завтра"), "ответ: \(reply)")
+
+    app.newChat()
+    app.chat.set(model: .sonnet, effort: .low)
+    app.chat.send("Найди на skills.sh навык anthropics/skills/pdf и поставь его.")
+    while app.chat.busy { try await Task.sleep(for: .milliseconds(300)) }
+    #expect(app.skillLibrary.skill("pdf") != nil, "ответ: \(app.chat.messages.last?.text ?? "")")
+}

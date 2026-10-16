@@ -410,7 +410,7 @@ enum Snap {
     try await Snap.save(RootView(app: app), "62-plan-ready")
 
     app.chat.pendingPermission = nil
-    app.update { $0.sidebarWidth = 900 } // шире половины — упрётся в половину окна
+    app.sidebarWidth = 900 // шире половины — упрётся в половину окна
     try await Snap.save(RootView(app: app), "63-wide-sidebar")
 }
 

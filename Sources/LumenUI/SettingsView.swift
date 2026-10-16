@@ -539,7 +539,18 @@ struct ApiKeyCard: View {
     var body: some View {
         SettingsCard(title: "Anthropic API", icon: "key-round", status: AnyView(status)) {
             VStack(alignment: .leading, spacing: 0) {
-                KeyField(app: app, key: $key)
+                if !app.prefs.apiKeys.isEmpty {
+                    VStack(spacing: 0) {
+                        ForEach(app.prefs.apiKeys) { k in KeyRow(app: app, entry: k) }
+                    }
+                    .background(p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.lg))
+                    .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
+                    .padding(.bottom, 14)
+                    Text(app.prefs.apiKeys.count > 1 ? "Выбранный ключ используется для всех разговоров через API. Можно переключать." : "Добавь ещё ключ — сможешь переключаться между ними.")
+                        .font(.geist(12)).foregroundStyle(p.mutedFg).padding(.bottom, 10)
+                }
+                Text(app.prefs.apiKeys.isEmpty ? "Ключ" : "Добавить ключ").font(.geist(12, .medium)).foregroundStyle(p.mutedFg).padding(.bottom, 6)
+                KeyField(app: app, key: $key, adding: !app.prefs.apiKeys.isEmpty)
                 HStack(alignment: .bottom, spacing: 24) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("В этом месяце").font(.geist(12)).foregroundStyle(p.mutedFg)
@@ -561,10 +572,7 @@ struct ApiKeyCard: View {
                     }
                 }
                 .padding(.top, 20)
-                if app.savedKeyTail != nil {
-                    LButton(title: "Удалить ключ", icon: "trash", kind: .ghost, small: true) { app.forgetKey() }
-                        .padding(.top, 12)
-                }
+
             }
         }
     }
@@ -579,5 +587,42 @@ struct ApiKeyCard: View {
         case .checking: StatusDot(on: false, text: "проверяю")
         case .none: StatusDot(on: false, text: "нет ключа")
         }
+    }
+}
+
+
+/// Строка ключа: выбрать, переименовать, удалить. Сам ключ не показывается — только последние знаки.
+private struct KeyRow: View {
+    @Bindable var app: AppModel
+    let entry: ApiKeyEntry
+
+    @Environment(\.palette) private var p
+    @State private var name = ""
+    @State private var hover = false
+
+    private var active: Bool { app.prefs.activeKeyID == entry.id }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button { app.useKey(entry.id) } label: {
+                Circle().strokeBorder(active ? p.glow : p.foreground.opacity(0.3), lineWidth: 1.5)
+                    .overlay { if active { Circle().fill(p.glow).padding(4) } }
+                    .frame(width: 16, height: 16)
+            }
+            .buttonStyle(.plain)
+            .help(active ? "Используется" : "Использовать этот ключ")
+            TextField("Название", text: $name).textFieldStyle(.plain).font(.geist(14))
+                .frame(maxWidth: 180)
+                .onSubmit { app.renameKey(entry.id, name) }
+            Text("sk-ant-…\(entry.tail)").font(.system(size: 12, design: .monospaced)).foregroundStyle(p.mutedFg)
+            Spacer()
+            if active { Text("используется").font(.geist(12)).foregroundStyle(Palette.ok) }
+            IconButton(icon: "trash", help: "Удалить ключ") { app.deleteKey(entry.id) }.opacity(hover ? 1 : 0.4)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .overlay(alignment: .bottom) { p.border.frame(height: 1) }
+        .onHover { hover = $0 }
+        .onAppear { name = entry.name }
+        .onChange(of: name) { _, n in app.renameKey(entry.id, n) }
     }
 }

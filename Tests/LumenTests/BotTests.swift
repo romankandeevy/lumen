@@ -184,7 +184,7 @@ private let live = ProcessInfo.processInfo.environment["LUMEN_LIVE"] == "1"
         let botChat = app.botConversation(for: b)
         let inBot = try app.store.messages(in: botChat.id)
         #expect(inBot.count == 2)
-        #expect(inBot.first?.text.contains("Задача из чата") == true)
+        #expect(inBot.first?.text.contains("из другого разговора") == true)
         #expect(inBot.last?.botID == "tester")
     }
 }

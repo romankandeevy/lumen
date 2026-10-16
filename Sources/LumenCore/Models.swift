@@ -69,6 +69,9 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var agentEffort: Effort?
     /// Режим новой задачи агента
     public var agentMode: AgentMode = .auto
+    /// Ключи Anthropic API: имена и последние знаки (сами ключи — в Связке ключей); какой используется
+    public var apiKeys: [ApiKeyEntry] = []
+    public var activeKeyID: String?
     /// Режимы, которые не показывать в поле агента (Настройки → Внешний вид)
     public var hiddenModes: [AgentMode] = []
 
@@ -113,6 +116,24 @@ public struct Preferences: Codable, Sendable, Equatable {
         agentEffort = try? c.decodeIfPresent(Effort.self, forKey: .agentEffort)
         agentMode = (try? c.decodeIfPresent(AgentMode.self, forKey: .agentMode)) ?? .auto
         hiddenModes = (try? c.decodeIfPresent([AgentMode].self, forKey: .hiddenModes)) ?? []
+        apiKeys = (try? c.decodeIfPresent([ApiKeyEntry].self, forKey: .apiKeys)) ?? []
+        activeKeyID = try? c.decodeIfPresent(String.self, forKey: .activeKeyID)
     }
 }
 
+
+
+/// Ключ API в списке: как назван, последние 4 знака, когда добавлен. Сам ключ — только в Связке ключей.
+public struct ApiKeyEntry: Codable, Sendable, Equatable, Identifiable, Hashable {
+    public var id: String
+    public var name: String
+    public var tail: String
+    public var addedAt: Date
+
+    public init(id: String = UUID().uuidString.lowercased(), name: String, tail: String, addedAt: Date = Date()) {
+        self.id = id
+        self.name = name
+        self.tail = tail
+        self.addedAt = addedAt
+    }
+}

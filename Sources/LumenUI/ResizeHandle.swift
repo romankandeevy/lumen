@@ -26,29 +26,31 @@ struct ResizeHandle: View {
     @State private var hover = false
 
     var body: some View {
-        Rectangle()
-            .fill(hover || start != nil ? p.glow.opacity(0.35) : .clear)
-            .frame(width: hover || start != nil ? 2 : 1)
-            .frame(width: 8)
+        // широкая невидимая зона за краем; при наведении — тонкая линия, без свечения
+        Color.clear
+            .frame(width: 10)
+            .overlay { Rectangle().fill(p.foreground.opacity(hover || start != nil ? 0.25 : 0)).frame(width: 1) }
             .contentShape(Rectangle())
             .onHover { inside in
                 hover = inside
-                if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                if inside { NSCursor.resizeLeftRight.push() } else if start == nil { NSCursor.pop() }
             }
-            .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
                 .onChanged { v in
                     let s = start ?? width
-                    start = s
+                    if start == nil { start = s }
                     let dx = Double(v.translation.width) * (side == .trailing ? 1 : -1)
-                    width = Self.clamp(s + dx, min: minWidth, window: Double(windowWidth))
+                    // без анимации: панель идёт ровно за мышью
+                    var t = Transaction()
+                    t.disablesAnimations = true
+                    withTransaction(t) { width = Self.clamp((s + dx).rounded(), min: minWidth, window: Double(windowWidth)) }
                 }
                 .onEnded { _ in
                     start = nil
+                    if !hover { NSCursor.pop() }
                     save()
                 })
-            .onTapGesture(count: 2) { } // двойной щелчок не роняет край
             .help("Потяни, чтобы изменить ширину")
-            .animation(.easeOut(duration: 0.12), value: hover)
     }
 
     /// Не уже минимума и не шире половины окна

@@ -281,11 +281,11 @@ struct BotPassport: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollIndicators(.never)
-        .frame(width: CGFloat(ResizeHandle.clamp(app.prefs.panelWidth, min: 280, window: Double(windowWidth))))
+        .frame(width: CGFloat(ResizeHandle.clamp(app.panelWidth, min: 280, window: Double(windowWidth))))
         .background(p.sidebar.opacity(0.5))
         .overlay(alignment: .leading) { p.border.frame(width: 1) }
         .overlay(alignment: .leading) {
-            ResizeHandle(side: .leading, width: $app.prefs.panelWidth, minWidth: 280) { app.update { _ in } }.offset(x: -4)
+            ResizeHandle(side: .leading, width: $app.panelWidth, minWidth: 280) { app.update { $0.panelWidth = app.panelWidth } }.offset(x: -4)
         }
         .foregroundStyle(p.foreground)
     }
