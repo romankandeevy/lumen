@@ -87,12 +87,6 @@ struct Sidebar: View {
         }
     }
 
-    private var botsActive: Bool {
-        switch app.page {
-        case .bots, .bot, .botEditor: true
-        default: false
-        }
-    }
 
     @Environment(\.palette) private var p
 
@@ -119,6 +113,8 @@ struct Sidebar: View {
                             }
                             .padding(.bottom, 12)
                         }
+                    } else if app.tab == .bots {
+                        BotsSidebar(app: app)
                     } else {
                         NewButton(title: "Новая задача") { app.newAgentTask() }
                             .padding(.bottom, 12)
@@ -135,9 +131,6 @@ struct Sidebar: View {
             .scrollIndicators(.never)
 
             VStack(spacing: 2) {
-                NavRow(title: "Боты", icon: "bot", active: botsActive, trailing: app.bots.isEmpty ? nil : "\(app.bots.count)") {
-                    app.page = .bots
-                }
                 NavRow(title: "Навыки", icon: "book-open", active: skillsActive, trailing: app.skills.isEmpty ? nil : "\(app.skills.count)") {
                     app.page = .skills
                 }
@@ -236,6 +229,7 @@ struct TabSwitch: View {
         HStack(spacing: 2) {
             tab(.chat, "Чат", "message-square")
             tab(.agent, "Агент", "square-terminal")
+            tab(.bots, "Боты", "bot")
         }
         .padding(2)
         .background(p.foreground.opacity(0.05), in: RoundedRectangle(cornerRadius: R.xl))
@@ -504,5 +498,70 @@ struct DotsButton: View {
         .buttonStyle(.plain)
         .onHover { hover = $0 }
         .help("Ещё")
+    }
+}
+
+
+/// Вкладка «Боты» в панели: создать, каталог и список ботов — как разговоры у Чата и Агента
+struct BotsSidebar: View {
+    @Bindable var app: AppModel
+
+    @Environment(\.palette) private var p
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            NewButton(title: "Создать бота") { app.page = .botEditor(nil) }
+                .padding(.bottom, 12)
+            NavRow(title: "Все боты", icon: "layout-grid", active: app.page == .bots) { app.page = .bots }
+                .padding(.bottom, 12)
+            if !app.bots.isEmpty {
+                Text("Боты").tw(12, lh: 16).foregroundStyle(p.mutedFg)
+                    .padding(.horizontal, 10).padding(.bottom, 4)
+                ForEach(app.bots) { b in BotRow(app: app, bot: b) }
+            }
+        }
+    }
+}
+
+private struct BotRow: View {
+    @Bindable var app: AppModel
+    let bot: Bot
+
+    @Environment(\.palette) private var p
+    @State private var hover = false
+
+    private var active: Bool {
+        switch app.page {
+        case .bot(let id), .botEditor(.some(let id)): id == bot.id
+        default: false
+        }
+    }
+
+    private var working: Bool {
+        app.botRuns[bot.id] != nil || (app.chat.running?.kind == .bot && app.chat.running?.botID == bot.id)
+    }
+
+    var body: some View {
+        Button { app.openBot(bot.id) } label: {
+            HStack(spacing: 10) {
+                BotAvatar(bot: bot, size: 22)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(bot.name).tw(14, lh: 20).lineLimit(1)
+                    Text("@\(bot.id)").tw(11, lh: 14).foregroundStyle(BotColor.accent(bot.hue).opacity(0.8)).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                if working { ProgressView().controlSize(.mini).tint(BotColor.accent(bot.hue)) }
+            }
+            .foregroundStyle(active ? p.foreground : p.foreground.opacity(0.8))
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(active ? p.foreground.opacity(0.07) : (hover ? p.foreground.opacity(0.04) : .clear), in: RoundedRectangle(cornerRadius: R.lg))
+            .overlay(alignment: .leading) {
+                if active { Capsule().fill(p.glow).frame(width: 2, height: 16).offset(x: -2) }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .onRightClick { app.showBotMenu(bot, at: $0) }
     }
 }

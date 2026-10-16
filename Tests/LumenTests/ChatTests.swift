@@ -269,3 +269,21 @@ import Testing
     #expect(app.chat.conversation?.folder == AppModel.home.path)
     app.chat.stop()
 }
+
+/// «Боты» — третья вкладка: возвращает открытого бота, ⌘N на ней — новый бот
+@MainActor @Test func botsTabRemembersBot() throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-botstab-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .subscription, theme: .lumen)
+    app.saveBot(Bot(id: "tester", name: "Тестировщик"))
+    app.switchTab(.bots)
+    #expect(app.tab == .bots && app.page == .bots)
+    app.openBot("tester")
+    app.switchTab(.chat)
+    #expect(app.page == .chat && app.tab == .chat)
+    app.switchTab(.bots)
+    #expect(app.page == .bot("tester"))
+    app.newChat()
+    #expect(app.page == .botEditor(nil))
+}

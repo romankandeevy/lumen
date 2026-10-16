@@ -56,7 +56,8 @@ public final class AppModel {
     var suggestionCache: SuggestionCache?
     var suggestionsLoading = false
     /// Вкладка панели: Чат или Агент
-    enum Tab { case chat, agent }
+    /// Вкладки наверху панели, как в макете: Чат, Агент, Боты
+    enum Tab { case chat, agent, bots }
     var tab: Tab = .chat
     /// Папка для новой задачи агента
     var agentFolder: URL?
@@ -169,14 +170,24 @@ public final class AppModel {
 
     /// Что было открыто на каждой вкладке: id разговора или nil — новый, ещё пустой
     @ObservationIgnored private var tabMemory: [Tab: String?] = [:]
+    @ObservationIgnored private var lastBot: String?
 
     /// Переключить Чат ↔ Агент: вкладка возвращает то, что на ней было открыто (и новый пустой разговор тоже)
     func switchTab(_ t: Tab) {
         guard tab != t else { return }
-        let kind: ConversationKind = tab == .agent ? .agent : .chat
-        // updateValue, а не `= nil`: nil в словаре удалил бы запись, а нам нужно запомнить «новый разговор»
-        tabMemory.updateValue(chat.conversation.flatMap { $0.kind == kind ? $0.id : nil }, forKey: tab)
+        if tab == .bots {
+            // на вкладке ботов помним открытого бота (или каталог)
+            if case .bot(let id) = page { lastBot = id } else { lastBot = nil }
+        } else {
+            let kind: ConversationKind = tab == .agent ? .agent : .chat
+            // updateValue, а не `= nil`: nil в словаре удалил бы запись, а нам нужно запомнить «новый разговор»
+            tabMemory.updateValue(chat.conversation.flatMap { $0.kind == kind ? $0.id : nil }, forKey: tab)
+        }
         tab = t
+        if t == .bots {
+            if let id = lastBot, bot(id) != nil { openBot(id) } else { page = .bots }
+            return
+        }
         let want = t == .agent ? ConversationKind.agent : .chat
         let remembered = tabMemory[t]
         if let remembered {
@@ -225,6 +236,7 @@ public final class AppModel {
 
     func newChat() {
         if tab == .agent { return newAgentTask() }
+        if tab == .bots { page = .botEditor(nil); return }
         chat.startNew()
         page = .chat
     }

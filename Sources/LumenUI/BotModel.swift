@@ -68,6 +68,7 @@ extension AppModel {
         guard let b = bot(id) else { page = .bots; return }
         let c = botConversation(for: b)
         if chat.conversation?.id != c.id { chat.open(c) }
+        tab = .bots
         page = .bot(id)
     }
 
