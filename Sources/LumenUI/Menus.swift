@@ -31,12 +31,16 @@ struct MenuLayer: View {
     var body: some View {
         if let menu = app.menu {
             GeometryReader { g in
+                // меню не выходит за край окна; в замыкания — только числа
+                let x = min(menu.anchor.x, g.size.width - 260)
+                let y = menu.anchor.y
+                let height = g.size.height
                 ZStack(alignment: .topLeading) {
                     Color.black.opacity(0.001).onTapGesture { app.menu = nil }
                     panel(menu)
                         .fixedSize()
-                        .alignmentGuide(.leading) { _ in -min(menu.anchor.x, g.size.width - 260) }
-                        .alignmentGuide(.top) { d in -min(menu.anchor.y, g.size.height - d.height - 8) }
+                        .alignmentGuide(.leading) { _ in -x }
+                        .alignmentGuide(.top) { d in -min(y, height - d.height - 8) }
                 }
             }
             .ignoresSafeArea()

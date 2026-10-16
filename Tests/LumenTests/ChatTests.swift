@@ -182,7 +182,8 @@ import Testing
     app.reloadConversations()
     app.togglePin(a)
     #expect(app.conversations.first { $0.id == a.id }?.pinned == true)
-    app.showChatMenu(a, at: .zero)
+    let fresh = try #require(app.conversations.first { $0.id == a.id })
+    app.showChatMenu(fresh, at: .zero)
     #expect(app.menu?.items.map(\.title) == ["Открепить", "Переименовать", "Удалить"])
     #expect(app.menu?.items.map(\.key) == ["p", "r", "d"])
     app.menu?.items[1].action() // «Переименовать» включает поле в строке
