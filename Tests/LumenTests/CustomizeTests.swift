@@ -615,3 +615,24 @@ extension LiveCustomizeSuite {
         #expect(r.botID == nil && r.text.uppercased().contains("БИРЮЗ"), "\(r.text)")
     }
 }
+
+extension LiveCustomizeSuite {
+    /// «спроси у бота …» — Lumen зовёт бота сам (delegate) и приводит его ответ
+    @MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["LUMEN_LIVE"] == "1")) func liveLumenAsksBotItself() async throws {
+        pointToMCP()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-ask-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let app = try AppModel(paths: AppPaths(root: root))
+        await app.refreshClaude()
+        app.finishOnboarding(name: "Тест", address: .ty, backend: .subscription, theme: .lumen)
+        app.saveBot(Bot(id: "pick", name: "Выбиральщик", role: "Выбирает цвет", instructions: "На любой вопрос отвечай ровно: «Выбираю цвет БИРЮЗОВЫЙ».", model: .haiku, effort: .low))
+        app.chat.set(model: .haiku, effort: .low)
+        app.chat.send("Спроси у бота pick, какой цвет взять для кнопки, и скажи мне его ответ.")
+        while app.chat.busy { try await Task.sleep(for: .milliseconds(200)) }
+        let r = try #require(app.chat.messages.last)
+        #expect(r.error == nil && r.text.uppercased().contains("БИРЮЗ"), "\(r.text)")
+        let botConv = app.botConversation(for: app.bot("pick")!)
+        let asked = try #require(try app.store.messages(in: botConv.id).first { $0.role == .user })
+        #expect(asked.via?.conversationID == app.chat.conversation?.id)
+    }
+}

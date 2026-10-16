@@ -71,7 +71,9 @@ extension AppModel {
 
     /// Единственный разговор бота: создаётся при первом открытии
     func botConversation(for b: Bot) -> Conversation {
-        if var c = conversations.first(where: { $0.kind == .bot && $0.botID == b.id }) {
+        // разговор мог создать lumen-mcp (Lumen позвал бота сам) — тогда он есть в базе, но не в списке
+        if var c = conversations.first(where: { $0.kind == .bot && $0.botID == b.id })
+            ?? (try? store.conversations())?.first(where: { $0.kind == .bot && $0.botID == b.id }) {
             // модель и папка — как в паспорте бота сейчас
             if c.model != b.model || c.effort != b.effort || c.folder != botFolder(b).path || c.title != b.name {
                 c.model = b.model

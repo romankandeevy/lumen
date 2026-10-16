@@ -31,7 +31,9 @@ if !tools.availableSkills.isEmpty { visible += MemoryTools.skillDefinitions }
 let callerID = env["LUMEN_BOT_ID"] ?? ""
 let depth = Int(env["LUMEN_DEPTH"] ?? "0") ?? 0
 let caller = callerID.isEmpty ? nil : (try? store.bots())?.first { $0.id == callerID }
-let canDelegate = caller?.can.contains(.bots) == true && depth < 1
+// звать ботов могут боты с этим правом и сам Lumen (чат и агент; у него LUMEN_BOT_ID пустой)
+let canDelegate = (caller?.can.contains(.bots) == true || callerID.isEmpty) && depth < 1
+    && !((try? store.bots()) ?? []).isEmpty
 // Lumen достраивает себя сам (Рома, 16.10): смотрит, создаёт, находит на skills.sh и ставит навыки.
 // Ботам — нет: их навыки выбирает человек.
 let manageSkills = tools.skills != nil && callerID.isEmpty
@@ -64,11 +66,13 @@ if canDelegate {
 
 /// Запустить позванного бота отдельным процессом claude с его правами и дождаться ответа
 func delegate(_ args: [String: Any]) -> String {
-    guard canDelegate, let caller else { return "Звать других ботов отсюда нельзя." }
+    guard canDelegate else { return "Звать других ботов отсюда нельзя." }
     let id = (args["bot"] as? String ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "@ "))
     let task = (args["task"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     let bots = (try? store.bots()) ?? []
-    guard let target = bots.first(where: { $0.id == id }), target.id != caller.id else { return "Нет такого бота: @\(id)." }
+    guard let target = bots.first(where: { $0.id == id }), target.id != caller?.id else {
+        return "Нет такого бота: @\(id). Есть: " + bots.map { "@\($0.id)" }.joined(separator: ", ") + "."
+    }
     guard !task.isEmpty else { return "Пустая задача." }
     guard let cli = ClaudeCLI.locate() else { return "Claude Code не найден." }
     let root = URL(fileURLWithPath: dbPath).deletingLastPathComponent()
@@ -77,7 +81,14 @@ func delegate(_ args: [String: Any]) -> String {
     if let f = target.folder, FileManager.default.fileExists(atPath: f) { folder = URL(fileURLWithPath: f) }
     try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 
-    let conv = (try? store.conversations())?.first { $0.kind == .bot && $0.botID == target.id }
+    var conv = (try? store.conversations())?.first { $0.kind == .bot && $0.botID == target.id }
+    // у бота ещё нет своего разговора — создаём, как Lumen: задача и ответ должны остаться у него
+    if conv == nil {
+        var c = Conversation(title: target.name, kind: .bot, folder: folder.path, backend: store.preferences.backend,
+                             model: target.model, effort: target.effort, cliSessionID: UUID().uuidString.lowercased())
+        c.botID = target.id
+        if (try? store.save(c)) != nil { conv = c }
+    }
     let library = SkillLibrary(root: paths.skills)
     let perms = BotPermissions(target)
     let profile = store.profile
@@ -108,7 +119,8 @@ func delegate(_ args: [String: Any]) -> String {
         config.tools = t + ["ToolSearch"]
         config.allowedTools.append("ToolSearch")
     }
-    let asked = Via.modelText(task: task, from: "@\(caller.id) — бот «\(caller.name)»", context: "")
+    let from = caller.map { "@\($0.id) — бот «\($0.name)»" } ?? "Lumen, разговор «\(env["LUMEN_CONVERSATION_TITLE"] ?? "")»"
+    let asked = Via.modelText(task: task, from: from, context: "")
 
     final class Box: @unchecked Sendable { var text = "" }
     let box = Box()
@@ -128,7 +140,8 @@ func delegate(_ args: [String: Any]) -> String {
     // в постоянный разговор позванного бота — задача и ответ
     if let conv {
         var q = ChatMessage(conversationID: conv.id, role: .user, text: task)
-        q.via = Via(title: "@\(caller.id)")
+        q.via = caller.map { Via(title: "@\($0.id)") }
+            ?? Via(conversationID: env["LUMEN_CONVERSATION_ID"], title: env["LUMEN_CONVERSATION_TITLE"] ?? "Lumen")
         _ = try? store.save(q)
         var m = ChatMessage(conversationID: conv.id, role: .assistant, text: box.text, model: target.model)
         m.botID = target.id
