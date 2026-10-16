@@ -19,6 +19,18 @@ public struct Git: Sendable {
         get async { (try? await git(["rev-parse", "--is-inside-work-tree"]))?.trimmingCharacters(in: .whitespacesAndNewlines) == "true" }
     }
 
+    /// Ветка и сколько файлов сейчас изменено — для экрана новой задачи
+    public struct Info: Sendable, Equatable {
+        public let branch: String
+        public let changed: Int
+    }
+
+    public func info() async -> Info? {
+        guard await isRepo, let branch = try? await git(["rev-parse", "--abbrev-ref", "HEAD"]) else { return nil }
+        let changed = (try? await status().count) ?? 0
+        return Info(branch: branch.trimmingCharacters(in: .whitespacesAndNewlines), changed: changed)
+    }
+
     public func snapshot() async throws -> Snapshot {
         var dirty: [String: String] = [:]
         for (path, _) in try await status() {

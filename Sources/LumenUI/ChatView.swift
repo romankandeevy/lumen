@@ -27,13 +27,16 @@ struct ChatView: View {
             header
             if chat.messages.isEmpty && !chat.busy {
                 Group {
-                    if agent { AgentEmpty(app: app) { draft = $0 } } else { empty }
+                    // новая задача агента — вариант A: поле по центру, своё нижнее поле не нужно
+                    if agent { AgentHome(app: app, draft: $draft, backend: backend) } else { empty }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 transcript
             }
-            Composer(app: app, draft: $draft, backend: backend, agent: agent)
+            if !(agent && chat.messages.isEmpty && !chat.busy) {
+                Composer(app: app, draft: $draft, backend: backend, agent: agent)
+            }
         }
         .foregroundStyle(p.foreground)
     }
@@ -324,6 +327,8 @@ struct Composer: View {
     @Binding var draft: String
     let backend: Backend
     var agent = false
+    /// Большое поле по центру экрана новой задачи (вариант A): выше, крупнее текст, папка — кнопкой
+    var big = false
 
     @Environment(\.palette) private var p
     @FocusState private var focused: Bool
@@ -340,15 +345,16 @@ struct Composer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            TextField(agent ? "Что сделать в проекте?" : "Просто напиши", text: $draft, axis: .vertical)
+            TextField(big ? "Опиши задачу: что сделать, починить или проверить" : (agent ? "Что сделать в проекте?" : "Просто напиши"),
+                      text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.geist(14))
-                .lineSpacing(3)
+                .font(.geist(big ? 15 : 14))
+                .lineSpacing(big ? 6 : 3)
                 .help("Enter — отправить, ⌥Enter — новая строка")
-                .lineLimit(2...12)
+                .lineLimit(big ? 4...14 : 2...12)
                 .focused($focused)
                 .onSubmit(send)
-                .frame(minHeight: 48, alignment: .topLeading)
+                .frame(minHeight: big ? 96 : 48, alignment: .topLeading)
             HStack(spacing: 2) {
                 if agent { folderPicker }
                 if chat.busyElsewhere, let other = chat.running {
@@ -367,14 +373,14 @@ struct Composer: View {
                 effortPicker
                 sendButton.padding(.leading, 4)
             }
-            .frame(height: 28)
+            .frame(height: big ? 32 : 28)
         }
-        .padding(12)
+        .padding(big ? 16 : 12)
         .background(p.card.opacity(0.6), in: RoundedRectangle(cornerRadius: R.xxl))
         // без свечения в фокусе (Рома, 16.10): ровная рамка
         .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(focused ? p.foreground.opacity(0.14) : p.border))
-        .frame(maxWidth: app.prefs.chatWidth.points)
-        .padding(.horizontal, 20).padding(.bottom, 20).padding(.top, 4)
+        .frame(maxWidth: big ? .infinity : app.prefs.chatWidth.points)
+        .padding(.horizontal, big ? 0 : 20).padding(.bottom, big ? 0 : 20).padding(.top, big ? 0 : 4)
         .frame(maxWidth: .infinity)
         // from-background to-transparent над полем
         .background(alignment: .top) {
@@ -393,9 +399,9 @@ struct Composer: View {
     /// `FolderPicker`: папка проекта; у начатой сессии папка уже не меняется
     private var folderPicker: some View {
         let current = chat.conversation?.folder.map { URL(fileURLWithPath: $0) } ?? app.agentFolder
-        return PickerButton(open: $folderOpen) {
-            Icon("folder", 14).foregroundStyle(p.glow)
-            Text(current?.lastPathComponent ?? "Выбрать папку").font(.geist(12))
+        return PickerButton(open: $folderOpen, bordered: big) {
+            Icon(big ? "folder-open" : "folder", big ? 16 : 14).foregroundStyle(p.glow)
+            Text(current?.lastPathComponent ?? "Выбрать папку").font(.geist(big ? 14 : 12))
         } panel: {
             PopoverPanel(title: "Папка проекта", width: 256) {
                 ForEach(app.recentFolders, id: \.self) { f in
@@ -480,7 +486,7 @@ struct Composer: View {
             Button(action: send) {
                 Icon("arrow-up", 16)
                     .foregroundStyle(.black)
-                    .frame(width: 28, height: 28)
+                    .frame(width: big ? 32 : 28, height: big ? 32 : 28)
                     // как в макете: кнопка всегда светится (bg-glow, тень 16px glow-soft)
                     .background(p.glow, in: Circle())
                     .shadow(color: p.glowSoft, radius: 8)
@@ -496,6 +502,8 @@ struct Composer: View {
 /// Кнопка-открывашка поповера: h-7 rounded-lg px-2 text-xs, стрелка вниз на 50%
 struct PickerButton<Label: View, Panel: View>: View {
     @Binding var open: Bool
+    /// Кнопка с рамкой (папка в большом поле новой задачи)
+    var bordered = false
     @ViewBuilder let label: Label
     @ViewBuilder let panel: Panel
 
@@ -510,8 +518,10 @@ struct PickerButton<Label: View, Panel: View>: View {
                 Icon("chevron-down", 12).opacity(0.5)
             }
             .foregroundStyle(p.foreground)
-            .padding(.horizontal, 8).frame(height: 28)
-            .background(hover ? p.foreground.opacity(0.05) : .clear, in: RoundedRectangle(cornerRadius: R.lg))
+            .padding(.horizontal, bordered ? 10 : 8).frame(height: bordered ? 32 : 28)
+            .background(bordered ? p.background.opacity(hover ? 0.6 : 0.4) : (hover ? p.foreground.opacity(0.05) : .clear),
+                        in: RoundedRectangle(cornerRadius: bordered ? R.md : R.lg))
+            .overlay(RoundedRectangle(cornerRadius: R.md).strokeBorder(bordered ? p.input : .clear))
             .contentShape(Rectangle())
             .opacity(enabled ? 1 : 0.5)
         }

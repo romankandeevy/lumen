@@ -94,7 +94,15 @@ enum Snap {
         try? FileManager.default.createDirectory(at: f, withIntermediateDirectories: true)
         app.rememberFolder(f)
     }
-    app.agentFolder = folders[0]
+    // настоящая папка с git — сам репозиторий Lumen
+    let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    app.rememberFolder(repo)
+    for (t, ago) in [("Проекты как в Claude", 600.0), ("Верх панели и меню «…»", 7200.0)] {
+        try app.store.save(Conversation(title: t, kind: .agent, folder: repo.path, backend: .subscription, model: .sonnet, effort: .high,
+                                        createdAt: Date().addingTimeInterval(-ago), updatedAt: Date().addingTimeInterval(-ago)))
+    }
+    app.reloadConversations()
+    app.agentFolder = repo
     app.newAgentTask()
     try await Snap.save(RootView(app: app), "04-agent-empty")
 

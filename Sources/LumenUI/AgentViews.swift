@@ -1,34 +1,115 @@
 import LumenCore
+import LumenProviders
 import SwiftUI
 
-/// Пустой экран агента (`AgentEmpty`): «Что сделать?», папка, подсказки.
-/// «Где» (облако через API) появится, когда заработает.
-struct AgentEmpty: View {
+/// Новая задача агента — вариант A «как Claude Code» (mockups/19-agent-new-A…, выбран Ромой 16.10):
+/// «Что сделаем в {папка}?», большое поле по центру с папкой внутри, под ним ветка git и незакоммиченное,
+/// ниже недавние задачи этой папки.
+struct AgentHome: View {
     @Bindable var app: AppModel
-    let pick: (String) -> Void
+    @Binding var draft: String
+    let backend: Backend
 
     @Environment(\.palette) private var p
+    @State private var git: Git.Info?
+
+    private var folder: URL? { app.agentFolder }
+
+    /// Последние задачи агента в выбранной папке
+    private var recent: [Conversation] {
+        guard let path = folder?.standardizedFileURL.path else { return [] }
+        return app.conversations.filter { $0.kind == .agent && $0.folder.map { URL(fileURLWithPath: $0).standardizedFileURL.path } == path }
+            .prefix(3).map { $0 }
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Что сделать?").font(.geist(24, .semibold)).tracking(-0.48)
-            Text("Агент работает в папке проекта: читает, правит, собирает. Push и выкатка — только с твоего OK.")
-                .font(.geist(14)).foregroundStyle(p.mutedFg).padding(.top, 6)
-                .fixedSize(horizontal: false, vertical: true)
-            Text("Папка").font(.geist(12)).foregroundStyle(p.mutedFg).padding(.top, 24).padding(.bottom, 8)
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
-                ForEach(app.recentFolders.prefix(7), id: \.self) { f in
-                    FolderTile(name: f.lastPathComponent, active: f.standardizedFileURL.path == app.agentFolder?.standardizedFileURL.path) { app.agentFolder = f }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 10) {
+                    Orb(state: app.orb, size: 28)
+                    if let folder {
+                        (Text("Что сделаем в ") + Text(folder.lastPathComponent).foregroundColor(p.glow) + Text("?"))
+                            .tw(24, .semibold, lh: 32).tracking(-0.48)
+                    } else {
+                        Text("Выбери папку проекта").tw(24, .semibold, lh: 32).tracking(-0.48)
+                    }
                 }
-                FolderTile(name: "Другая папка…", active: false, muted: true) { app.chooseFolder() }
+                .padding(.bottom, 24)
+
+                Composer(app: app, draft: $draft, backend: backend, agent: true, big: true)
+
+                // ветка и незакоммиченное — настоящее, из git
+                HStack(spacing: 12) {
+                    if let git {
+                        HStack(spacing: 4) { Icon("git-branch", 14); Text(git.branch) }
+                        if git.changed > 0 {
+                            Text("\(git.changed) " + Plural.form(git.changed, "изменённый файл", "изменённых файла", "изменённых файлов") + " не закоммичены")
+                                .foregroundStyle(p.glow)
+                        } else {
+                            Text("всё закоммичено")
+                        }
+                    } else if folder != nil {
+                        Text("папка без git — «Изменения» после хода не покажутся")
+                    }
+                    Spacer(minLength: 8)
+                    HStack(spacing: 4) { Icon("laptop", 14); Text("этот Мак · push только с твоего OK") }
+                }
+                .tw(12, lh: 16).foregroundStyle(p.mutedFg)
+                .padding(.horizontal, 4).padding(.top, 12)
+
+                if !recent.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Недавно в этой папке").tw(12, lh: 16).foregroundStyle(p.mutedFg).padding(.horizontal, 4)
+                        VStack(spacing: 0) {
+                            ForEach(Array(recent.enumerated()), id: \.element.id) { i, c in
+                                if i > 0 { p.border.frame(height: 1) }
+                                RecentTaskRow(c: c) { app.openChat(c) }
+                            }
+                        }
+                        .background(p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xl))
+                        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
+                    }
+                    .padding(.top, 40)
+                }
             }
-            FlowChips(items: ["Найди и почини падение", "Собери и проверь сборку", "Объясни, как устроен проект"], pick: pick)
-                .padding(.top, 24)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: 704)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 40)
+            .frame(maxWidth: .infinity)
+            .containerRelativeFrame(.vertical, alignment: .center) { h, _ in h }
         }
+        .scrollIndicators(.never)
         .foregroundStyle(p.foreground)
-        .frame(maxWidth: 704, alignment: .leading)
-        .padding(.horizontal, 24)
+        .task(id: folder) {
+            git = nil
+            if let folder { git = await Git(folder: folder).info() }
+        }
+    }
+}
+
+/// Строка «Недавно в этой папке»: часы, название, когда
+struct RecentTaskRow: View {
+    let c: Conversation
+    let action: () -> Void
+
+    @Environment(\.palette) private var p
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Icon("clock", 14).foregroundStyle(p.mutedFg)
+                Text(c.title).tw(14, lh: 20).lineLimit(1)
+                Spacer(minLength: 8)
+                Text(RelativeWhen.string(c.updatedAt)).tw(12, lh: 16).foregroundStyle(p.mutedFg)
+            }
+            .foregroundStyle(p.foreground)
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            .background(hover ? p.foreground.opacity(0.03) : .clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
     }
 }
 
