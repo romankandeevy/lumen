@@ -61,6 +61,9 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var contextOpen = false
     /// Левая панель спрятана (кнопка рядом с кнопками окна, как в Claude)
     public var sidebarHidden = false
+    /// Модель и «сколько думать» для новой задачи агента (у чата — `model` и `effort`)
+    public var agentModel: ChatModel?
+    public var agentEffort: Effort?
     /// Получать бета-версии (1.0.1, 1.0.2…), а не только стабильные
     public var betaUpdates = false
 
@@ -91,6 +94,8 @@ public struct Preferences: Codable, Sendable, Equatable {
         contextOpen = try c.decodeIfPresent(Bool.self, forKey: .contextOpen) ?? false
         sidebarHidden = try c.decodeIfPresent(Bool.self, forKey: .sidebarHidden) ?? false
         betaUpdates = try c.decodeIfPresent(Bool.self, forKey: .betaUpdates) ?? false
+        agentModel = try? c.decodeIfPresent(ChatModel.self, forKey: .agentModel)
+        agentEffort = try? c.decodeIfPresent(Effort.self, forKey: .agentEffort)
     }
 }
 

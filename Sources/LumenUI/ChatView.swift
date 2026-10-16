@@ -349,7 +349,13 @@ struct Composer: View {
 
     private var chat: ChatController { app.chat }
     private var model: ChatModel { chat.conversation?.model ?? (agent ? app.defaultAgentModel : app.prefs.model) }
-    private var effort: Effort { chat.conversation?.effort ?? (agent ? .high : app.prefs.effort) }
+    private var effort: Effort { chat.conversation?.effort ?? (agent ? app.prefs.agentEffort ?? .high : app.prefs.effort) }
+    /// Начатый разговор продолжается тем же движком: Claude не продолжит ход ChatGPT и наоборот
+    private var models: [ChatModel] {
+        let all = app.availableModels(for: backend)
+        guard chat.conversation != nil else { return all }
+        return all.filter { $0.isGPT == model.isGPT }
+    }
     /// Агенту без папки отправлять нечего
     private var ready: Bool { !agent || chat.conversation != nil || app.agentFolder != nil }
     private var canSend: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -445,9 +451,12 @@ struct Composer: View {
             Text(model.name).font(.geist(12, .medium))
         } panel: {
             PopoverPanel(title: "Модель") {
-                ForEach(app.availableModels(for: backend)) { m in
+                ForEach(models) { m in
+                    if m == ChatModel.gpt.first, models.contains(where: { !$0.isGPT }) {
+                        p.border.frame(height: 1).padding(.vertical, 5).padding(.horizontal, 2)
+                    }
                     PopoverOption(name: m.name, note: m.note, active: m == model) {
-                        Icon("sparkles", 16).foregroundStyle(p.mutedFg)
+                        Icon(m.isGPT ? "message-circle" : "sparkles", 16).foregroundStyle(p.mutedFg)
                     } action: {
                         chat.set(model: m)
                         modelOpen = false

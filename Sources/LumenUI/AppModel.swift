@@ -106,7 +106,9 @@ public final class AppModel {
 
     /// Агент по умолчанию думает Opus на высоком уровне, как в макете; если Opus недоступен — Sonnet
     var defaultAgentModel: ChatModel {
-        availableModels(for: .subscription).contains(.opus) ? .opus : .sonnet
+        let available = availableModels(for: .subscription)
+        if let m = prefs.agentModel, available.contains(m) { return m }
+        return available.contains(.opus) ? .opus : .sonnet
     }
 
     func rememberFolder(_ url: URL) {
@@ -211,11 +213,49 @@ public final class AppModel {
 
     /// Модели, которые сейчас реально работают с выбранным движком.
     /// Opus 5.5 через подписку требует claude 2.1.280+ (docs/spikes.md).
+    /// ChatGPT — когда вошли в codex.
     func availableModels(for backend: Backend) -> [ChatModel] {
-        guard backend == .subscription, case .signedIn(let v, _) = claude, v < Self.opus55Version else {
-            return ChatModel.allCases
+        var claudeModels = ChatModel.claude
+        if backend == .subscription, case .signedIn(let v, _) = claude, v < Self.opus55Version {
+            claudeModels.removeAll { $0 == .opus }
         }
-        return ChatModel.allCases.filter { $0 != .opus }
+        return claudeModels + (codex == .signedIn ? ChatModel.gpt : [])
+    }
+
+    // MARK: ChatGPT (codex)
+
+    enum CodexState: Equatable { case checking, notInstalled, signedOut, signingIn, signedIn }
+
+    var codex: CodexState = .checking
+    var codexCLI: CodexCLI?
+
+    func refreshCodex() async {
+        guard let cli = CodexCLI.locate() else {
+            codexCLI = nil
+            codex = .notInstalled
+            return
+        }
+        codexCLI = cli
+        codex = await cli.signedIn() ? .signedIn : .signedOut
+    }
+
+    /// Вход аккаунтом ChatGPT: codex открывает браузер и ждёт
+    func codexSignIn() async {
+        guard let codexCLI else { return }
+        codex = .signingIn
+        try? await codexCLI.login()
+        await refreshCodex()
+    }
+
+    func codexSignOut() async {
+        guard let codexCLI else { return }
+        try? await codexCLI.logout()
+        await refreshCodex()
+        // выбранная модель ChatGPT больше недоступна
+        update {
+            if $0.model.isGPT { $0.model = .sonnet }
+            if $0.agentModel?.isGPT == true { $0.agentModel = nil }
+        }
     }
 
     // MARK: настройки

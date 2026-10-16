@@ -21,6 +21,8 @@ final class ChatController {
     private var turnThinking = false
 
     @ObservationIgnored private var sessions: [String: ClaudeSession] = [:]
+    /// Идущие ходы ChatGPT — для «Стоп»
+    @ObservationIgnored private var codexRuns: [String: CodexRun] = [:]
     @ObservationIgnored private var turnTask: Task<Void, Never>?
     @ObservationIgnored private var stopRequested = false
     @ObservationIgnored private var turnStart = Date()
@@ -88,9 +90,11 @@ final class ChatController {
 
     /// Модель и «сколько думать» для следующего хода
     func set(model: ChatModel? = nil, effort: Effort? = nil) {
+        // новая задача агента помнит свои модель и «сколько думать», чат — свои
+        let newAgent = conversation == nil && app.tab == .agent
         app.update {
-            if let model { $0.model = model }
-            if let effort { $0.effort = effort }
+            if let model { if newAgent { $0.agentModel = model } else { $0.model = model } }
+            if let effort { if newAgent { $0.agentEffort = effort } else { $0.effort = effort } }
         }
         guard var c = conversation else { return }
         if let model { c.model = model }
@@ -110,12 +114,14 @@ final class ChatController {
         } else if app.tab == .agent {
             guard let folder = app.agentFolder else { return }
             c = Conversation(title: Self.title(from: text), kind: .agent, folder: folder.path, backend: app.prefs.backend,
-                             model: app.defaultAgentModel, effort: .high)
+                             model: app.defaultAgentModel, effort: app.prefs.agentEffort ?? .high)
             app.rememberFolder(folder)
         } else {
             c = Conversation(title: Self.title(from: text), backend: app.prefs.backend, model: app.prefs.model, effort: app.prefs.effort)
         }
         if conversation == nil { c.projectID = newProjectID }
+        // ChatGPT идёт по подписке ChatGPT, не по ключу Anthropic
+        if c.model.isGPT { c.backend = .subscription }
         let isNew = conversation == nil
         if c.usesCLI && c.cliSessionID == nil { c.cliSessionID = UUID().uuidString.lowercased() }
         do {
@@ -137,7 +143,9 @@ final class ChatController {
         let history = messages
         turnTask = Task { [weak self] in
             guard let self else { return }
-            if c.usesCLI {
+            if c.model.isGPT {
+                await self.runCodex(c, text: text)
+            } else if c.usesCLI {
                 await self.runCLI(c, text: text, hadTurnsBefore: history.contains { $0.role == .assistant && $0.error == nil })
             } else {
                 await self.runAPI(c, history: history)
@@ -154,7 +162,7 @@ final class ChatController {
     func stop() {
         guard let c = running else { return }
         stopRequested = true
-        if c.usesCLI { sessions[c.id]?.interrupt() } else { turnTask?.cancel() }
+        if c.model.isGPT { codexRuns[c.id]?.stop() } else if c.usesCLI { sessions[c.id]?.interrupt() } else { turnTask?.cancel() }
     }
 
     /// «Сжать разговор»: claude пересказывает старое и освобождает окно (`/compact`, проверено в спайке)
@@ -270,6 +278,90 @@ final class ChatController {
         } catch {
             await finish(c, text: "", error: error.localizedDescription)
         }
+    }
+
+    /// Ход через ChatGPT (codex). Разговор продолжается по thread_id, который хранится в `cliSessionID`.
+    /// Свои правила Lumen передаёт в начале первого хода: системного промпта у `codex exec` нет.
+    private func runCodex(_ c: Conversation, text: String) async {
+        guard let codex = app.codexCLI, app.codex == .signedIn else {
+            await finish(c, text: "", error: "ChatGPT не подключён. Войди в Настройках → Модели и оплата → ChatGPT.")
+            return
+        }
+        var c = c
+        let folder: URL
+        if let f = c.folder {
+            folder = URL(fileURLWithPath: f)
+        } else {
+            // чату папка не нужна: пустая, только чтение
+            folder = app.paths.run.appendingPathComponent(c.id, isDirectory: true)
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        let git = c.kind == .agent ? Git(folder: folder) : nil
+        var before: Git.Snapshot?
+        if let git, await git.isRepo { before = try? await git.snapshot() }
+
+        var prompt = text
+        if c.cliSessionID == nil {
+            let rules = c.kind == .agent ? app.agentPrompt(for: c) : app.systemPrompt(for: c)
+            prompt = "<lumen-instructions>\n\(rules)\n</lumen-instructions>\n\n" + text
+        }
+        var memory: (command: String, env: [String: String])?
+        if let bin = app.mcpBinary {
+            memory = (bin.path, ["LUMEN_DB": app.paths.database.path, "LUMEN_CONVERSATION_ID": c.id, "LUMEN_CONVERSATION_TITLE": c.title])
+        }
+        let turn = CodexCLI.Turn(model: c.model.rawValue, effort: c.effort.rawValue, agent: c.kind == .agent,
+                                 folder: folder, threadID: c.cliSessionID, memoryServer: memory)
+        do {
+            let run = try codex.run(turn, prompt: prompt)
+            codexRuns[c.id] = run
+            defer { codexRuns[c.id] = nil }
+            var answer = ""
+            var result: ClaudeEvent.TurnResult?
+            for await ev in run.events {
+                switch ev {
+                case .started(let thread, _, _) where c.cliSessionID == nil && !thread.isEmpty:
+                    c.cliSessionID = thread
+                    try? app.store.save(c)
+                    if conversation?.id == c.id { conversation?.cliSessionID = thread }
+                case .textDelta(let t):
+                    answer += t
+                    appendStreaming(t, c)
+                case .step(let step):
+                    appendStep(step, c)
+                case .plan(let change):
+                    updatePlan(change, c)
+                case .finished(let r):
+                    result = r
+                default: break
+                }
+            }
+            var changes: ChangeSet?
+            if let git, let before, let files = try? await git.changes(since: before), !files.isEmpty {
+                changes = ChangeSet(files: files)
+            }
+            let ctx = result.map { ($0.contextTokens, $0.contextWindow) }
+            if stopRequested {
+                await finish(c, text: answer, stopped: true, changes: changes, context: ctx)
+            } else if let result, result.ok {
+                await finish(c, text: answer, changes: changes, context: ctx)
+            } else {
+                await finish(c, text: answer, error: Self.codexError(result?.text ?? run.errorOutput), changes: changes, context: ctx)
+            }
+        } catch {
+            await finish(c, text: "", error: error.localizedDescription)
+        }
+    }
+
+    static func codexError(_ raw: String) -> String {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.contains("401") || s.localizedCaseInsensitiveContains("unauthorized") {
+            return "ChatGPT просит войти заново: Настройки → Модели и оплата → ChatGPT."
+        }
+        if s.localizedCaseInsensitiveContains("usage limit") || s.contains("429") {
+            return "Лимит ChatGPT на сейчас исчерпан. Подожди сброса или выбери модель Claude."
+        }
+        if s.isEmpty { return "ChatGPT не ответил. Отправь ещё раз." }
+        return s
     }
 
     /// Тёплый процесс на разговор. Если сменились модель или effort — перезапуск с `--resume`.
@@ -555,7 +647,7 @@ final class ChatController {
 
 extension Conversation {
     /// Агент всегда работает через claude (и по подписке, и по ключу), чат — через claude только по подписке
-    var usesCLI: Bool { kind == .agent || backend == .subscription }
+    var usesCLI: Bool { !model.isGPT && (kind == .agent || backend == .subscription) }
 }
 
 extension AppModel {

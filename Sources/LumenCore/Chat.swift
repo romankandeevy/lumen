@@ -6,6 +6,16 @@ public enum ChatModel: String, Codable, Sendable, CaseIterable, Identifiable {
     case opus = "claude-opus-5-5"
     case sonnet = "claude-sonnet-5-5"
     case haiku = "claude-haiku-5-5"
+    // ChatGPT через codex по подписке ChatGPT (каталог `codex debug models`, октябрь 2026)
+    case gptAstra = "gpt-6-astra"
+    case gptSol = "gpt-6.1-sol"
+    case gptLuna = "gpt-6-luna"
+
+    public static let claude: [ChatModel] = [.fable, .opus, .sonnet, .haiku]
+    public static let gpt: [ChatModel] = [.gptAstra, .gptSol, .gptLuna]
+
+    /// Отвечает ChatGPT (через codex), а не Claude
+    public var isGPT: Bool { Self.gpt.contains(self) }
 
     public var id: String { rawValue }
 
@@ -15,6 +25,9 @@ public enum ChatModel: String, Codable, Sendable, CaseIterable, Identifiable {
         case .opus: "Opus 5.5"
         case .sonnet: "Sonnet 5.5"
         case .haiku: "Haiku 5.5"
+        case .gptAstra: "GPT-6 Astra"
+        case .gptSol: "GPT-6.1 Sol"
+        case .gptLuna: "GPT-6 Luna"
         }
     }
 
@@ -24,12 +37,15 @@ public enum ChatModel: String, Codable, Sendable, CaseIterable, Identifiable {
         case .opus: "умный, для кода и разбора"
         case .sonnet: "быстрый, на каждый день"
         case .haiku: "мгновенный и дешёвый"
+        case .gptAstra: "ChatGPT: самый сильный"
+        case .gptSol: "ChatGPT: код и каждый день"
+        case .gptLuna: "ChatGPT: быстрый, для простого"
         }
     }
 
     /// Если модель откажется отвечать по правилам безопасности, API сам доотвечает другой моделью.
     /// У Haiku такого нет.
-    public var hasServerFallback: Bool { self != .haiku }
+    public var hasServerFallback: Bool { self != .haiku && !isGPT }
 
     /// Цены API за миллион токенов: вход, выход, чтение кэша (платформа Anthropic, октябрь 2026)
     public var price: (input: Double, output: Double, cacheRead: Double) {
@@ -38,6 +54,8 @@ public enum ChatModel: String, Codable, Sendable, CaseIterable, Identifiable {
         case .opus: (4, 20, 0.20)
         case .sonnet: (2, 10, 0.20)
         case .haiku: (0.10, 0.50, 0.01)
+        // ChatGPT — по подписке, за токены не платим
+        case .gptAstra, .gptSol, .gptLuna: (0, 0, 0)
         }
     }
 

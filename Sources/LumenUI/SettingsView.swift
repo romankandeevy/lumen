@@ -124,6 +124,7 @@ struct SettingsView: View {
                     ApiKeyCard(app: app)
                 }
             }
+            ChatGPTCard(app: app)
         }
     }
 
@@ -335,6 +336,51 @@ struct WidthCard: View {
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
+    }
+}
+
+/// ChatGPT через официальный codex по подписке ChatGPT: вход в браузере, модели GPT появляются в выборе модели
+struct ChatGPTCard: View {
+    @Bindable var app: AppModel
+
+    @Environment(\.palette) private var p
+
+    var body: some View {
+        SettingsCard(title: "Подписка ChatGPT", icon: "message-circle", status: AnyView(status)) {
+            VStack(alignment: .leading, spacing: 0) {
+                switch app.codex {
+                case .checking:
+                    HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Ищу Codex…").font(.geist(13.5)) }
+                case .notInstalled:
+                    Text("Lumen говорит с ChatGPT через официальный Codex от OpenAI. Поставь его в терминале и нажми «Проверить»:")
+                        .font(.geist(13.5)).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
+                    Text("npm install -g @openai/codex")
+                        .font(.system(size: 12, design: .monospaced)).textSelection(.enabled).padding(.top, 8)
+                    LButton(title: "Проверить", icon: "refresh-cw", kind: .outline, small: true) { Task { await app.refreshCodex() } }
+                        .padding(.top, 16)
+                case .signedOut, .signingIn:
+                    Text("Войди аккаунтом ChatGPT — откроется браузер. После входа модели GPT появятся в выборе модели в чате и у агента.")
+                        .font(.geist(13.5)).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
+                    LButton(title: "Войти через ChatGPT", kind: .primary, busy: app.codex == .signingIn) { Task { await app.codexSignIn() } }
+                        .padding(.top, 16)
+                case .signedIn:
+                    Text("Вход через Codex на этом Маке. В выборе модели: \(ChatModel.gpt.map(\.name).joined(separator: ", ")).")
+                        .font(.geist(13.5)).fixedSize(horizontal: false, vertical: true)
+                    Text("Агент на ChatGPT правит файлы только в своей папке и без сети — push сделать не может.")
+                        .font(.geist(12)).foregroundStyle(p.mutedFg).padding(.top, 4).fixedSize(horizontal: false, vertical: true)
+                    LButton(title: "Выйти", icon: "log-out", kind: .ghost, small: true) { Task { await app.codexSignOut() } }
+                        .padding(.top, 12)
+                }
+            }
+        }
+    }
+
+    private var status: some View {
+        switch app.codex {
+        case .signedIn: StatusDot(on: true, text: "подключено")
+        case .checking: StatusDot(on: false, text: "проверяю")
+        default: StatusDot(on: false, text: "не подключено")
+        }
     }
 }
 

@@ -180,7 +180,7 @@ extension ClaudeSession {
 }
 
 /// Склеивает куски вывода в целые строки. Обработчик трубы вызывается на одной очереди, но компилятор этого не знает.
-private final class LineBuffer: @unchecked Sendable {
+final class LineBuffer: @unchecked Sendable {
     private var data = Data()
 
     func append(_ chunk: Data) -> [Data] {
