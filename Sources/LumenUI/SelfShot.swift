@@ -17,7 +17,10 @@ extension AppModel {
             ("bots", { [self] in page = .bots }),
             ("skills", { [self] in customizeTab = .skills; skillsMode = .mine; page = .skills }),
             ("skills-catalog", { [self] in customizeTab = .skills; skillsMode = .catalog; page = .skills }),
-            ("customize-connectors", { [self] in customizeTab = .connectors; page = .skills }),
+            ("customize-connectors", { [self] in
+                customizeTab = .connectors; page = .skills
+                for n in connectors.mcpServers.keys { checkConnector(n) }
+            }),
             ("customize-hooks", { [self] in customizeTab = .hooks; page = .skills }),
             ("memory", { [self] in memoryMode = .facts; page = .memory }),
             ("memory-graph", { [self] in memoryMode = .graph; page = .memory }),
@@ -35,7 +38,7 @@ extension AppModel {
         for (name, go) in shots {
             go()
             // каталог тянется из сети — ему дольше
-            try? await Task.sleep(for: .seconds(name == "skills-catalog" ? 5 : 1.5))
+            try? await Task.sleep(for: .seconds(name == "skills-catalog" ? 5 : name == "customize-connectors" ? 25 : 1.5))
             guard let view = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil })?.contentView,
                   let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
             view.cacheDisplay(in: view.bounds, to: rep)

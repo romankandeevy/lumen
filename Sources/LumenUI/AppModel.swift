@@ -124,7 +124,13 @@ public final class AppModel {
         prefs = store.preferences
         sidebarWidth = prefs.sidebarWidth
         panelWidth = prefs.panelWidth
-        if let key = keychain.read(Keychain.anthropicKey) {
+        // при запуске Связку ключей не трогаем: если macOS спросит доступ, окно не должно висеть.
+        // Есть ли ключ и его хвост — из настроек; сам ключ читается, только когда нужен.
+        if let id = prefs.activeKeyID, let e = prefs.apiKeys.first(where: { $0.id == id }) {
+            savedKeyTail = e.tail
+            keyState = .saved
+        } else if prefs.apiKeys.isEmpty, let key = keychain.read(Keychain.anthropicKey) {
+            // до списка ключей (0.9.22): один раз
             savedKeyTail = String(key.suffix(4))
             keyState = .saved
         }
