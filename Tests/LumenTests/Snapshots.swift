@@ -202,4 +202,7 @@ enum Snap {
     app.menu = nil
     app.searchOpen = true
     try await Snap.save(RootView(app: app), "22-search")
+    app.searchOpen = false
+    app.update { $0.sidebarHidden = true }
+    try await Snap.save(RootView(app: app), "23-sidebar-hidden")
 }

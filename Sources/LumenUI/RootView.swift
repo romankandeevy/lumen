@@ -26,7 +26,7 @@ public struct RootView: View {
         .animation(.easeOut(duration: 0.2), value: app.prefs.sidebarHidden)
         // панель спрятана — её кнопки остаются рядом с кнопками окна, как в Claude
         .overlay(alignment: .topLeading) {
-            if app.prefs.sidebarHidden { WindowControls(app: app).padding(.leading, 76) }
+            if app.prefs.sidebarHidden { WindowControls(app: app).padding(.leading, 76).ignoresSafeArea() }
         }
         .overlay { MenuLayer(app: app) }
         .overlay { if app.searchOpen { SearchLayer(app: app) } }

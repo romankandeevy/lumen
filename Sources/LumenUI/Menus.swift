@@ -167,19 +167,10 @@ struct SearchLayer: View {
                 }
                 .padding(.horizontal, 14).frame(height: 48)
                 .overlay(alignment: .bottom) { p.border.frame(height: 1) }
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 2) {
-                        if results.isEmpty {
-                            Text("Такого в разговорах не было.").tw(14, lh: 20).foregroundStyle(p.mutedFg)
-                                .frame(maxWidth: .infinity).padding(.vertical, 24)
-                        }
-                        ForEach(results, id: \.0.id) { c, snippet in
-                            SearchRow(c: c, snippet: snippet) { open(c) }
-                        }
-                    }
-                    .padding(6)
-                }
-                .frame(maxHeight: 380)
+                // по высоте найденного, но не выше 380 — дальше прокрутка
+                // высота по найденному (строка 36, со строкой найденного места 56), не выше 380
+                ScrollView { list }
+                    .frame(height: min(380, results.isEmpty ? 68 : results.reduce(12) { $0 + ($1.1 == nil ? 36 : 56) + 2 }))
             }
             .frame(width: 560)
             .background(p.popover, in: RoundedRectangle(cornerRadius: R.xl))
@@ -190,6 +181,19 @@ struct SearchLayer: View {
         .onAppear { focused = true }
         .onKeyPress(.escape) { app.searchOpen = false; return .handled }
         .onChange(of: query) { hits = (try? app.store.searchConversations(query, limit: 12)) ?? [] }
+    }
+
+    private var list: some View {
+                    VStack(alignment: .leading, spacing: 2) {
+                        if results.isEmpty {
+                            Text("Такого в разговорах не было.").tw(14, lh: 20).foregroundStyle(p.mutedFg)
+                                .frame(maxWidth: .infinity).padding(.vertical, 24)
+                        }
+                        ForEach(results, id: \.0.id) { c, snippet in
+                            SearchRow(c: c, snippet: snippet) { open(c) }
+                        }
+                    }
+                    .padding(6)
     }
 
     /// Сначала совпадения в названии, потом — в тексте (с найденным местом)
@@ -227,6 +231,7 @@ struct SearchLayer: View {
                 }
                 .foregroundStyle(p.foreground)
                 .padding(.horizontal, 10).padding(.vertical, 8)
+                .frame(height: snippet == nil ? 36 : 56)
                 .background(hover ? p.foreground.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: R.md))
                 .contentShape(Rectangle())
             }
