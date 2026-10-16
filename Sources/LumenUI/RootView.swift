@@ -296,7 +296,7 @@ struct ChatRow: View {
     private var renaming: Bool { app.renamingID == c.id }
 
     private var active: Bool { app.page == .chat && app.chat.conversation?.id == c.id }
-    private var running: Bool { app.chat.running?.id == c.id }
+    private var running: Bool { app.chat.isRunning(c.id) }
 
     var body: some View {
         Button { app.openChat(c) } label: {
@@ -542,7 +542,7 @@ private struct BotRow: View {
     }
 
     private var working: Bool {
-        app.botRuns[bot.id] != nil || (app.chat.running?.kind == .bot && app.chat.running?.botID == bot.id)
+        app.botRuns[bot.id] != nil || app.chat.turns.values.contains { $0.conversation.kind == .bot && $0.conversation.botID == bot.id }
     }
 
     var body: some View {

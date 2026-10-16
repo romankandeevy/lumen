@@ -214,6 +214,12 @@ public final class Store: Sendable {
         m.registerMigration("v15-proposals") { db in
             try db.alter(table: "message") { t in t.add(column: "proposals", .jsonText).notNull().defaults(to: "[]") }
         }
+        m.registerMigration("v16-anchors-chapters") { db in
+            try db.alter(table: "message") { t in
+                t.add(column: "cliAnchor", .text)
+                t.add(column: "chapter", .boolean).notNull().defaults(to: false)
+            }
+        }
         return m
     }
 

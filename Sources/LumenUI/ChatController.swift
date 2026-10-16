@@ -13,12 +13,37 @@ final class ChatController {
     /// Открытый разговор и его сообщения
     private(set) var conversation: Conversation?
     private(set) var messages: [ChatMessage] = []
-    /// Разговор, в котором сейчас идёт ход. Ход один на всё приложение и не прерывается,
-    /// если открыть другой разговор: ответ допишется в фоне и сохранится.
-    private(set) var running: Conversation?
-    /// Текст и шаги идущего хода; в базу — по окончании
-    private var turnMessage: ChatMessage?
-    private var turnThinking = false
+    /// Идущие ходы — по разговорам: можно писать в другом чате, пока Lumen отвечает в этом.
+    /// Ход не прерывается, если открыть другой разговор: ответ допишется в фоне и сохранится.
+    private(set) var turns: [String: Turn] = [:]
+
+    /// Один идущий ход: текст и шаги (в базу — по окончании), «Стоп», плавная печать
+    @MainActor @Observable final class Turn {
+        var conversation: Conversation
+        var message: ChatMessage?
+        var thinking = true
+        /// Чей ответ идёт: бот (его знак вместо сферы) или Lumen
+        var bot: String?
+        @ObservationIgnored var task: Task<Void, Never>?
+        @ObservationIgnored var stopRequested = false
+        @ObservationIgnored var start = Date()
+        /// Плавная печать: claude присылает текст пачками раз в ~0,5 с, полученное копится здесь,
+        /// а на экран выходит равномерно, раз в 30 мс (§10.1)
+        @ObservationIgnored var received = ""
+        @ObservationIgnored var revealTask: Task<Void, Never>?
+        /// Разговор бота, который выполняет задачу из этого чата (@id) — для «Стоп»
+        @ObservationIgnored var delegate: String?
+        /// Был вызов инструмента — следующий текст с нового абзаца
+        @ObservationIgnored var needBreak = false
+        /// Последняя метка ответа в сессии claude
+        @ObservationIgnored var anchor: String?
+
+        init(_ c: Conversation) { conversation = c }
+    }
+
+    /// Разговор с идущим ходом: открытый, если в нём идёт ход, иначе любой
+    var running: Conversation? { (conversation.flatMap { turns[$0.id] } ?? turns.values.first)?.conversation }
+    func isRunning(_ id: String) -> Bool { turns[id] != nil }
 
     @ObservationIgnored private var sessions: [String: ClaudeSession] = [:]
     /// Идущие ходы ChatGPT — для «Стоп»
@@ -28,34 +53,31 @@ final class ChatController {
         let conversationID: String
         let request: ClaudeEvent.PermissionRequest
     }
-    var pendingPermission: PendingPermission?
+    /// Вопросы по разговорам: параллельные задачи не перебивают друг друга; виден вопрос открытого разговора
+    private(set) var pendingPermissions: [String: PendingPermission] = [:]
+    var pendingPermission: PendingPermission? {
+        get { conversation.flatMap { pendingPermissions[$0.id] } }
+        set { if let id = newValue?.conversationID ?? conversation?.id { pendingPermissions[id] = newValue } }
+    }
     /// «Разрешать такое до конца разговора»: инструменты, на которые больше не спрашиваем
     @ObservationIgnored private var alwaysAllowed: [String: Set<String>] = [:]
     /// Режим, в котором сейчас живёт процесс разговора
     @ObservationIgnored private var sessionModes: [String: AgentMode] = [:]
-    /// Разговор бота, который сейчас выполняет задачу из этого чата (@id) — для «Стоп»
-    @ObservationIgnored private var delegateRunning: String?
-    /// Чей ответ идёт: бот (его знак вместо сферы) или Lumen
-    private(set) var turnBot: String?
-    @ObservationIgnored private var turnTask: Task<Void, Never>?
-    @ObservationIgnored private var stopRequested = false
-    @ObservationIgnored private var turnStart = Date()
-    /// Плавная печать: claude присылает текст пачками раз в ~0,5 с (замер: 10–20 кусков сразу),
-    /// поэтому полученное копится здесь, а на экран выходит равномерно, раз в 30 мс (§10.1)
-    @ObservationIgnored private var received = ""
-    @ObservationIgnored private var revealTask: Task<Void, Never>?
 
     init(app: AppModel) {
         self.app = app
     }
 
-    private var here: Bool { running != nil && running?.id == conversation?.id }
+    private var openTurn: Turn? { conversation.flatMap { turns[$0.id] } }
     /// Ход идёт в открытом разговоре
-    var busy: Bool { here }
-    /// Ход идёт в другом разговоре — отправить сейчас нельзя
-    var busyElsewhere: Bool { running != nil && !here }
-    var streaming: ChatMessage? { here ? turnMessage : nil }
-    var thinking: Bool { here && turnThinking }
+    var busy: Bool { openTurn != nil }
+    var streaming: ChatMessage? { openTurn?.message }
+    var thinking: Bool { openTurn?.thinking ?? false }
+    /// Чей ответ идёт в открытом разговоре
+    var turnBot: String? { openTurn?.bot }
+    private func isStopped(_ c: Conversation) -> Bool { turns[c.id]?.stopRequested ?? false }
+    /// Сфера: думает, пока идёт хоть один ход
+    private func settleOrb() { if turns.isEmpty { app.orb = .idle } }
 
     // MARK: открыть / новый
 
@@ -67,13 +89,13 @@ final class ChatController {
 
     func moved(_ id: String, _ projectID: String?) {
         if conversation?.id == id { conversation?.projectID = projectID }
-        if running?.id == id { running?.projectID = projectID }
+        turns[id]?.conversation.projectID = projectID
         promptChanged(conversationID: id)
     }
 
     /// Инструкции или файлы проекта поменялись — процессы его разговоров гасим, следующий ход возьмёт новый промпт
     func promptChanged(projectID: String? = nil, conversationID: String? = nil) {
-        for (id, s) in sessions where id != running?.id {
+        for (id, s) in sessions where turns[id] == nil {
             let pid = id == conversation?.id ? conversation?.projectID : app.conversations.first { $0.id == id }?.projectID
             if id == conversationID || (projectID != nil && pid == projectID) {
                 s.close()
@@ -89,7 +111,7 @@ final class ChatController {
 
     func renamed(_ id: String, _ title: String) {
         if conversation?.id == id { conversation?.title = title }
-        if running?.id == id { running?.title = title }
+        turns[id]?.conversation.title = title
     }
 
     func reloadMessages() {
@@ -107,15 +129,46 @@ final class ChatController {
         messages = []
     }
 
-    /// «Повторить»: ошибочный ответ и вопрос к нему убираются, вопрос отправляется заново (с теми же вложениями)
-    func retry(_ failed: ChatMessage) {
-        guard running == nil, let i = messages.firstIndex(where: { $0.id == failed.id }),
+    /// К чему откатить сессию claude перед следующим ходом
+    @ObservationIgnored private var rewindAt: [String: String] = [:]
+    /// Куда прокрутить переписку (оглавление глав)
+    var scrollTarget: Int64?
+
+    /// «Повторить» у ошибки и «Попробовать снова» у ответа: ответ и всё после него убираются, вопрос уходит заново
+    func retry(_ answer: ChatMessage) {
+        guard let i = messages.firstIndex(where: { $0.id == answer.id }),
               let u = messages[..<i].last(where: { $0.role == .user }) else { return }
-        for m in [failed, u] {
-            if let id = m.id { try? app.store.deleteMessage(id) }
+        resend(from: u, text: u.text)
+    }
+
+    /// «Изменить» и «Попробовать снова»: разговор откатывается к этому сообщению (в базе и в сессии claude —
+    /// модель тоже забывает, что было после), и вопрос уходит заново — изменённый или тот же
+    func resend(from user: ChatMessage, text: String) {
+        guard !busy, var c = conversation, let i = messages.firstIndex(where: { $0.id == user.id }) else { return }
+        let earlier = Array(messages[..<i])
+        for m in messages[i...] { if let id = m.id { try? app.store.deleteMessage(id) } }
+        messages.removeSubrange(i...)
+        if c.usesCLI && !c.model.isGPT {
+            sessions[c.id]?.close()
+            sessions[c.id] = nil
+            let mine = earlier.filter { $0.role == .assistant && ($0.botID == nil || c.kind == .bot) }
+            if let anchor = mine.last(where: { $0.cliAnchor != nil && $0.error == nil })?.cliAnchor {
+                rewindAt[c.id] = anchor
+            } else if mine.isEmpty {
+                // откат к самому началу — новая сессия
+                c.cliSessionID = UUID().uuidString.lowercased()
+                try? app.store.save(c)
+                conversation = c
+            }
         }
-        messages.removeAll { $0.id == failed.id || $0.id == u.id }
-        send(u.text, attachments: u.attachments)
+        send(text, attachments: user.attachments)
+    }
+
+    /// Глава: сообщение попадает в оглавление разговора
+    func toggleChapter(_ m: ChatMessage) {
+        guard let i = messages.firstIndex(where: { $0.id == m.id }) else { return }
+        messages[i].chapter.toggle()
+        _ = try? app.store.save(messages[i])
     }
 
     /// Режим агента: у начатой задачи меняется сразу, на ходу; у новой — запоминается для следующей
@@ -133,11 +186,12 @@ final class ChatController {
 
     /// Ответ на вопрос агента
     func answerPermission(allow: Bool, always: Bool = false, message: String? = nil) {
-        guard let p = pendingPermission, let s = sessions[p.conversationID] else { pendingPermission = nil; return }
+        guard let p = pendingPermission else { return }
+        guard let s = sessions[p.conversationID] else { pendingPermissions[p.conversationID] = nil; return }
         if allow && always { alwaysAllowed[p.conversationID, default: []].insert(p.request.tool) }
         s.respond(p.request.id, allow: allow, inputJSON: p.request.inputJSON, message: message)
-        pendingPermission = nil
-        if running?.id == p.conversationID { app.orb = .thinking }
+        pendingPermissions[p.conversationID] = nil
+        if turns[p.conversationID] != nil { app.orb = .thinking }
     }
 
     /// План готов: выполнить в выбранном режиме или доработать
@@ -170,7 +224,7 @@ final class ChatController {
 
     func send(_ raw: String, attachments: [Attachment] = []) {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty || !attachments.isEmpty, running == nil else { return }
+        guard !text.isEmpty || !attachments.isEmpty, !busy else { return }
         var c: Conversation
         if let existing = conversation {
             c = existing
@@ -202,15 +256,12 @@ final class ChatController {
         // «@tester …» в обычном чате — задачу выполняет бот, ответ приходит сюда же (техплан §4.6)
         let delegate = c.kind == .bot ? nil : app.mention(in: text)
 
-        stopRequested = false
-        turnStart = Date()
-        running = c
-        turnMessage = nil
-        turnBot = delegate?.0.id ?? (c.kind == .bot ? c.botID : nil)
-        turnThinking = true
+        let tr = Turn(c)
+        tr.bot = delegate?.0.id ?? (c.kind == .bot ? c.botID : nil)
+        turns[c.id] = tr
         app.orb = .thinking
         let history = messages
-        turnTask = Task { [weak self] in
+        tr.task = Task { [weak self] in
             guard let self else { return }
             if let (bot, task) = delegate {
                 await self.runDelegation(c, bot: bot, task: task)
@@ -221,11 +272,8 @@ final class ChatController {
             } else {
                 await self.runAPI(c, history: history)
             }
-            self.turnThinking = false
-            self.running = nil
-            self.turnBot = nil
-            self.app.orb = .idle
-            self.turnTask = nil
+            self.turns[c.id] = nil
+            self.settleOrb()
             self.app.reloadConversations()
         }
     }
@@ -248,7 +296,7 @@ final class ChatController {
 
     /// Бот изменён — его процесс гасим, следующий ход поднимет его с новыми правами (`--resume`)
     func restart(_ id: String) {
-        guard running?.id != id else { return }
+        guard turns[id] == nil else { return }
         sessions[id]?.close()
         sessions[id] = nil
     }
@@ -261,6 +309,11 @@ final class ChatController {
             return
         }
         let b = app.botConversation(for: bot)
+        // у бота свой процесс: пока он отвечает в своём разговоре, второй ход туда не пустить
+        if turns[b.id] != nil {
+            await finish(c, text: "", error: "@\(bot.id) сейчас отвечает в своём разговоре. Позови его, когда закончит.")
+            return
+        }
         let earlier = (try? app.store.messages(in: b.id)) ?? []
         let hadTurns = earlier.contains { $0.role == .assistant && $0.error == nil }
         // в разговоре бота — твоё сообщение как есть и пометка «из чата …»; что было в том чате, бот получает скрыто
@@ -281,13 +334,12 @@ final class ChatController {
             let session = try cliSession(for: b, cli: cli, resume: hadTurns)
             var answer = ""
             var result: ClaudeEvent.TurnResult?
-            delegateRunning = b.id
-            defer { delegateRunning = nil }
+            turns[c.id]?.delegate = b.id
+            defer { turns[c.id]?.delegate = nil }
             for await ev in try session.send(taskText) {
                 switch ev {
                 case .textDelta(let t):
-                    answer += t
-                    appendStreaming(t, c)
+                    answer += appendStreaming(t, c)
                 case .step(let step):
                     appendStep(step, c)
                 case .finished(let r):
@@ -303,37 +355,37 @@ final class ChatController {
                                         cacheWrite: result.cacheWriteTokens, usd: result.costUSD)
             }
             let ok = result?.ok == true
-            let error = stopRequested ? nil : (ok ? nil : Self.cliError(result?.text ?? session.errorOutput))
+            let stopped = isStopped(c)
+            let error = stopped ? nil : (ok ? nil : Self.cliError(result?.text ?? session.errorOutput))
             let text = answer.isEmpty ? (ok ? result?.text ?? "" : "") : answer
             // в постоянный разговор бота — весь ход
-            var m = ChatMessage(conversationID: b.id, role: .assistant, text: text, model: b.model, stopped: stopRequested, error: error,
-                                steps: turnMessage?.steps ?? [], changes: changes)
+            var m = ChatMessage(conversationID: b.id, role: .assistant, text: text, model: b.model, stopped: stopped, error: error,
+                                steps: turns[c.id]?.message?.steps ?? [], changes: changes)
             m.botID = bot.id
             _ = try? app.store.save(m)
-            if !ok && !stopRequested { sessions[b.id] = nil }
-            await finish(c, text: text, stopped: stopRequested, error: error, changes: changes)
+            if !ok && !stopped { sessions[b.id] = nil }
+            await finish(c, text: text, stopped: stopped, error: error, changes: changes)
         } catch {
             await finish(c, text: "", error: error.localizedDescription)
         }
     }
 
     /// «Стоп»: подписка — сообщение `interrupt` процессу, API — обрыв соединения
-    func stop() {
-        guard let c = running else { return }
-        stopRequested = true
-        if let p = pendingPermission, p.conversationID == c.id {
+    func stop(_ id: String? = nil) {
+        guard let id = id ?? conversation?.id, let tr = turns[id] else { return }
+        let c = tr.conversation
+        tr.stopRequested = true
+        if let p = pendingPermissions[c.id] {
             sessions[c.id]?.respond(p.request.id, allow: false, message: "Человек остановил задачу.")
-            pendingPermission = nil
+            pendingPermissions[c.id] = nil
         }
-        if let d = delegateRunning { sessions[d]?.interrupt() } else if c.model.isGPT { codexRuns[c.id]?.stop() } else if c.usesCLI { sessions[c.id]?.interrupt() } else { turnTask?.cancel() }
+        if let d = tr.delegate { sessions[d]?.interrupt() } else if c.model.isGPT { codexRuns[c.id]?.stop() } else if c.usesCLI { sessions[c.id]?.interrupt() } else { tr.task?.cancel() }
     }
 
     /// «Сжать разговор»: claude пересказывает старое и освобождает окно (`/compact`, проверено в спайке)
     func compact() {
-        guard let c = conversation, c.usesCLI, running == nil, let cli = app.cli else { return }
-        running = c
-        turnThinking = true
-        turnStart = Date()
+        guard let c = conversation, c.usesCLI, !busy, let cli = app.cli else { return }
+        turns[c.id] = Turn(c)
         app.orb = .thinking
         Task {
             var ok = false
@@ -347,9 +399,8 @@ final class ChatController {
                                    error: ok ? nil : "Не получилось сжать разговор. Попробуй ещё раз.",
                                    note: ok ? "Разговор сжат: старое пересказано, место в окне освобождено" : nil)
             if let saved = try? app.store.save(note), conversation?.id == c.id { messages.append(saved) }
-            turnThinking = false
-            running = nil
-            app.orb = .idle
+            turns[c.id] = nil
+            settleOrb()
         }
     }
 
@@ -373,7 +424,7 @@ final class ChatController {
 
     /// Разговор удалён — его процесс больше не нужен
     func forget(_ id: String) {
-        if running?.id == id { stop() }
+        if turns[id] != nil { stop(id) }
         sessions[id]?.close()
         sessions[id] = nil
         if conversation?.id == id { startNew() }
@@ -381,7 +432,7 @@ final class ChatController {
 
     /// Поменялись коннекторы или хуки — гасим процессы без хода, следующий ход поднимет их с новыми (`--resume`)
     func restartIdle() {
-        for id in Array(sessions.keys) where running?.id != id {
+        for id in Array(sessions.keys) where turns[id] == nil {
             sessions[id]?.close()
             sessions[id] = nil
         }
@@ -417,10 +468,11 @@ final class ChatController {
             for await ev in turn {
                 switch ev {
                 case .textDelta(let t):
-                    answer += t
-                    appendStreaming(t, c)
+                    answer += appendStreaming(t, c)
                 case .step(let step):
                     appendStep(step, c)
+                case .anchor(let a):
+                    turns[c.id]?.anchor = a
                 case .plan(let change):
                     updatePlan(change, c)
                 case .permission(let req):
@@ -428,15 +480,15 @@ final class ChatController {
                     if alwaysAllowed[c.id]?.contains(req.tool) == true {
                         session.respond(req.id, allow: true, inputJSON: req.inputJSON)
                     } else {
-                        pendingPermission = PendingPermission(conversationID: c.id, request: req)
-                        if here { app.orb = .idle }
+                        pendingPermissions[c.id] = PendingPermission(conversationID: c.id, request: req)
+                        if conversation?.id == c.id { app.orb = .idle }
                     }
                 case .finished(let r):
                     result = r
                 default: break
                 }
             }
-            if pendingPermission?.conversationID == c.id { pendingPermission = nil }
+            pendingPermissions[c.id] = nil
             var changes: ChangeSet?
             if let git, let before, let files = try? await git.changes(since: before), !files.isEmpty {
                 changes = ChangeSet(files: files)
@@ -460,7 +512,7 @@ final class ChatController {
                                     output: result.outputTokens, cacheRead: result.cacheReadTokens,
                                     cacheWrite: result.cacheWriteTokens, usd: result.costUSD)
             let ctx = (result.contextTokens, result.contextWindow)
-            if stopRequested {
+            if isStopped(c) {
                 await finish(c, text: answer, stopped: true, changes: changes, context: ctx)
             } else if result.ok {
                 await finish(c, text: answer.isEmpty ? result.text : answer, changes: changes, context: ctx)
@@ -522,10 +574,11 @@ final class ChatController {
                     try? app.store.save(c)
                     if conversation?.id == c.id { conversation?.cliSessionID = thread }
                 case .textDelta(let t):
-                    answer += t
-                    appendStreaming(t, c)
+                    answer += appendStreaming(t, c)
                 case .step(let step):
                     appendStep(step, c)
+                case .anchor(let a):
+                    turns[c.id]?.anchor = a
                 case .plan(let change):
                     updatePlan(change, c)
                 case .finished(let r):
@@ -538,7 +591,7 @@ final class ChatController {
                 changes = ChangeSet(files: files)
             }
             let ctx = result.map { ($0.contextTokens, $0.contextWindow) }
-            if stopRequested {
+            if isStopped(c) {
                 await finish(c, text: answer, stopped: true, changes: changes, context: ctx)
             } else if let result, result.ok {
                 await finish(c, text: answer, changes: changes, context: ctx)
@@ -574,11 +627,13 @@ final class ChatController {
         }
         sessions[c.id]?.close()
         // не больше трёх живых процессов: старые гасим, их ход продолжится через --resume
-        if sessions.count >= 3, let oldest = sessions.keys.first(where: { $0 != c.id }) {
+        // гасим только простаивающие: идущий ход в другом разговоре не трогаем
+        if sessions.count >= 3, let oldest = sessions.keys.first(where: { $0 != c.id && turns[$0] == nil }) {
             sessions[oldest]?.close()
             sessions[oldest] = nil
         }
         let sid = c.cliSessionID ?? UUID().uuidString.lowercased()
+        let resumeAt = rewindAt.removeValue(forKey: c.id)
         var config: ClaudeSession.Config
         let bot = c.kind == .bot ? app.bot(c.botID) : nil
         if let bot {
@@ -617,6 +672,7 @@ final class ChatController {
         config.extraEnv.merge(app.secretValues(for: app.connectorsFor(c).map(\.server))) { a, _ in a }
         // хуки из «Кастомизации»
         config.settings = app.hooksSettingsFile()?.path
+        if resume { config.resumeAt = resumeAt }
         let s = try ClaudeSession(cli: cli, config: config)
         sessions[c.id] = s
         return s
@@ -664,8 +720,7 @@ final class ChatController {
                 for try await ev in api.chat(request) {
                     switch ev {
                     case .textDelta(let t):
-                        answer += t
-                        appendStreaming(t, c)
+                        answer += appendStreaming(t, c)
                     case .finished(let reason, let content, let usage):
                         finished = (reason, content)
                         spent.input += usage.input
@@ -716,7 +771,7 @@ final class ChatController {
             }
             await finish(c, text: answer, apiContent: Self.turnJSON(turn))
         } catch {
-            await finish(c, text: answer, stopped: stopRequested, error: stopRequested ? nil : error.localizedDescription)
+            await finish(c, text: answer, stopped: isStopped(c), error: isStopped(c) ? nil : error.localizedDescription)
         }
     }
 
@@ -727,48 +782,59 @@ final class ChatController {
         return String(decoding: d, as: UTF8.self)
     }
 
-    private func appendStreaming(_ t: String, _ c: Conversation) {
-        if turnThinking {
-            turnThinking = false
-            if here { app.orb = .writing }
+    /// Текст хода: на экран — плавно; возвращает то, что добавилось (после инструмента — с нового абзаца)
+    @discardableResult
+    private func appendStreaming(_ t: String, _ c: Conversation) -> String {
+        guard let tr = turns[c.id] else { return t }
+        if tr.thinking {
+            tr.thinking = false
+            if conversation?.id == c.id { app.orb = .writing }
         }
-        if turnMessage == nil { turnMessage = ChatMessage(conversationID: c.id, role: .assistant, text: "", model: c.model); turnMessage?.botID = turnBot }
-        received += t
-        guard revealTask == nil else { return }
-        revealTask = Task { @MainActor [weak self] in
-            while let self, !Task.isCancelled {
-                let shown = self.turnMessage?.text.count ?? 0
-                let backlog = self.received.count - shown
-                if backlog > 0 {
-                    // хвост догоняется примерно за 0,4 с, но не быстрее символа за кадр
-                    let step = max(1, Int((Double(backlog) / 12).rounded(.up)))
-                    let next = self.received.prefix(shown + step)
-                    self.turnMessage?.text = String(next)
-                }
-                try? await Task.sleep(for: .milliseconds(30))
+        if tr.message == nil { tr.message = ChatMessage(conversationID: c.id, role: .assistant, text: "", model: c.model); tr.message?.botID = tr.bot }
+        var chunk = t
+        if tr.needBreak {
+            tr.needBreak = false
+            let head = t.drop { $0 == " " }
+            if !tr.received.isEmpty && !tr.received.hasSuffix("\n\n") && !head.hasPrefix("\n") {
+                chunk = (tr.received.hasSuffix("\n") ? "\n" : "\n\n") + t
             }
         }
+        tr.received += chunk
+        if tr.revealTask == nil {
+            tr.revealTask = Task { @MainActor [weak tr] in
+                while let tr, !Task.isCancelled {
+                    let shown = tr.message?.text.count ?? 0
+                    let backlog = tr.received.count - shown
+                    if backlog > 0 {
+                        // хвост догоняется примерно за 0,4 с, но не быстрее символа за кадр
+                        let step = max(1, Int((Double(backlog) / 12).rounded(.up)))
+                        tr.message?.text = String(tr.received.prefix(shown + step))
+                    }
+                    try? await Task.sleep(for: .milliseconds(30))
+                }
+            }
+        }
+        return chunk
     }
 
     /// Дождаться, пока печать догонит полученное (не дольше 1,5 с), и остановить её
-    private func drainReveal(instant: Bool) async {
+    private func drainReveal(_ c: Conversation, instant: Bool) async {
+        guard let tr = turns[c.id] else { return }
         if !instant {
             let deadline = Date().addingTimeInterval(1.5)
-            while (turnMessage?.text.count ?? 0) < received.count, Date() < deadline {
+            while (tr.message?.text.count ?? 0) < tr.received.count, Date() < deadline {
                 try? await Task.sleep(for: .milliseconds(30))
             }
         }
-        revealTask?.cancel()
-        revealTask = nil
-        if turnMessage != nil { turnMessage?.text = received }
-        received = ""
+        tr.revealTask?.cancel()
+        tr.revealTask = nil
+        if tr.message != nil { tr.message?.text = tr.received }
+        tr.received = ""
     }
 
     private func updatePlan(_ change: PlanItem.Change, _ c: Conversation) {
-        var updated = (running?.id == c.id ? running : nil) ?? c
-        let items = PlanItem.apply(change, to: updated.plan)
-        updated.plan = items
-        running = updated
+        let items = PlanItem.apply(change, to: (turns[c.id]?.conversation ?? c).plan)
+        turns[c.id]?.conversation.plan = items
         if conversation?.id == c.id { conversation?.plan = items }
         try? app.store.updatePlan(c.id, items)
         // план — сбоку, как в макете: панель открывается сама
@@ -776,25 +842,30 @@ final class ChatController {
     }
 
     private func appendStep(_ step: AgentStep, _ c: Conversation) {
-        if turnThinking {
-            turnThinking = false
-            if here { app.orb = .idle }
+        guard let tr = turns[c.id] else { return }
+        if tr.thinking {
+            tr.thinking = false
+            if conversation?.id == c.id { app.orb = .idle }
         }
-        if turnMessage == nil { turnMessage = ChatMessage(conversationID: c.id, role: .assistant, text: "", model: c.model); turnMessage?.botID = turnBot }
-        turnMessage?.steps.append(step)
+        if tr.message == nil { tr.message = ChatMessage(conversationID: c.id, role: .assistant, text: "", model: c.model); tr.message?.botID = tr.bot }
+        tr.message?.steps.append(step)
+        tr.needBreak = true
     }
 
     private func finish(_ c: Conversation, text: String, apiContent: String? = nil, stopped: Bool = false, error: String? = nil,
                         changes: ChangeSet? = nil, context: (Int, Int)? = nil) async {
         // ответ допечатывается до конца; «Стоп» и ошибки — сразу
-        await drainReveal(instant: stopped || error != nil)
+        await drainReveal(c, instant: stopped || error != nil)
+        let tr = turns[c.id]
         if let error { app.log("Ошибка в разговоре: \(error)", conversation: c) }
         // шаги показываем у агента; в чате вызовы памяти видны плашками «Запомнил» и «Опирался на»
         // у агента и ботов шаги видны; в чате вызовы памяти видны плашками «Запомнил» и «Опирался на»
-        let steps = c.kind != .chat || turnBot != nil ? (turnMessage?.steps ?? []) : []
-        turnMessage = nil
-        let remembered = (try? app.store.memoryUses(conversationID: c.id, since: turnStart, action: "remember")) ?? []
-        let recalled = (try? app.store.memoryUses(conversationID: c.id, since: turnStart, action: "recall")) ?? []
+        let turnBot = tr?.bot
+        let steps = c.kind != .chat || turnBot != nil ? (tr?.message?.steps ?? []) : []
+        tr?.message = nil
+        let since = tr?.start ?? Date()
+        let remembered = (try? app.store.memoryUses(conversationID: c.id, since: since, action: "remember")) ?? []
+        let recalled = (try? app.store.memoryUses(conversationID: c.id, since: since, action: "recall")) ?? []
         // «что дальше»: агент пишет блок в конце ответа — вынимаем его из текста в карточку
         let (visible, next) = c.kind == .agent ? NextStep.split(text) : (text, nil)
         var m = ChatMessage(conversationID: c.id, role: .assistant, text: visible, apiContent: apiContent,
@@ -802,6 +873,7 @@ final class ChatController {
                             remembered: remembered, recalled: recalled.filter { !remembered.contains($0) })
         m.next = stopped ? nil : next
         m.botID = turnBot
+        if turnBot == nil || c.kind == .bot { m.cliAnchor = tr?.anchor }
         // коннекторы и хуки, которые Lumen предложил за ход, — карточками под ответом
         m.proposals = ProposalBox.take(paths: app.paths, conversationID: c.id)
         if let context, context.0 > 0 {
@@ -832,7 +904,7 @@ final class ChatController {
 
     /// Память поменялась: процессы чата гасим, следующий ход поднимет их с новым системным промптом (`--resume`)
     func memoryChanged() {
-        for (id, s) in sessions where id != running?.id {
+        for (id, s) in sessions where turns[id] == nil {
             if conversationKind(id) == .chat {
                 s.close()
                 sessions[id] = nil

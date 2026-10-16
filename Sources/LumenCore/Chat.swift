@@ -403,6 +403,10 @@ public struct ChatMessage: Codable, Sendable, Equatable, Identifiable {
     public var skillDraft: SkillDraft?
     /// Коннекторы и хуки, которые Lumen предложил в этом ответе (карточки «Подключить» / «Добавить»)
     public var proposals: [CustomizeProposal] = []
+    /// Метка ответа в сессии claude — к ней откатывается разговор при «Изменить» и «Попробовать снова»
+    public var cliAnchor: String?
+    /// Сообщение — начало главы: видно в оглавлении разговора
+    public var chapter: Bool = false
     /// Вложения сообщения человека: картинки и файлы
     public var attachments: [Attachment] = []
     /// Сообщение пришло боту из другого разговора (позвали через @): откуда — для пометки под ним

@@ -67,7 +67,7 @@ struct ContextPanel: View {
                             IconLabel(text: "Сжать разговор", icon: "rotate-ccw", size: 14).font(.geist(12))
                         }
                         .buttonStyle(.plain).foregroundStyle(p.mutedFg)
-                        .disabled(chat.running != nil)
+                        .disabled(chat.busy)
                         .help("Старые сообщения пересказываются, место в окне освобождается")
                         .padding(.top, 12)
                     }

@@ -248,4 +248,41 @@ final class StubAPI: URLProtocol, @unchecked Sendable {
     let last = (second["messages"] as? [[String: Any]])?.last?["content"] as? [[String: Any]]
     #expect(last?.first?["content"] as? String == "морж-9")
 }
+
+    /// Текст до инструмента и после — разными абзацами, а не слитно («…сделал его.Карточка…»)
+    @Test func textAroundToolCallIsSplitIntoParagraphs() async throws {
+        setenv("LUMEN_KEYCHAIN", "com.roman.lumen.tests", 1)
+        defer { Keychain(service: "com.roman.lumen.tests").delete(Keychain.anthropicKey) }
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-para-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let app = try AppModel(paths: AppPaths(root: home))
+        try app.keychain.save("sk-ant-test-" + String(repeating: "x", count: 30), for: Keychain.anthropicKey)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [StubAPI.self]
+        app.urlSession = URLSession(configuration: config)
+        app.finishOnboarding(name: "Рома", address: .ty, backend: .api, theme: .lumen)
+        StubAPI.requests = []
+        StubAPI.responses = [
+            StubAPI.sse([
+                #"{"type":"message_start","message":{"usage":{"input_tokens":50}}}"#,
+                #"{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+                #"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Сделал."}}"#,
+                #"{"type":"content_block_stop","index":0}"#,
+                #"{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"tu1","name":"list_customization","input":{}}}"#,
+                #"{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{}"}}"#,
+                #"{"type":"content_block_stop","index":1}"#,
+                #"{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":20}}"#,
+                #"{"type":"message_stop"}"#,
+            ]),
+            StubAPI.sse([
+                #"{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+                #"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Готово."}}"#,
+                #"{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":3}}"#,
+                #"{"type":"message_stop"}"#,
+            ]),
+        ]
+        app.chat.send("Сделай")
+        while app.chat.running != nil { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(app.chat.messages.last?.text == "Сделал.\n\nГотово.")
+    }
 }

@@ -15,6 +15,8 @@ public final class ClaudeSession: @unchecked Sendable {
         public var sessionID: String
         /// Продолжить уже существующую сессию (после того как процесс погасили)
         public var resume: Bool
+        /// Продолжить с этого сообщения: всё, что было после, забыто («Изменить», «Попробовать снова»)
+        public var resumeAt: String?
         public var cwd: URL?
         public var extraEnv: [String: String]
         /// Дописать к системному промпту Claude Code (агент), а не заменить его
@@ -77,6 +79,7 @@ public final class ClaudeSession: @unchecked Sendable {
             if let mcpConfig { a += ["--mcp-config", mcpConfig] }
             if let settings { a += ["--settings", settings] }
             a += resume ? ["--resume", sessionID] : ["--session-id", sessionID]
+            if resume, let resumeAt { a += ["--resume-session-at", resumeAt] }
             return a
         }
     }

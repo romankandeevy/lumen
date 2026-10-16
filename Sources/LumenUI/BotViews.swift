@@ -86,7 +86,7 @@ struct BotsView: View {
     private var working: [(Bot, String)] {
         app.bots.compactMap { b in
             if let from = app.botRuns[b.id] { return (b, "позвали из «\(from)»") }
-            if let r = app.chat.running, r.kind == .bot, r.botID == b.id { return (b, "в своём разговоре") }
+            if app.chat.turns.values.contains(where: { $0.conversation.kind == .bot && $0.conversation.botID == b.id }) { return (b, "в своём разговоре") }
             return nil
         }
     }

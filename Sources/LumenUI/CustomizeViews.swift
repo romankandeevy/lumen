@@ -822,74 +822,113 @@ struct ProposalCard: View {
     @State private var showCode = false
     @State private var editing: ConnectorEdit?
 
+    private var isHook: Bool { proposal.kind == .hook }
+    private var icon: String { isHook ? "zap" : (proposal.server?.isRemote == true ? "globe" : "terminal") }
+    private var kindLabel: String {
+        isHook ? (proposal.hook?.event.title ?? "хук") : proposal.script != nil ? "свой сервер" : proposal.server?.isRemote == true ? "сайт" : "программа"
+    }
+
     var body: some View {
-        let isHook = proposal.kind == .hook
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Icon(isHook ? "zap" : (proposal.server?.isRemote == true ? "globe" : "terminal"), 14).foregroundStyle(p.glow)
-                Text(isHook ? "Предлагаю хук «\(proposal.name)»" : "Предлагаю коннектор «\(proposal.name)»" + (proposal.script != nil ? " — свой, написал сам" : ""))
-                    .tw(13, .medium, lh: 18)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                Icon(icon, 16).foregroundStyle(p.glow)
+                    .frame(width: 36, height: 36)
+                    .background(p.glow.opacity(0.1), in: RoundedRectangle(cornerRadius: R.lg))
+                    .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.glow.opacity(0.2)))
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 8) {
+                        Text(isHook ? "Хук «\(proposal.name)»" : "Коннектор «\(proposal.name)»").tw(14, .semibold, lh: 20)
+                        Text(kindLabel).tw(11, lh: 14).foregroundStyle(p.mutedFg)
+                            .padding(.horizontal, 7).padding(.vertical, 2)
+                            .background(p.foreground.opacity(0.06), in: Capsule())
+                    }
+                    if !proposal.why.isEmpty {
+                        Text(proposal.why).tw(13, lh: 18).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 0)
             }
-            if !proposal.why.isEmpty {
-                Text(proposal.why).tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(3)
+            .padding(14)
+
+            // что именно будет запущено — видно до нажатия
+            VStack(alignment: .leading, spacing: 6) {
+                Group {
+                    if let h = proposal.hook {
+                        Text((h.event.hasMatcher && !h.matcher.isEmpty ? "[\(h.matcher)]  " : "") + h.command)
+                    } else if let s = proposal.server {
+                        Text(s.isRemote ? s.url : s.summary.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                    }
+                }
+                .font(.system(size: 11.5, design: .monospaced)).foregroundStyle(p.foreground.opacity(0.75))
+                .lineLimit(3).truncationMode(.middle).textSelection(.enabled)
+                if let code = proposal.script {
+                    Button { withAnimation(.easeOut(duration: 0.15)) { showCode.toggle() } } label: {
+                        HStack(spacing: 4) {
+                            Icon(showCode ? "chevron-down" : "chevron-right", 11)
+                            Text(showCode ? "Скрыть код" : "Код сервера · \(code.split(separator: "\n").count) строк")
+                        }
+                        .tw(12, lh: 16).foregroundStyle(p.mutedFg).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    if showCode {
+                        ScrollView {
+                            Text(code).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(maxHeight: 240)
+                    }
+                }
             }
+            .padding(.horizontal, 12).padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(p.background.opacity(0.6), in: RoundedRectangle(cornerRadius: R.lg))
+            .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
+            .padding(.horizontal, 14)
+
             Group {
-                if let h = proposal.hook {
-                    Text(h.event.title + (h.event.hasMatcher && !h.matcher.isEmpty ? " · \(h.matcher)" : "") + "\n" + h.command)
-                } else if let s = proposal.server {
-                    Text(s.summary)
-                }
-            }
-            .font(.system(size: 11, design: .monospaced)).foregroundStyle(p.mutedFg).lineLimit(4).textSelection(.enabled)
-            if let code = proposal.script {
-                Button { showCode.toggle() } label: {
-                    IconLabel(text: showCode ? "Скрыть код" : "Код сервера", icon: showCode ? "chevron-down" : "chevron-right", size: 12)
-                        .tw(12, lh: 16).foregroundStyle(p.mutedFg)
-                }
-                .buttonStyle(.plain)
-                if showCode {
-                    ScrollView {
-                        Text(code).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                switch proposal.state {
+                case .pending:
+                    HStack(spacing: 8) {
+                        LButton(title: isHook ? "Добавить" : "Подключить", icon: "check", kind: .primary, small: true) { accept() }
+                        if !isHook, proposal.script == nil, let s = proposal.server {
+                            LButton(title: "Посмотреть", kind: .outline, small: true) {
+                                editing = ConnectorEdit(name: app.freeConnectorName(proposal.name), server: s)
+                            }
+                        }
+                        Spacer(minLength: 0)
+                        LButton(title: "Не надо", kind: .ghost, small: true) { app.setProposal(proposal.id, .declined, in: message) }
                     }
-                    .frame(maxHeight: 220)
-                    .padding(8)
-                    .background(p.card.opacity(0.6), in: RoundedRectangle(cornerRadius: R.lg))
-                }
-            }
-            switch proposal.state {
-            case .pending:
-                HStack(spacing: 8) {
-                    LButton(title: isHook ? "Добавить" : "Подключить", icon: "check", kind: .outline, small: true) { accept() }
-                    if !isHook, proposal.script == nil, let s = proposal.server {
-                        LButton(title: "Посмотреть", kind: .ghost, small: true) {
-                            editing = ConnectorEdit(name: app.freeConnectorName(proposal.name), server: s)
+                case .accepted:
+                    HStack(spacing: 8) {
+                        Icon("circle-check", 14).foregroundStyle(p.glow)
+                        Text(isHook ? "Добавлен — сработает со следующего ответа" : "Подключён — работает со следующего сообщения")
+                            .tw(12, lh: 16).foregroundStyle(p.foreground.opacity(0.85))
+                        Spacer(minLength: 0)
+                        if !isHook, case .needsLogin = app.connectorStatus[proposal.name] {
+                            LButton(title: "Войти через браузер", icon: "globe", kind: .primary, small: true) {
+                                Task { await app.loginSaved(proposal.name) }
+                            }
+                        }
+                        LButton(title: "Кастомизация", kind: .ghost, small: true) {
+                            app.customizeTab = isHook ? .hooks : .connectors
+                            app.page = .skills
                         }
                     }
-                    LButton(title: "Не надо", kind: .ghost, small: true) { app.setProposal(proposal.id, .declined, in: message) }
-                }
-            case .accepted:
-                HStack(spacing: 8) {
-                    Text(isHook ? "Добавлен — работает со следующего ответа." : "Подключён — работает со следующего сообщения.")
-                        .tw(12, lh: 16).foregroundStyle(p.mutedFg)
-                    if !isHook, case .needsLogin = app.connectorStatus[proposal.name] {
-                        LButton(title: "Войти через браузер", icon: "globe", kind: .primary, small: true) {
-                            Task { await app.loginSaved(proposal.name) }
-                        }
-                    }
-                    LButton(title: "Кастомизация", kind: .ghost, small: true) {
-                        app.customizeTab = isHook ? .hooks : .connectors
-                        app.page = .skills
+                case .declined:
+                    HStack(spacing: 8) {
+                        Icon("x", 12).foregroundStyle(p.mutedFg)
+                        Text("Не стали подключать").tw(12, lh: 16).foregroundStyle(p.mutedFg)
                     }
                 }
-            case .declined:
-                Text("Не стали подключать.").tw(12, lh: 16).foregroundStyle(p.mutedFg)
             }
+            .padding(14)
         }
-        .padding(12)
-        .frame(maxWidth: 560, alignment: .leading)
-        .background(p.glow.opacity(0.05), in: RoundedRectangle(cornerRadius: R.xl))
-        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.glow.opacity(0.25)))
+        .frame(maxWidth: 600, alignment: .leading)
+        .background(
+            LinearGradient(colors: [p.glow.opacity(0.07), p.card.opacity(0.5)], startPoint: .topLeading, endPoint: .bottomTrailing),
+            in: RoundedRectangle(cornerRadius: R.xxl))
+        .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(p.glow.opacity(proposal.state == .pending ? 0.3 : 0.15)))
+        .opacity(proposal.state == .declined ? 0.6 : 1)
         .sheet(item: $editing) { e in
             ConnectorEditor(app: app, edit: e) {
                 editing = nil

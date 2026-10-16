@@ -176,7 +176,7 @@ struct ChatView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 28) {
                     ForEach(chat.messages) { m in
-                        MessageRow(message: m, chat: chat).id(m.id)
+                        MessageRow(message: m, chat: chat, isLast: m.id == chat.messages.last?.id).id(m.id)
                     }
                     if !chat.busy, let last = chat.messages.last, let next = last.next {
                         NextStepCard(next: next) { chat.answer($0, on: last) } close: { chat.dismissNext(last) }
@@ -211,6 +211,15 @@ struct ChatView: View {
             .onChange(of: chat.streaming?.text.count) { proxy.scrollTo("bottom", anchor: .bottom) }
             .onChange(of: chat.conversation?.id) { DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) } }
             .onChange(of: chat.pendingPermission?.request.id) { withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("bottom", anchor: .bottom) } }
+            .onChange(of: chat.scrollTarget) { _, id in
+                guard let id else { return }
+                withAnimation(.easeOut(duration: 0.35)) { proxy.scrollTo(id, anchor: .top) }
+                chat.scrollTarget = nil
+            }
+            // оглавление: главы разговора справа сверху
+            .overlay(alignment: .topTrailing) {
+                if chat.messages.contains(where: \.chapter) { ChaptersButton(chat: chat).padding(16) }
+            }
         }
     }
 }
@@ -272,10 +281,26 @@ struct MessageRow: View {
     let message: ChatMessage
     var chat: ChatController?
     var streaming = false
+    /// Последнее сообщение — действия видны всегда, у остальных — при наведении
+    var isLast = false
 
     @Environment(\.palette) private var p
+    @State private var hover = false
+    @State private var editing = false
+    @State private var editText = ""
 
     var body: some View {
+        VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 8) {
+            if message.chapter { ChapterMark(title: ChapterMark.title(message)) }
+            content
+        }
+        .onHover { hover = $0 }
+    }
+
+    /// Действия под сообщением: как в Claude
+    private var showActions: Bool { chat != nil && !streaming && message.note == nil && (hover || isLast || editing) }
+
+    @ViewBuilder private var content: some View {
         if let note = message.note {
             HStack(spacing: 8) {
                 Icon("rotate-ccw", 14)
@@ -288,7 +313,9 @@ struct MessageRow: View {
             if !message.attachments.isEmpty {
                 MessageAttachments(items: message.attachments).frame(maxWidth: .infinity, alignment: .trailing)
             }
-            if !message.text.isEmpty {
+            if editing {
+                editor
+            } else if !message.text.isEmpty {
             HStack(spacing: 0) {
                 Spacer(minLength: 0)
                 Text(message.text)
@@ -302,6 +329,10 @@ struct MessageRow: View {
             }
             }
             if let via = message.via { ViaChip(via: via, app: chat?.app) }
+            if !editing, let chat {
+                MessageActions(message: message, chat: chat, user: true) { editText = message.text; editing = true }
+                    .opacity(showActions ? 1 : 0)
+            }
             }
         } else {
             HStack(alignment: .top, spacing: 14) {
@@ -356,9 +387,203 @@ struct MessageRow: View {
                             }
                         }
                     }
+                    if let chat, message.error == nil {
+                        MessageActions(message: message, chat: chat, user: false) {}
+                            .opacity(showActions ? 1 : 0)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+        }
+    }
+}
+
+extension MessageRow {
+    var editor: some View {
+        VStack(alignment: .trailing, spacing: 10) {
+            TextField("", text: $editText, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.geist(14))
+                .lineLimit(1...14)
+                .padding(.horizontal, 16).padding(.vertical, 12)
+                .background(p.secondary, in: RoundedRectangle(cornerRadius: R.xxl))
+                .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(p.glow.opacity(0.35)))
+                .onSubmit(sendEdit)
+            HStack(spacing: 8) {
+                Text("Ответ ниже заменится — Lumen забудет, что было после").tw(12, lh: 16).foregroundStyle(p.mutedFg)
+                LButton(title: "Отмена", kind: .ghost, small: true) { editing = false }
+                LButton(title: "Отправить", kind: .primary, small: true, action: sendEdit)
+                    .disabled(editText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || chat?.busy == true)
+            }
+        }
+        .containerRelativeFrame(.horizontal, alignment: .trailing) { w, _ in w * 0.8 }
+    }
+
+    private func sendEdit() {
+        let t = editText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty, let chat, !chat.busy else { return }
+        editing = false
+        chat.resend(from: message, text: t)
+    }
+}
+
+/// Строка действий: у своего — время, «Попробовать снова», «Изменить», «Копировать», «Глава»;
+/// у ответа — «Копировать», «Попробовать снова», «Глава», время
+struct MessageActions: View {
+    let message: ChatMessage
+    let chat: ChatController
+    let user: Bool
+    let edit: () -> Void
+
+    @Environment(\.palette) private var p
+    @State private var copied = false
+
+    var body: some View {
+        HStack(spacing: 2) {
+            if user {
+                time.padding(.trailing, 6)
+                act("refresh-cw", "Попробовать снова — ответ ниже заменится") { chat.resend(from: message, text: message.text) }
+                    .disabled(chat.busy)
+                act("pencil", "Изменить", action: edit).disabled(chat.busy)
+                copy
+                chapter
+            } else {
+                copy
+                act("refresh-cw", "Попробовать снова") { chat.retry(message) }.disabled(chat.busy)
+                chapter
+                time.padding(.leading, 6)
+            }
+        }
+        .animation(.easeOut(duration: 0.12), value: copied)
+    }
+
+    private var time: some View {
+        Text(Self.when(message.createdAt)).tw(12, lh: 16).foregroundStyle(p.mutedFg.opacity(0.8))
+            .help(message.createdAt.formatted(.dateTime.day().month(.wide).year().hour().minute()))
+    }
+
+    private var copy: some View {
+        act(copied ? "check" : "copy", copied ? "Скопировано" : "Копировать") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(NextStep.split(message.text).text, forType: .string)
+            copied = true
+            Task { try? await Task.sleep(for: .seconds(1.2)); copied = false }
+        }
+    }
+
+    private var chapter: some View {
+        act("bookmark", message.chapter ? "Убрать главу" : "Закрепить главу — появится в оглавлении разговора", on: message.chapter) {
+            chat.toggleChapter(message)
+        }
+    }
+
+    private func act(_ icon: String, _ help: String, on: Bool = false, action: @escaping () -> Void) -> some View {
+        ActionIcon(icon: icon, on: on, action: action).help(help)
+    }
+
+    /// «сейчас», «14:32», «вчера, 14:32», «12 окт, 14:32»
+    static func when(_ d: Date) -> String {
+        let cal = Calendar.current
+        if Date().timeIntervalSince(d) < 60 { return "сейчас" }
+        let hm = d.formatted(.dateTime.hour().minute())
+        if cal.isDateInToday(d) { return hm }
+        if cal.isDateInYesterday(d) { return "вчера, " + hm }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ru_RU")
+        f.dateFormat = cal.isDate(d, equalTo: Date(), toGranularity: .year) ? "d MMM" : "d MMM yyyy"
+        return f.string(from: d).replacingOccurrences(of: ".", with: "") + ", " + hm
+    }
+}
+
+private struct ActionIcon: View {
+    let icon: String
+    var on = false
+    let action: () -> Void
+
+    @Environment(\.palette) private var p
+    @Environment(\.isEnabled) private var enabled
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            Icon(icon, 15)
+                .foregroundStyle(on ? p.glow : hover && enabled ? p.foreground : p.mutedFg)
+                .frame(width: 28, height: 28)
+                .background(hover && enabled ? p.foreground.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: R.md))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .opacity(enabled ? 1 : 0.4)
+        .onHover { hover = $0 }
+    }
+}
+
+/// Метка над сообщением-главой
+struct ChapterMark: View {
+    let title: String
+    @Environment(\.palette) private var p
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Rectangle().fill(p.border).frame(height: 1).frame(maxWidth: 40)
+            IconLabel(text: title, icon: "bookmark", size: 12).tw(12, .medium, lh: 16).foregroundStyle(p.glow).lineLimit(1)
+            Rectangle().fill(p.border).frame(height: 1)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Название главы — первая строка сообщения, коротко
+    static func title(_ m: ChatMessage) -> String {
+        let line = NextStep.split(m.text).text.split(separator: "\n").first.map(String.init) ?? "Глава"
+        let clean = line.replacingOccurrences(of: "#", with: "").replacingOccurrences(of: "*", with: "").trimmingCharacters(in: .whitespaces)
+        return clean.count > 60 ? String(clean.prefix(58)) + "…" : (clean.isEmpty ? "Глава" : clean)
+    }
+}
+
+/// Оглавление разговора: главы по порядку, щелчок — прокрутить к ней
+struct ChaptersButton: View {
+    let chat: ChatController
+    @Environment(\.palette) private var p
+    @State private var open = false
+
+    var body: some View {
+        let chapters = chat.messages.filter(\.chapter)
+        Button { open.toggle() } label: {
+            HStack(spacing: 6) {
+                Icon("list", 13)
+                Text("Главы · \(chapters.count)").font(.geist(12, .medium))
+            }
+            .foregroundStyle(p.foreground.opacity(0.85))
+            .padding(.horizontal, 10).frame(height: 28)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(p.border))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $open, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Главы").tw(11, .medium, lh: 14).foregroundStyle(p.mutedFg).padding(.horizontal, 10).padding(.bottom, 4)
+                ForEach(Array(chapters.enumerated()), id: \.element.id) { i, m in
+                    Button {
+                        chat.scrollTarget = m.id
+                        open = false
+                    } label: {
+                        HStack(spacing: 10) {
+                            Text("\(i + 1)").font(.geist(12, .medium)).foregroundStyle(p.glow).frame(width: 16, alignment: .trailing)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(ChapterMark.title(m)).tw(13, lh: 18).lineLimit(1)
+                                Text(MessageActions.when(m.createdAt)).tw(11, lh: 14).foregroundStyle(p.mutedFg)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(10)
+            .frame(width: 300)
         }
     }
 }
@@ -605,17 +830,7 @@ struct Composer: View {
                 }
                 if agent { folderPicker; modePicker }
                 if let b = currentBot { botChip(b); botFolderPicker(b); botEffortPicker(b) }
-                if chat.busyElsewhere, let other = chat.running {
-                    Button { app.openChat(other) } label: {
-                        HStack(spacing: 6) {
-                            ProgressView().controlSize(.mini).tint(p.glow)
-                            Text("Отвечаю в «\(other.title)»").lineLimit(1)
-                        }
-                        .font(.geist(12)).foregroundStyle(p.mutedFg)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.leading, 6)
-                }
+                ElsewherePill(app: app)
                 Spacer()
                 // у бота модель задана в его паспорте
                 if !inBot {
@@ -650,7 +865,7 @@ struct Composer: View {
     }
 
     private func send() {
-        guard chat.running == nil, canSend, ready else { return }
+        guard !chat.busy, canSend, ready else { return }
         chat.send(draft, attachments: attachments)
         draft = ""
         attachments = []
@@ -767,7 +982,7 @@ struct Composer: View {
 
     @ViewBuilder private var sendButton: some View {
         if chat.busy {
-            Button(action: chat.stop) {
+            Button { chat.stop() } label: {
                 HStack(spacing: 6) {
                     Icon("square", 12)
                     Text("Стоп").font(.geist(13, .medium))
@@ -790,9 +1005,8 @@ struct Composer: View {
                     .shadow(color: currentBot.map { BotColor.soft($0.hue) } ?? p.glowSoft, radius: 8)
             }
             .buttonStyle(.plain)
-            .disabled(!ready || chat.busyElsewhere)
-            .help(!ready ? "Сначала выбери папку проекта"
-                  : chat.busyElsewhere ? "Lumen ещё отвечает в «\(chat.running?.title ?? "")»" : "Отправить · ↩")
+            .disabled(!ready)
+            .help(!ready ? "Сначала выбери папку проекта" : "Отправить · ↩")
         }
     }
 }
@@ -902,5 +1116,41 @@ private struct ViaChip: View {
         .buttonStyle(.plain)
         .disabled(via.conversationID == nil)
         .help(via.conversationID == nil ? "" : "Открыть тот чат")
+    }
+}
+
+/// Где ещё Lumen сейчас отвечает (писать здесь можно и так): живая точка и название, щелчок — открыть
+private struct ElsewherePill: View {
+    let app: AppModel
+
+    @Environment(\.palette) private var p
+    @State private var pulse = false
+    @State private var hover = false
+
+    var body: some View {
+        let others = app.chat.turns.values.map(\.conversation).filter { $0.id != app.chat.conversation?.id }
+            .sorted { $0.title < $1.title }
+        if let first = others.first {
+            Button { app.openChat(first) } label: {
+                HStack(spacing: 7) {
+                    Circle().fill(p.glow).frame(width: 6, height: 6)
+                        .shadow(color: p.glow.opacity(pulse ? 0.9 : 0.2), radius: pulse ? 5 : 1)
+                        .scaleEffect(pulse ? 1.15 : 0.85)
+                    Text(others.count == 1 ? "Ещё отвечаю: «\(first.title)»" : "Ещё отвечаю в \(others.count) разговорах")
+                        .lineLimit(1).truncationMode(.middle)
+                }
+                .font(.geist(12)).foregroundStyle(hover ? p.foreground : p.mutedFg)
+                .padding(.horizontal, 10).frame(height: 26)
+                .background(p.glow.opacity(hover ? 0.12 : 0.07), in: Capsule())
+                .overlay(Capsule().strokeBorder(p.glow.opacity(0.22)))
+                .frame(maxWidth: 260, alignment: .leading)
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .padding(.leading, 6)
+            .onHover { hover = $0 }
+            .help(others.map(\.title).joined(separator: "\n") + "\nЩелчок — открыть")
+            .onAppear { withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { pulse = true } }
+        }
     }
 }

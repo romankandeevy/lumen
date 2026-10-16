@@ -18,6 +18,8 @@ public enum ClaudeEvent: Sendable, Equatable {
     case finished(TurnResult)
     /// Агент просит разрешения (режимы «Спрашивать», «Принимать правки», «Авто», «План» — выход из плана)
     case permission(PermissionRequest)
+    /// Метка сообщения claude (uuid): к ней можно откатить разговор (`--resume-session-at`)
+    case anchor(String)
     case unknown(String)
 
     public struct PermissionRequest: Sendable, Equatable, Identifiable {
@@ -68,7 +70,8 @@ public enum ClaudeEvent: Sendable, Equatable {
     public static func decodeAll(_ line: Data) -> [ClaudeEvent] {
         if let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any], obj["type"] as? String == "assistant" {
             let content = (obj["message"] as? [String: Any])?["content"] as? [[String: Any]] ?? []
-            return content.filter { $0["type"] as? String == "tool_use" }.flatMap { block -> [ClaudeEvent] in
+            let anchor: [ClaudeEvent] = (obj["uuid"] as? String).map { [.anchor($0)] } ?? []
+            return anchor + content.filter { $0["type"] as? String == "tool_use" }.flatMap { block -> [ClaudeEvent] in
                 let name = block["name"] as? String ?? ""
                 let input = block["input"] as? [String: Any] ?? [:]
                 var out: [ClaudeEvent] = [.step(AgentStep.from(tool: name, input: input))]

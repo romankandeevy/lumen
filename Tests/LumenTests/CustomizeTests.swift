@@ -425,3 +425,78 @@ extension LiveCustomizeSuite {
         #expect(tools.contains { $0.name == "roll" }, "\(tools.map(\.name))")
     }
 }
+
+extension LiveCustomizeSuite {
+    /// Пока Lumen отвечает в одном чате, в новом можно писать — оба ответа приходят
+    @MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["LUMEN_LIVE"] == "1")) func liveTwoChatsAnswerAtOnce() async throws {
+        pointToMCP()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-par-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let app = try AppModel(paths: AppPaths(root: root))
+        await app.refreshClaude()
+        app.finishOnboarding(name: "Тест", address: .ty, backend: .subscription, theme: .lumen)
+        app.chat.set(model: .haiku, effort: .low)
+        app.chat.send("Посчитай вслух от 1 до 40 через запятую.")
+        let a = try #require(app.chat.conversation)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(app.chat.busy)
+        app.chat.startNew()
+        #expect(!app.chat.busy)
+        app.chat.send("Ответь одним словом: привет")
+        let b = try #require(app.chat.conversation)
+        #expect(a.id != b.id && app.chat.isRunning(a.id) && app.chat.isRunning(b.id))
+        while !app.chat.turns.isEmpty { try await Task.sleep(for: .milliseconds(200)) }
+        let la = try #require(try app.store.messages(in: a.id).last)
+        let lb = try #require(try app.store.messages(in: b.id).last)
+        #expect(la.role == .assistant && la.error == nil && la.text.contains("40"))
+        #expect(lb.role == .assistant && lb.error == nil && !lb.text.isEmpty)
+    }
+}
+
+// MARK: действия у сообщений
+
+@MainActor @Test func chapterPersistsAndTimeReadsHuman() throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-ch-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    let c = Conversation(title: "т", backend: .subscription, model: .haiku, effort: .low)
+    try app.store.save(c)
+    _ = try app.store.save(ChatMessage(conversationID: c.id, role: .user, text: "## План на неделю\nподробности"))
+    app.openChat(c)
+    let m = try #require(app.chat.messages.first)
+    app.chat.toggleChapter(m)
+    #expect(try app.store.messages(in: c.id).first?.chapter == true)
+    #expect(ChapterMark.title(app.chat.messages[0]) == "План на неделю")
+    #expect(MessageActions.when(Date()) == "сейчас")
+    #expect(MessageActions.when(Date().addingTimeInterval(-86_400 * 400)).contains(","))
+    // ClaudeEvent отдаёт метку сообщения и откат идёт флагом
+    let line = Data(#"{"type":"assistant","uuid":"u-1","message":{"content":[{"type":"text","text":"x"}]}}"#.utf8)
+    #expect(ClaudeEvent.decodeAll(line).contains(.anchor("u-1")))
+    var cfg = ClaudeSession.Config(model: "m", resume: true)
+    cfg.resumeAt = "u-1"
+    #expect(cfg.arguments.joined(separator: " ").contains("--resume-session-at u-1"))
+}
+
+extension LiveCustomizeSuite {
+    /// «Изменить» откатывает и саму сессию claude: модель не помнит то, что было после
+    @MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["LUMEN_LIVE"] == "1")) func liveEditRewindsClaudeSession() async throws {
+        pointToMCP()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-edit-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let app = try AppModel(paths: AppPaths(root: root))
+        await app.refreshClaude()
+        app.finishOnboarding(name: "Тест", address: .ty, backend: .subscription, theme: .lumen)
+        app.chat.set(model: .haiku, effort: .low)
+        for t in ["Кодовое слово — ЛИМОН. Ответь: ок", "Новое кодовое слово — АРБУЗ. Ответь: ок"] {
+            app.chat.send(t)
+            while app.chat.busy { try await Task.sleep(for: .milliseconds(200)) }
+        }
+        #expect(app.chat.messages.last?.cliAnchor != nil)
+        let second = try #require(app.chat.messages.last { $0.role == .user })
+        app.chat.resend(from: second, text: "Какое сейчас кодовое слово? Одним словом.")
+        while app.chat.busy { try await Task.sleep(for: .milliseconds(200)) }
+        let reply = try #require(app.chat.messages.last)
+        #expect(app.chat.messages.count == 4)
+        #expect(reply.error == nil && reply.text.uppercased().contains("ЛИМОН") && !reply.text.uppercased().contains("АРБУЗ"), "\(reply.text)")
+    }
+}
