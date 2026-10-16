@@ -175,6 +175,9 @@ private struct BotCard: View {
         .background(p.card.opacity(0.4))
         .clipShape(RoundedRectangle(cornerRadius: R.xxl))
         .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(hover ? BotColor.soft(bot.hue) : p.border))
+        .contentShape(RoundedRectangle(cornerRadius: R.xxl))
+        // щелчок по карточке открывает бота; кнопки внутри («Позвать», меню «…») работают сами
+        .onTapGesture { app.openBot(bot.id) }
         .onHover { hover = $0 }
         .onRightClick { app.showBotMenu(bot, at: $0) }
         .animation(.easeOut(duration: 0.15), value: hover)
