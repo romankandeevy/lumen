@@ -170,3 +170,21 @@ import Testing
     #expect(Suggestions.parse("не json") == nil)
     #expect(Suggestions.prompt(name: "Рома", address: .ty, facts: ["Делает Lumen"], recent: ["Почему падает Shelf?"]).contains("Почему падает Shelf?"))
 }
+
+@MainActor @Test func pinAndMenu() throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-pin-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    let a = Conversation(title: "Старый", backend: .subscription, model: .sonnet, effort: .medium, updatedAt: Date().addingTimeInterval(-86_400 * 3))
+    let b = Conversation(title: "Новый", backend: .subscription, model: .sonnet, effort: .medium)
+    try app.store.save(a)
+    try app.store.save(b)
+    app.reloadConversations()
+    app.togglePin(a)
+    #expect(app.conversations.first { $0.id == a.id }?.pinned == true)
+    app.showChatMenu(a, at: .zero)
+    #expect(app.menu?.items.map(\.title) == ["Открепить", "Переименовать", "Удалить"])
+    #expect(app.menu?.items.map(\.key) == ["p", "r", "d"])
+    app.menu?.items[1].action() // «Переименовать» включает поле в строке
+    #expect(app.renamingID == a.id)
+}

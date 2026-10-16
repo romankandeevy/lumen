@@ -73,6 +73,8 @@ struct ChatView: View {
             }
         }
         .padding(.horizontal, 20)
+        // панель спрятана — слева кнопки окна и «показать панель»
+        .padding(.leading, app.prefs.sidebarHidden ? 150 : 0)
         .frame(height: 56)
         .overlay(alignment: .bottom) { p.border.frame(height: 1) }
     }
@@ -369,9 +371,8 @@ struct Composer: View {
         }
         .padding(12)
         .background(p.card.opacity(0.6), in: RoundedRectangle(cornerRadius: R.xxl))
-        .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(focused ? p.glow.opacity(0.35) : p.border))
-        .shadow(color: focused ? p.glowSoft : .clear, radius: 16)
-        .animation(.easeOut(duration: 0.4), value: focused)
+        // без свечения в фокусе (Рома, 16.10): ровная рамка
+        .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(focused ? p.foreground.opacity(0.14) : p.border))
         .frame(maxWidth: app.prefs.chatWidth.points)
         .padding(.horizontal, 20).padding(.bottom, 20).padding(.top, 4)
         .frame(maxWidth: .infinity)

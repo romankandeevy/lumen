@@ -186,3 +186,20 @@ enum Snap {
     app.update { $0.contextOpen = true }
     try await Snap.save(RootView(app: app), "17-next-step", size: CGSize(width: 1280, height: 800))
 }
+
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotMenuAndSearch() async throws {
+    Snap.registerFonts()
+    let app = try Snap.app()
+    app.finishOnboarding(name: "Роман", address: .ty, backend: .subscription, theme: .lumen)
+    var pinned = Conversation(title: "Lumen: замысел", backend: .subscription, model: .sonnet, effort: .medium)
+    pinned.pinned = true
+    try app.store.save(pinned)
+    for t in ["привет", "Что поделаем сегодня?"] { try app.store.save(Conversation(title: t, backend: .subscription, model: .sonnet, effort: .medium)) }
+    app.reloadConversations()
+    try await Snap.save(RootView(app: app), "20-sidebar")
+    app.showChatMenu(app.conversations[1], at: CGPoint(x: 200, y: 160))
+    try await Snap.save(RootView(app: app), "21-chat-menu")
+    app.menu = nil
+    app.searchOpen = true
+    try await Snap.save(RootView(app: app), "22-search")
+}

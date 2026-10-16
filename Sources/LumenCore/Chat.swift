@@ -257,6 +257,8 @@ public struct Conversation: Codable, Sendable, Equatable, Identifiable, Hashable
     public var cliSessionID: String?
     /// План агента — последний его список задач
     public var plan: [PlanItem] = []
+    /// Закреплён — всегда сверху списка
+    public var pinned = false
     public var createdAt: Date
     public var updatedAt: Date
 

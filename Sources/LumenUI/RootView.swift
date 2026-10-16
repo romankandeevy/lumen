@@ -12,7 +12,7 @@ public struct RootView: View {
     public var body: some View {
         let p = Palette.of(app.prefs.theme)
         HStack(spacing: 0) {
-            Sidebar(app: app)
+            if !app.prefs.sidebarHidden { Sidebar(app: app).transition(.move(edge: .leading)) }
             Group {
                 switch app.page {
                 case .chat: ChatView(app: app)
@@ -23,6 +23,22 @@ public struct RootView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .ignoresSafeArea(.container, edges: .top)
+        .animation(.easeOut(duration: 0.2), value: app.prefs.sidebarHidden)
+        // панель спрятана — её кнопки остаются рядом с кнопками окна, как в Claude
+        .overlay(alignment: .topLeading) {
+            if app.prefs.sidebarHidden { WindowControls(app: app).padding(.leading, 76) }
+        }
+        .overlay { MenuLayer(app: app) }
+        .overlay { if app.searchOpen { SearchLayer(app: app) } }
+        .background {
+            // ⌘K — поиск, ⌘N — новый чат, ⌘\ — панель
+            Group {
+                Button("") { app.searchOpen.toggle() }.keyboardShortcut("k", modifiers: .command)
+                Button("") { app.newChat() }.keyboardShortcut("n", modifiers: .command)
+                Button("") { app.update { $0.sidebarHidden.toggle() } }.keyboardShortcut("\\", modifiers: .command)
+            }
+            .opacity(0)
+        }
         // `.lumen-light` на всём окне: панель полупрозрачная, свет проходит сквозь неё
         .background(LumenLight(level: app.orb == .thinking ? 1.9 : 1).ignoresSafeArea())
         .overlay {
@@ -51,16 +67,12 @@ struct Sidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
-                Orb(state: app.orb, size: 22)
-                Text("Lumen").font(.geist(15, .semibold)).tracking(-0.15)
-                Spacer()
-                IconButton(icon: "square-pen", help: "Новый чат · ⌘N") { app.newChat() }
-                    .keyboardShortcut("n", modifiers: .command)
-            }
-            .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
+            // как в Claude: в одной строке с кнопками окна — «спрятать панель» и поиск
+            WindowControls(app: app)
+                .padding(.leading, 76)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            TabSwitch(app: app).padding(.horizontal, 12)
+            TabSwitch(app: app).padding(.horizontal, 12).padding(.top, 12)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -112,14 +124,19 @@ struct Sidebar: View {
         .overlay(alignment: .trailing) { p.border.frame(width: 1).ignoresSafeArea() }
     }
 
-    private var sessions: [Conversation] { app.conversations.filter { $0.kind == .agent } }
+    private var sessions: [Conversation] {
+        let s = app.conversations.filter { $0.kind == .agent }
+        return s.filter(\.pinned) + s.filter { !$0.pinned }
+    }
 
-    /// «Сегодня» и «Раньше», как в макете
+    /// «Закреплённые», «Сегодня» и «Раньше»
     private var groups: [(String, [Conversation])] {
         let chats = app.conversations.filter { $0.kind == .chat }
-        let today = chats.filter { Calendar.current.isDateInToday($0.updatedAt) }
-        let earlier = chats.filter { !Calendar.current.isDateInToday($0.updatedAt) }
-        return [("Сегодня", today), ("Раньше", earlier)].filter { !$0.1.isEmpty }
+        let pinned = chats.filter(\.pinned)
+        let rest = chats.filter { !$0.pinned }
+        let today = rest.filter { Calendar.current.isDateInToday($0.updatedAt) }
+        let earlier = rest.filter { !Calendar.current.isDateInToday($0.updatedAt) }
+        return [("Закреплённые", pinned), ("Сегодня", today), ("Раньше", earlier)].filter { !$0.1.isEmpty }
     }
 
     private var profile: some View {
@@ -239,9 +256,10 @@ struct ChatRow: View {
     @Environment(\.palette) private var p
     @State private var hover = false
 
-    @State private var renaming = false
     @State private var newTitle = ""
     @FocusState private var focused: Bool
+
+    private var renaming: Bool { app.renamingID == c.id }
 
     private var active: Bool { app.page == .chat && app.chat.conversation?.id == c.id }
     private var running: Bool { app.chat.running?.id == c.id }
@@ -265,7 +283,7 @@ struct ChatRow: View {
                         Text(URL(fileURLWithPath: c.folder ?? "").lastPathComponent).font(.geist(11)).foregroundStyle(p.mutedFg).lineLimit(1)
                     }
                     Spacer(minLength: 4)
-                    Text(when).font(.geist(11)).foregroundStyle(p.mutedFg)
+                    Text(when).font(.geist(11)).foregroundStyle(p.mutedFg).opacity(hover ? 0 : 1)
                 } else {
                     if renaming {
                         renameField
@@ -277,7 +295,7 @@ struct ChatRow: View {
                     if running {
                         ProgressView().controlSize(.mini).tint(p.glow)
                     } else {
-                        Text(when).font(.geist(11)).foregroundStyle(p.mutedFg)
+                        Text(when).font(.geist(11)).foregroundStyle(p.mutedFg).opacity(hover ? 0 : 1)
                     }
                 }
             }
@@ -292,18 +310,29 @@ struct ChatRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
-        .simultaneousGesture(TapGesture(count: 2).onEnded { startRename() })
-        .contextMenu {
-            Button("Переименовать") { startRename() }
-            Button("Удалить разговор", role: .destructive) { app.deleteChat(c) }
+        .simultaneousGesture(TapGesture(count: 2).onEnded { app.renamingID = c.id })
+        // «…» при наведении, как в Claude — меню без двойного щелчка
+        .overlay(alignment: .trailing) {
+            if (hover || app.menu != nil && menuFor) && !renaming {
+                GeometryReader { g in
+                    let f = g.frame(in: .global)
+                    DotsButton { app.showChatMenu(c, at: CGPoint(x: f.minX, y: f.maxY + 4)) }
+                }
+                .frame(width: 26, height: 26)
+                .padding(.trailing, 4)
+            }
+        }
+        .onRightClick { point in app.showChatMenu(c, at: point) }
+        .onChange(of: app.renamingID) { _, id in
+            if id == c.id {
+                newTitle = c.title
+                focused = true
+            }
         }
     }
 
-    private func startRename() {
-        newTitle = c.title
-        renaming = true
-        focused = true
-    }
+    /// Меню открыто для этой строки — «…» не прячем
+    private var menuFor: Bool { false }
 
     /// Поле переименования прямо в строке: Enter — сохранить, Esc — отменить
     private var renameField: some View {
@@ -312,10 +341,10 @@ struct ChatRow: View {
             .focused($focused)
             .onSubmit {
                 app.renameChat(c, newTitle)
-                renaming = false
+                app.renamingID = nil
             }
-            .onExitCommand { renaming = false }
-            .onChange(of: focused) { _, f in if !f { renaming = false } }
+            .onExitCommand { app.renamingID = nil }
+            .onChange(of: focused) { _, f in if !f && app.renamingID == c.id { app.renamingID = nil } }
     }
 
     /// «сейчас», «2 ч», «12 окт» — как в макете
@@ -402,5 +431,42 @@ struct IconButton: View {
         .buttonStyle(.plain)
         .onHover { hover = $0 }
         .help(help)
+    }
+}
+
+/// Кнопки в строке с кнопками окна: спрятать / показать панель и поиск (⌘K)
+struct WindowControls: View {
+    @Bindable var app: AppModel
+
+    var body: some View {
+        HStack(spacing: 4) {
+            IconButton(icon: "panel-left", help: app.prefs.sidebarHidden ? "Показать панель · ⌘\\" : "Спрятать панель · ⌘\\") {
+                app.update { $0.sidebarHidden.toggle() }
+            }
+            IconButton(icon: "search", help: "Найти в разговорах · ⌘K") { app.searchOpen = true }
+        }
+        .frame(height: 28)
+        .padding(.top, 0)
+    }
+}
+
+/// «…» на строке разговора
+struct DotsButton: View {
+    let action: () -> Void
+
+    @Environment(\.palette) private var p
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            Icon("ellipsis", 16)
+                .foregroundStyle(hover ? p.foreground : p.mutedFg)
+                .frame(width: 26, height: 26)
+                .background(hover ? p.foreground.opacity(0.1) : p.foreground.opacity(0.06), in: RoundedRectangle(cornerRadius: R.md))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .help("Ещё")
     }
 }

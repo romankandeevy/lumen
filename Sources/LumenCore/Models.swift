@@ -59,6 +59,8 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var monthlyLimit = 100
     /// Правая панель «Контекст» открыта
     public var contextOpen = false
+    /// Левая панель спрятана (кнопка рядом с кнопками окна, как в Claude)
+    public var sidebarHidden = false
 
     public init(onboarded: Bool = false, backend: Backend = .subscription, theme: Theme = .lumen, reducedMotion: Bool = false,
                 model: ChatModel = .sonnet, effort: Effort = .medium, chatWidth: ChatWidth = .normal) {
@@ -85,6 +87,7 @@ public struct Preferences: Codable, Sendable, Equatable {
         autoRemember = try c.decodeIfPresent(Bool.self, forKey: .autoRemember) ?? true
         monthlyLimit = try c.decodeIfPresent(Int.self, forKey: .monthlyLimit) ?? 100
         contextOpen = try c.decodeIfPresent(Bool.self, forKey: .contextOpen) ?? false
+        sidebarHidden = try c.decodeIfPresent(Bool.self, forKey: .sidebarHidden) ?? false
     }
 }
 

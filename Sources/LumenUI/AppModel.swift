@@ -26,6 +26,10 @@ public final class AppModel {
     var memories: [MemoryFact] = []
     /// Последний забытый факт — чтобы «Вернуть»
     var lastForgotten: MemoryFact?
+    /// Открытое своё меню (Menus.swift), поиск ⌘K, разговор, который сейчас переименовывают
+    var menu: MenuState?
+    var searchOpen = false
+    var renamingID: String?
     /// Подсказки пустого чата, придуманные Lumen (Suggestions.swift)
     var suggestionCache: SuggestionCache?
     var suggestionsLoading = false
@@ -168,6 +172,22 @@ public final class AppModel {
         try? store.save(updated)
         chat.renamed(c.id, t)
         reloadConversations()
+    }
+
+    func togglePin(_ c: Conversation) {
+        var updated = (try? store.conversations().first { $0.id == c.id }) ?? c
+        updated.pinned.toggle()
+        try? store.save(updated)
+        reloadConversations()
+    }
+
+    /// Меню разговора — как у Claude: закрепить, переименовать, удалить (с буквами)
+    func showChatMenu(_ c: Conversation, at point: CGPoint) {
+        menu = MenuState(items: [
+            MenuItem(title: c.pinned ? "Открепить" : "Закрепить", key: "p") { [weak self] in self?.togglePin(c) },
+            MenuItem(title: "Переименовать", key: "r") { [weak self] in self?.renamingID = c.id },
+            MenuItem(title: "Удалить", key: "d", destructive: true, separated: true) { [weak self] in self?.deleteChat(c) },
+        ], anchor: point)
     }
 
     func deleteChat(_ c: Conversation) {
