@@ -1,0 +1,289 @@
+<title>Lumen: новая задача агента</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400&display=swap">
+<style>
+/* Раскладка: три окна Lumen друг под другом, над ними переключатель-якоря; внутри окна — экран «Новая задача» в цветах темы «Люмен».
+   Lumen бывает только тёмным, поэтому страница одна, тёмная. */
+:root {
+  --bg: #0c0a07;          /* фон окна */
+  --side: #070504;        /* боковая панель */
+  --card: #15110d;        /* карточки и поле ввода */
+  --fg: #f0ebe0;          /* текст */
+  --muted: #9f978b;       /* приглушённый текст */
+  --line: rgba(247, 226, 184, .08);
+  --line-strong: rgba(247, 226, 184, .16);
+  --glow: #fec766;        /* свет Люмена */
+  --glow-soft: rgba(245, 183, 91, .18);
+  --page: #090806;        /* фон страницы вокруг окон */
+  --font: "Geist", -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box }
+body {
+  background: var(--page); color: var(--fg); font: 14px/1.45 var(--font);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 32px 64px;
+}
+.wrap { max-width: 1080px; margin: 0 auto; display: grid; gap: 40px }
+header.top { display: grid; gap: 8px }
+h1 { font-size: clamp(24px, 4vw, 32px); font-weight: 600; letter-spacing: -.02em; margin: 0; text-wrap: balance }
+.lead { color: var(--muted); max-width: 62ch; margin: 0 }
+nav.jump { display: flex; flex-wrap: wrap; gap: 6px; position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5;
+  padding-block: 10px; background: linear-gradient(var(--page) 70%, transparent) }
+nav.jump a { color: var(--muted); text-decoration: none; border: 1px solid var(--line-strong); border-radius: 999px; padding: 6px 14px; font-size: 13px; background: var(--card) }
+nav.jump a:hover, nav.jump a:focus-visible { color: var(--fg); border-color: rgba(254, 199, 102, .5); outline: none }
+
+section.variant { display: grid; gap: 14px; scroll-margin-top: 64px }
+.vhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px }
+.vhead h2 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -.01em }
+.tag { font: 12px var(--mono); color: var(--glow); border: 1px solid rgba(254, 199, 102, .35); border-radius: 6px; padding: 1px 7px }
+.vhead p { margin: 0; color: var(--muted); flex-basis: 100%; max-width: 70ch }
+.pros { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 13px; margin: 0; padding: 0; list-style: none }
+.pros li::before { content: "+ "; color: var(--glow) }
+.pros li.con::before { content: "− "; color: #ff8a7a }
+
+/* окно Lumen */
+.win { border: 1px solid var(--line-strong); border-radius: 14px; overflow: hidden; background: var(--bg);
+  box-shadow: 0 30px 60px -30px rgba(0,0,0,.8); display: grid; grid-template-columns: 210px minmax(0, 1fr); min-height: 520px;
+  background-image: radial-gradient(700px 400px at 8% -10%, rgba(245,183,91,.07), transparent 70%) }
+.side { background: rgba(7,5,4,.7); border-right: 1px solid var(--line); padding: 12px 10px; display: flex; flex-direction: column; gap: 10px; min-width: 0 }
+.lights { display: flex; gap: 7px; padding: 2px 4px 6px } .lights i { width: 11px; height: 11px; border-radius: 50%; display: block }
+.lights i:nth-child(1) { background: #ff5f57 } .lights i:nth-child(2) { background: #febc2e } .lights i:nth-child(3) { background: #28c840 }
+.tabs { display: grid; grid-template-columns: 1fr 1fr; background: rgba(240,235,224,.05); border-radius: 12px; padding: 2px }
+.tabs span { text-align: center; font-size: 12.5px; padding: 6px 0; border-radius: 10px; color: var(--muted) }
+.tabs span.on { background: var(--bg); color: var(--fg); box-shadow: 0 0 0 1px var(--line) }
+.newbtn { background: rgba(240,235,224,.06); border-radius: 10px; padding: 7px 10px; font-size: 13px }
+.slabel { color: var(--muted); font-size: 11.5px; padding: 0 6px }
+.srow { font-size: 13px; padding: 5px 6px; border-radius: 8px; color: rgba(240,235,224,.8); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.srow small { display: block; color: var(--muted); font-size: 10.5px }
+.main { display: flex; flex-direction: column; min-width: 0 }
+.mhead { height: 50px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; padding: 0 16px }
+.fbox { width: 26px; height: 26px; border-radius: 9px; background: rgba(240,235,224,.07); display: grid; place-items: center; color: var(--glow) }
+.mhead b { font-weight: 500; font-size: 13.5px; display: block } .mhead small { color: var(--muted); font-size: 11.5px }
+.body { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 28px clamp(16px, 4vw, 40px) }
+.col { width: 100%; max-width: 640px; margin: 0 auto; display: grid; gap: 14px }
+
+/* сфера */
+.orb { width: 26px; height: 26px; border-radius: 50%; flex: none;
+  background: radial-gradient(circle at 35% 30%, #fff8db 0%, transparent 45%), radial-gradient(circle at 50% 55%, var(--glow) 0%, rgba(254,199,102,.4) 55%, transparent 72%);
+  box-shadow: 0 0 14px var(--glow-soft) }
+
+.h { margin: 0; font-size: clamp(19px, 2.6vw, 23px); font-weight: 600; letter-spacing: -.02em; display: flex; align-items: center; gap: 10px; text-wrap: balance }
+.h em { font-style: normal; color: var(--glow) }
+.sub { margin: 0; color: var(--muted); font-size: 13px }
+
+/* поле ввода */
+.composer { background: rgba(21,17,13,.6); border: 1px solid var(--line); border-radius: 20px; padding: 14px; display: grid; gap: 10px }
+.composer textarea { background: transparent; border: 0; color: var(--fg); font: 15px/1.6 var(--font); resize: none; min-height: 64px; outline: none; width: 100% }
+.composer textarea::placeholder { color: var(--muted) }
+.crow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border-radius: 9px; border: 1px solid var(--line-strong);
+  background: rgba(12,10,7,.4); color: var(--fg); font: 13px var(--font); cursor: pointer }
+.chip svg { color: var(--glow) }
+.pick { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--fg); padding: 0 6px }
+.pick svg { color: var(--glow) }
+.bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px }
+.bars i { width: 3px; border-radius: 2px; background: var(--glow); display: block } .bars i.off { background: rgba(240,235,224,.2) }
+.go { margin-left: auto; width: 30px; height: 30px; border-radius: 50%; background: var(--glow); color: #000; display: grid; place-items: center; border: 0; box-shadow: 0 0 16px var(--glow-soft); cursor: pointer }
+.meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-size: 12px; padding: 0 4px }
+.meta .warn { color: var(--glow) } .meta .right { margin-left: auto }
+
+.recent { display: grid; gap: 6px; margin-top: 12px }
+.list { border: 1px solid var(--line); border-radius: 14px; background: rgba(21,17,13,.4); overflow: hidden }
+.list button { all: unset; box-sizing: border-box; width: 100%; display: flex; gap: 10px; align-items: center; padding: 9px 14px; font-size: 13.5px; cursor: pointer; border-top: 1px solid var(--line) }
+.list button:first-child { border-top: 0 } .list button:hover, .list button:focus-visible { background: rgba(240,235,224,.03) }
+.list .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap } .list .w { color: var(--muted); font-size: 12px } .list .wait { color: var(--glow); font-size: 12px }
+
+/* B: карточки */
+.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px }
+.pcard { all: unset; box-sizing: border-box; border: 1px solid var(--line); border-radius: 16px; background: rgba(21,17,13,.4); padding: 12px; cursor: pointer; display: grid; gap: 8px; min-width: 0 }
+.pcard:hover { background: var(--card) } .pcard:focus-visible { outline: 1px solid rgba(254,199,102,.6) }
+.pcard.on { border-color: rgba(254,199,102,.5); background: rgba(254,199,102,.05); box-shadow: 0 0 26px -10px var(--glow-soft) }
+.pcard .n { display: flex; align-items: center; gap: 7px; font-weight: 500; font-size: 13.5px } .pcard .n svg { color: var(--muted) } .pcard.on .n svg { color: var(--glow) }
+.pcard .l { font-size: 12px; color: rgba(240,235,224,.8); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.pcard .s { display: flex; gap: 8px; font-size: 11px; color: var(--muted); font-family: var(--mono) } .pcard .s .d { color: var(--glow) } .pcard .s .when { margin-left: auto; font-family: var(--font) }
+.pcard.add { place-items: center; color: var(--muted); border-style: dashed; font-size: 13px }
+.bottom { padding: 0 clamp(16px, 4vw, 40px) 18px } .bottom .composer { max-width: 640px; margin: 0 auto }
+
+/* C: подсказки */
+.ideas { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px }
+.idea { all: unset; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; font-size: 13.5px; background: rgba(21,17,13,.5) }
+.idea svg { color: var(--glow) } .idea:hover, .idea:focus-visible { border-color: rgba(254,199,102,.4); background: var(--card) }
+
+/* выпадающий список папок */
+.menu { position: absolute; z-index: 3; background: #1a1510; border: 1px solid rgba(240,235,224,.1); border-radius: 14px; padding: 6px; min-width: 200px; box-shadow: 0 18px 40px rgba(0,0,0,.5) }
+.menu button { all: unset; box-sizing: border-box; display: flex; gap: 8px; align-items: center; width: 100%; padding: 6px 10px; border-radius: 8px; font-size: 13.5px; cursor: pointer }
+.menu button:hover, .menu button:focus-visible { background: rgba(240,235,224,.07) } .menu .cap { color: var(--muted); font-size: 11.5px; padding: 4px 10px 6px }
+.rel { position: relative }
+
+@media (max-width: 760px) {
+  .win { grid-template-columns: minmax(0, 1fr); min-height: 0 }
+  .side { display: none }
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+  .meta .right { margin-left: 0 }
+}
+@media (prefers-reduced-motion: no-preference) { .pcard, .chip, .idea { transition: background .15s, border-color .15s } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>Новая задача агента: три варианта</h1>
+    <p class="lead">Так выглядит пустая задача, пока ты ещё ничего не написал. Всё кликается: папку можно сменить, подсказку — вставить в поле, у B — выбрать проект. Выбери вариант (или смесь), и я перенесу его в приложение.</p>
+  </header>
+
+  <nav class="jump" aria-label="Варианты">
+    <a href="#a">A · как Claude Code</a><a href="#b">B · карточки</a><a href="#c">C · минимум</a>
+  </nav>
+
+  <!-- A -->
+  <section class="variant" id="a">
+    <div class="vhead"><span class="tag">A</span><h2>Как Claude Code</h2>
+      <p>Большое поле по центру, папка — внутри поля. Под полем: ветка git и что не закоммичено. Ниже — недавние задачи этой папки, чтобы продолжить.</p></div>
+    <ul class="pros"><li>видно состояние проекта до старта</li><li>быстро вернуться к прошлой задаче</li><li class="con">другие папки — только через список</li></ul>
+    <div class="win" data-variant="a">
+      <aside class="side" aria-hidden="true"></aside>
+      <div class="main">
+        <div class="mhead"><span class="fbox" data-icon="folder"></span><div><b>Новая задача</b><small data-sub></small></div></div>
+        <div class="body"><div class="col">
+          <h3 class="h"><span class="orb"></span><span>Что сделаем в <em data-name>shelf</em>?</span></h3>
+          <div class="composer" data-composer="Опиши задачу: что сделать, починить или проверить"></div>
+          <div class="meta" data-meta></div>
+          <div class="recent"><span class="slabel" style="padding:0 4px">Недавно в этой папке</span><div class="list" data-recent></div></div>
+        </div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- B -->
+  <section class="variant" id="b">
+    <div class="vhead"><span class="tag">B</span><h2>Проекты карточками</h2>
+      <p>Сначала выбираешь проект: на карточке последняя задача, ветка и сколько файлов изменено. Поле ввода — как обычно, внизу.</p></div>
+    <ul class="pros"><li>все проекты на виду</li><li>сразу видно, где висят правки</li><li class="con">до поля ввода дальше</li></ul>
+    <div class="win" data-variant="b">
+      <aside class="side" aria-hidden="true"></aside>
+      <div class="main">
+        <div class="mhead"><span class="fbox" data-icon="folder"></span><div><b>Новая задача</b><small data-sub></small></div></div>
+        <div class="body"><div class="col" style="max-width:720px">
+          <h3 class="h">Над чем работаем?</h3>
+          <p class="sub">Выбери проект — агент откроет его папку. Push и выкатка — только с твоего OK.</p>
+          <div class="grid" data-cards></div>
+        </div></div>
+        <div class="bottom"><div class="composer" data-composer="Что сделать в проекте?"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- C -->
+  <section class="variant" id="c">
+    <div class="vhead"><span class="tag">C</span><h2>Минимум</h2>
+      <p>Только поле по центру и три подсказки, которые Lumen придумывает по истории этой папки, — как подсказки в пустом чате.</p></div>
+    <ul class="pros"><li>ничего лишнего</li><li>подсказки по делу проекта</li><li class="con">не видно состояния git и прошлых задач</li></ul>
+    <div class="win" data-variant="c">
+      <aside class="side" aria-hidden="true"></aside>
+      <div class="main">
+        <div class="mhead"><span class="fbox" data-icon="folder"></span><div><b>Новая задача</b><small data-sub></small></div></div>
+        <div class="body"><div class="col" style="max-width:600px">
+          <div class="composer" data-composer=""></div>
+          <div class="ideas" data-ideas></div>
+        </div></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+// иконки Lucide (folder, folder-open, git-branch, laptop, clock, sparkles, arrow-up, chevron-down, check)
+const I = {
+  folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+  open: '<path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>',
+  branch: '<line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
+  laptop: '<path d="M18 5a2 2 0 0 1 2 2v8.526a2 2 0 0 0 .212.897l1.068 2.127a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45l1.068-2.127A2 2 0 0 0 4 15.526V7a2 2 0 0 1 2-2z"/><path d="M20.054 15.987H3.946"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+  spark: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>',
+  up: '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
+  down: '<path d="m6 9 6 6 6-6"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+}
+const svg = (k, s = 16) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[k]}</svg>`
+
+// пример данных — папки prog (в приложении — из git и истории задач)
+const folders = {
+  shelf: { branch: "main", changed: 2, last: "Почему падает Shelf?", when: "12 мин",
+    recent: [["Почему падает Shelf?", "12 мин", true], ["Иконки файлов в Буфере", "вчера"], ["Полка → Буфер", "11 окт"]],
+    ideas: ["Проверь фикс двойного щелчка", "Собери и запусти Shelf", "Найди, где ещё может упасть"] },
+  lumen: { branch: "main", changed: 0, last: "Проекты как в Claude", when: "сегодня",
+    recent: [["Проекты как в Claude", "сегодня"], ["Верх панели и меню «…»", "сегодня"], ["Плавная печать ответа", "сегодня"]],
+    ideas: ["Перенеси выбранный экран агента", "Прогони живые тесты", "Подготовь релиз 1.0"] },
+  island: { branch: "notch-anim", changed: 5, last: "Анимация чёлки проседает", when: "вчера",
+    recent: [["Анимация чёлки проседает", "вчера"], ["Таймер в ушах острова", "14 окт"]],
+    ideas: ["Почини просадку анимации", "Замерь потерю кадров", "Сделай ревью ветки notch-anim"] },
+  "prog-dashboard": { branch: "main", changed: 0, last: "Ревью Пульта перед релизом", when: "вчера",
+    recent: [["Ревью Пульта перед релизом", "вчера"]], ideas: ["Найди и почини падение", "Собери и проверь сборку", "Обнови ПЛАН.md"] },
+  "flow-local": { branch: "main", changed: 1, last: "Двухпоточное распознавание", when: "11 окт",
+    recent: [["Двухпоточное распознавание", "11 окт"]], ideas: ["Добавь partial в server.py", "Проверь задержку распознавания", "Объясни, как устроен проект"] },
+}
+const names = Object.keys(folders)
+
+document.querySelectorAll(".win").forEach((win) => {
+  const state = { folder: "shelf" }
+  const v = win.dataset.variant
+  const side = win.querySelector(".side")
+  side.innerHTML = `<div class="lights"><i></i><i></i><i></i></div><div class="tabs"><span>Чат</span><span class="on">Агент</span></div>
+    <div class="newbtn">+ Новая задача</div><span class="slabel">Сессии</span>` +
+    names.slice(0, 4).map((n) => `<div class="srow">${folders[n].last}<small>${n}</small></div>`).join("")
+  win.querySelector('[data-icon="folder"]').innerHTML = svg("folder", 14)
+
+  const comp = win.querySelector("[data-composer]")
+  const ph = comp.dataset.composer
+  comp.innerHTML = `<textarea id="ta-${v}" rows="2" aria-label="Задача"></textarea>
+    <div class="crow"><span class="rel"><button class="chip" type="button" data-folder></button></span>
+      <span style="margin-left:auto" class="pick">${svg("spark", 13)} Opus 5.5 ${svg("down", 11)}</span>
+      <span class="pick"><span class="bars"><i style="height:4px"></i><i style="height:6px"></i><i style="height:8px"></i><i class="off" style="height:10px"></i><i class="off" style="height:12px"></i></span> Высокий ${svg("down", 11)}</span>
+      <button class="go" type="button" aria-label="Начать">${svg("up", 15)}</button></div>`
+  const ta = comp.querySelector("textarea")
+  const chip = comp.querySelector("[data-folder]")
+
+  chip.addEventListener("click", (e) => {
+    e.stopPropagation()
+    const old = win.querySelector(".menu"); if (old) { old.remove(); return }
+    const m = document.createElement("div")
+    m.className = "menu"; m.style.top = "36px"; m.style.left = "0"
+    m.innerHTML = `<div class="cap">Папка проекта</div>` + names.map((n) =>
+      `<button type="button" data-n="${n}">${svg("folder", 15)} ${n}${n === state.folder ? `<span style="margin-left:auto;color:var(--glow)">${svg("check", 15)}</span>` : ""}</button>`).join("")
+    m.addEventListener("click", (ev) => { const b = ev.target.closest("[data-n]"); if (b) { state.folder = b.dataset.n; m.remove(); render() } })
+    chip.parentElement.appendChild(m)
+  })
+  document.addEventListener("click", () => win.querySelector(".menu")?.remove())
+
+  function render() {
+    const f = folders[state.folder]
+    win.querySelector("[data-sub]").textContent = `Агент в папке ${state.folder} · на этом Маке`
+    chip.innerHTML = `${svg("open", 15)} ${state.folder} ${svg("down", 12)}`
+    ta.placeholder = ph || `Что сделать в ${state.folder}?`
+    const nm = win.querySelector("[data-name]"); if (nm) nm.textContent = state.folder
+    const meta = win.querySelector("[data-meta]")
+    if (meta) meta.innerHTML = `<span>${svg("branch", 13)} ${f.branch}</span>` +
+      (f.changed ? `<span class="warn">${f.changed} изменённых ${f.changed < 5 ? "файла" : "файлов"} не закоммичены</span>` : `<span>всё закоммичено</span>`) +
+      `<span class="right">${svg("laptop", 13)} этот Мак · push только с твоего OK</span>`
+    const rec = win.querySelector("[data-recent]")
+    if (rec) rec.innerHTML = f.recent.map(([t, w, wait]) =>
+      `<button type="button"><span style="color:var(--muted)">${svg("clock", 14)}</span><span class="t">${t}</span>${wait ? '<span class="wait">ждёт тебя</span>' : ""}<span class="w">${w}</span></button>`).join("")
+    const cards = win.querySelector("[data-cards]")
+    if (cards) cards.innerHTML = names.map((n) => { const x = folders[n]; return `<button type="button" class="pcard${n === state.folder ? " on" : ""}" data-n="${n}">
+        <span class="n">${svg("folder", 15)} ${n}${n === state.folder ? `<span style="margin-left:auto;color:var(--glow)">${svg("check", 15)}</span>` : ""}</span>
+        <span class="l">${x.last}</span>
+        <span class="s"><span>${svg("branch", 11)} ${x.branch}</span>${x.changed ? `<span class="d">±${x.changed}</span>` : ""}<span class="when">${x.when}</span></span></button>` }).join("") +
+      `<button type="button" class="pcard add">+ Другая папка…</button>`
+    const ideas = win.querySelector("[data-ideas]")
+    if (ideas) ideas.innerHTML = f.ideas.map((i) => `<button type="button" class="idea">${svg("spark", 13)} ${i}</button>`).join("")
+  }
+  win.addEventListener("click", (e) => {
+    const card = e.target.closest(".pcard[data-n]"); if (card) { state.folder = card.dataset.n; render() }
+    const idea = e.target.closest(".idea"); if (idea) { ta.value = idea.textContent.trim(); ta.focus() }
+  })
+  render()
+})
+</script>
