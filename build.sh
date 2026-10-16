@@ -14,6 +14,16 @@ if [ "${1:-}" = test ]; then
 fi
 
 APP="build/Lumen.app"
+# иконка (tools/make-icon.swift → Icon Composer → actool): собирается один раз, пока не поменялся скрипт
+mkdir -p build
+if [ ! -f build/icon-out/Assets.car ] || [ tools/make-icon.swift -nt build/icon-out/Assets.car ]; then
+    echo "==> иконка"
+    rm -rf build/icon-out && mkdir -p build/icon-out
+    swift tools/make-icon.swift >/dev/null
+    xcrun actool build/AppIcon.icon --compile build/icon-out --platform macosx \
+        --minimum-deployment-target 14.0 --app-icon AppIcon \
+        --output-partial-info-plist build/icon-out/partial.plist >/dev/null
+fi
 echo "==> swift build"
 swift build -c release --product Lumen
 swift build -c release --product lumen-mcp
@@ -26,6 +36,7 @@ cp "$BIN/Lumen" "$APP/Contents/MacOS/Lumen"
 cp "$BIN/lumen-mcp" "$APP/Contents/MacOS/lumen-mcp"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp -R Resources/Fonts Resources/Icons "$APP/Contents/Resources/"
+cp build/icon-out/AppIcon.icns build/icon-out/Assets.car "$APP/Contents/Resources/"
 # ресурсы пакетов (GRDB кладёт свой бандл с PrivacyInfo)
 for b in "$BIN"/*.bundle; do [ -e "$b" ] && cp -R "$b" "$APP/Contents/Resources/"; done
 # автообновление: Sparkle.framework рядом с программой (rpath @executable_path/../Frameworks)
