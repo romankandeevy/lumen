@@ -3,6 +3,8 @@ import LumenStorage
 
 // lumen-mcp — stdio MCP-сервер Lumen (§0, §7 техплана): память для claude.
 // Окружение: LUMEN_DB — путь к базе, LUMEN_CONVERSATION_ID / LUMEN_CONVERSATION_TITLE — откуда факты.
+// LUMEN_MEMORY_READONLY=1 — бот без права писать в память: remember не показывается и не выполняется
+// (вторая линия защиты после --allowedTools, техплан §4.3).
 // Протокол — JSON-RPC 2.0 построчно; нужны только initialize, tools/list, tools/call.
 
 let env = ProcessInfo.processInfo.environment
@@ -12,6 +14,8 @@ guard let dbPath = env["LUMEN_DB"], let store = try? Store(path: URL(fileURLWith
 }
 let tools = MemoryTools(store: store, conversationID: env["LUMEN_CONVERSATION_ID"] ?? "",
                         conversationTitle: env["LUMEN_CONVERSATION_TITLE"] ?? "Разговор")
+let readOnly = env["LUMEN_MEMORY_READONLY"] == "1"
+let visible = MemoryTools.definitions.filter { !readOnly || $0.name != "remember" }
 
 func reply(_ id: Any, _ result: [String: Any]) {
     send(["jsonrpc": "2.0", "id": id, "result": result])
@@ -33,10 +37,14 @@ while let line = readLine(strippingNewline: true) {
                         "capabilities": ["tools": [:]],
                         "serverInfo": ["name": "lumen", "version": "1"]])
     case "tools/list":
-        reply(id ?? 0, ["tools": MemoryTools.definitions.map { ["name": $0.name, "description": $0.description, "inputSchema": $0.schema] }])
+        reply(id ?? 0, ["tools": visible.map { ["name": $0.name, "description": $0.description, "inputSchema": $0.schema] }])
     case "tools/call":
         let name = params["name"] as? String ?? ""
         let args = params["arguments"] as? [String: Any] ?? [:]
+        if readOnly && name == "remember" {
+            reply(id ?? 0, ["content": [["type": "text", "text": "Этому боту запрещено писать в память."]], "isError": true])
+            continue
+        }
         do {
             let text = try tools.call(name, args)
             reply(id ?? 0, ["content": [["type": "text", "text": text]]])

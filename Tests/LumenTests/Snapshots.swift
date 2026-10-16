@@ -238,3 +238,49 @@ enum Snap {
     app.page = .project(pr.id)
     try await Snap.save(RootView(app: app), "24-project")
 }
+
+/// Боты: каталог, конструктор, разговор бота с паспортом, ответ бота в обычном чате (@id)
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotBots() async throws {
+    Snap.registerFonts()
+    let app = try Snap.app()
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .subscription, theme: .lumen)
+    app.saveBot(Bot(id: "tester", name: "Тестировщик", icon: "flask-conical", hue: 160, role: "Проверяет приложения и правки — и только",
+                    instructions: "Собирает проект, гоняет тесты. Сам ничего не чинит.", capabilities: [.read, .run, .memory],
+                    commands: ["swift test", "./build.sh"], folder: NSHomeDirectory() + "/Documents/prog",
+                    starters: ["Протестируй последний коммит в Shelf", "Что сломалось в прошлый раз?"], handoff: "coder"))
+    app.saveBot(Bot(id: "coder", name: "Кодер prog", icon: "code-xml", hue: 235, role: "Пишет и чинит код Mac-приложений",
+                    capabilities: [.read, .write, .run, .git, .memory], model: .opus))
+    app.saveBot(Bot(id: "writer", name: "Тексты для сайта", icon: "pen-line", hue: 200, role: "Тексты для kandeev.com",
+                    capabilities: [.read, .web]))
+    app.page = .bots
+    try await Snap.save(RootView(app: app), "30-bots")
+
+    app.page = .botEditor("tester")
+    try await Snap.save(RootView(app: app), "31-bot-editor")
+
+    app.openBot("tester")
+    try await Snap.save(RootView(app: app), "32-bot-empty")
+
+    let b = try #require(app.bot("tester"))
+    let bc = app.botConversation(for: b)
+    try app.store.save(ChatMessage(conversationID: bc.id, role: .user, text: "Прогони тесты Lumen"))
+    var r = ChatMessage(conversationID: bc.id, role: .assistant, text: "Собрал и прогнал: 51 тест, все зелёные. Падений нет.",
+                        steps: [AgentStep(kind: .run, text: "Запускает: swift test")])
+    r.botID = "tester"
+    try app.store.save(r)
+    app.chat.reloadMessages()
+    app.update { $0.contextOpen = true }
+    try await Snap.save(RootView(app: app), "33-bot-chat")
+
+    app.update { $0.contextOpen = false }
+    let c = Conversation(title: "Почему падает Shelf?", backend: .subscription, model: .sonnet, effort: .medium)
+    try app.store.save(c)
+    try app.store.save(ChatMessage(conversationID: c.id, role: .user, text: "@tester проверь фикс двойного щелчка в Shelf"))
+    var d = ChatMessage(conversationID: c.id, role: .assistant, text: "Проверил: двойной щелчок по полке больше не роняет Shelf. Прогнал сценарий 10 раз.",
+                        steps: [AgentStep(kind: .run, text: "Запускает: ./build.sh"), AgentStep(kind: .read, text: "Читает ShelfView.swift")])
+    d.botID = "tester"
+    try app.store.save(d)
+    app.reloadConversations()
+    app.openChat(c)
+    try await Snap.save(RootView(app: app), "34-mention")
+}

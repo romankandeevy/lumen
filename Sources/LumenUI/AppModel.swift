@@ -19,7 +19,11 @@ public final class AppModel {
     var orb: Orb.State = .idle
 
     // MARK: окно
-    enum Page: Equatable { case chat, memory, project(String), settings(SettingsView.Section) }
+    enum Page: Equatable {
+        case chat, memory, project(String), settings(SettingsView.Section)
+        /// Все боты, разговор с ботом, конструктор (nil — новый бот)
+        case bots, bot(String), botEditor(String?)
+    }
 
     var page: Page = .chat
     /// Вся память — для страницы «Что Lumen знает», счётчика и плашек в чате
@@ -30,6 +34,10 @@ public final class AppModel {
     var menu: MenuState?
     /// Проекты (ProjectModel.swift) и проект, название которого сейчас правят
     var projects: [Project] = []
+    /// Боты (BotModel.swift)
+    var bots: [Bot] = []
+    /// Какие боты сейчас работают и где их позвали — для «Работают» на странице ботов
+    var botRuns: [String: String] = [:]
     var renamingProjectID: String?
     var searchOpen = false
     var renamingID: String?
@@ -90,6 +98,7 @@ public final class AppModel {
         conversations = (try? store.conversations()) ?? []
         memories = (try? store.memories()) ?? []
         projects = (try? store.projects()) ?? []
+        bots = (try? store.bots()) ?? []
         suggestionCache = try? store.value("suggestions", as: SuggestionCache.self)
         writeMemoryFiles()
         // выход из приложения: процессы claude не должны пережить Lumen
@@ -163,6 +172,7 @@ public final class AppModel {
     }
 
     func openChat(_ c: Conversation) {
+        if c.kind == .bot, let id = c.botID { return openBot(id) }
         tab = c.kind == .agent ? .agent : .chat
         chat.open(c)
         page = .chat

@@ -1,0 +1,554 @@
+import AppKit
+import LumenCore
+import SwiftUI
+
+// Боты (`pages/bots-page.tsx`, `pages/bot-page.tsx`): каталог карточками, конструктор, паспорт.
+// Только то, что работает: без навыков, расписаний, облака и групп — их ещё нет.
+
+/// Знак бота — плитка своего цвета с иконкой. Lumen — круглая сфера, бот — плитка: в ленте сразу видно, кто говорит.
+struct BotAvatar: View {
+    let icon: String
+    let hue: Double
+    var size: CGFloat = 28
+
+    init(bot: Bot, size: CGFloat = 28) {
+        icon = bot.icon
+        hue = bot.hue
+        self.size = size
+    }
+
+    init(icon: String, hue: Double, size: CGFloat = 28) {
+        self.icon = icon
+        self.hue = hue
+        self.size = size
+    }
+
+    var body: some View {
+        Icon(icon, size * 0.5)
+            .foregroundStyle(BotColor.accent(hue))
+            .frame(width: size, height: size)
+            .background(
+                LinearGradient(colors: [BotColor.tileTop(hue), BotColor.tileBottom(hue)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                in: RoundedRectangle(cornerRadius: size * 0.28, style: .continuous))
+            .overlay(alignment: .top) {
+                RoundedRectangle(cornerRadius: size * 0.28, style: .continuous).strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
+            }
+            .shadow(color: BotColor.accent(hue).opacity(0.35), radius: size * 0.25)
+            .accessibilityHidden(true)
+    }
+}
+
+/// Цвет бота по оттенку (в макете oklch(0.8 0.12 h) — здесь близкий HSB)
+enum BotColor {
+    static func accent(_ h: Double) -> Color { Color(hue: h / 360, saturation: 0.42, brightness: 0.93) }
+    static func soft(_ h: Double) -> Color { accent(h).opacity(0.14) }
+    static func faint(_ h: Double) -> Color { accent(h).opacity(0.06) }
+    static func tileTop(_ h: Double) -> Color { Color(hue: h / 360, saturation: 0.55, brightness: 0.42) }
+    static func tileBottom(_ h: Double) -> Color { Color(hue: h / 360, saturation: 0.45, brightness: 0.2) }
+}
+
+// MARK: все боты
+
+struct BotsView: View {
+    @Bindable var app: AppModel
+
+    @Environment(\.palette) private var p
+
+    var body: some View {
+        PageFrame(title: "Боты", lead: "Агенты под одну роль. Позови любого в чате через @ — Lumen передаст ему задачу. Всё, что вне роли, у бота отрезано в коде.") {
+            LButton(title: "Создать бота", icon: "plus", kind: .primary) { app.page = .botEditor(nil) }
+        } content: {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 36) {
+                    if !working.isEmpty {
+                        VStack(alignment: .leading, spacing: 0) {
+                            GroupTitle(text: "Работают", aside: "\(working.count) сейчас")
+                            VStack(spacing: 8) {
+                                ForEach(working, id: \.0.id) { b, from in WorkingRow(bot: b, from: from) { app.openBot(b.id) } }
+                            }
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: 0) {
+                        GroupTitle(text: "Все", aside: app.bots.isEmpty ? nil : Plural.bots(app.bots.count))
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 250), spacing: 12)], spacing: 12) {
+                            ForEach(app.bots) { b in BotCard(app: app, bot: b) }
+                            NewBotTile { app.page = .botEditor(nil) }
+                        }
+                    }
+                }
+                .padding(.bottom, 40)
+            }
+            .scrollIndicators(.never)
+        }
+    }
+
+    /// Кто сейчас работает: позван через @ из чата или идёт ход в его разговоре
+    private var working: [(Bot, String)] {
+        app.bots.compactMap { b in
+            if let from = app.botRuns[b.id] { return (b, "позвали из «\(from)»") }
+            if let r = app.chat.running, r.kind == .bot, r.botID == b.id { return (b, "в своём разговоре") }
+            return nil
+        }
+    }
+
+    private struct WorkingRow: View {
+        let bot: Bot
+        let from: String
+        let open: () -> Void
+
+        @Environment(\.palette) private var p
+
+        var body: some View {
+            Button(action: open) {
+                HStack(spacing: 14) {
+                    BotAvatar(bot: bot, size: 34)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(bot.name).tw(14, .medium, lh: 20)
+                        Text(from).tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(1)
+                    }
+                    Spacer()
+                    ProgressView().controlSize(.small).tint(BotColor.accent(bot.hue))
+                }
+                .padding(.horizontal, 16).padding(.vertical, 12)
+                .background(BotColor.faint(bot.hue), in: RoundedRectangle(cornerRadius: R.xl))
+                .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(BotColor.soft(bot.hue)))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+}
+
+private struct BotCard: View {
+    @Bindable var app: AppModel
+    let bot: Bot
+
+    @Environment(\.palette) private var p
+    @State private var hover = false
+    @State private var copied = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                BotAvatar(bot: bot, size: 44)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(bot.name).tw(14, .medium, lh: 20).lineLimit(1)
+                    Text("@\(bot.id)").tw(12, lh: 16).foregroundStyle(BotColor.accent(bot.hue))
+                }
+                Spacer(minLength: 0)
+                GeometryReader { g in
+                    let f = g.frame(in: .global)
+                    DotsButton { app.showBotMenu(bot, at: CGPoint(x: f.minX, y: f.maxY + 4)) }
+                }
+                .frame(width: 26, height: 26)
+                .opacity(hover ? 1 : 0)
+            }
+            Text(bot.role.isEmpty ? "Роль не описана" : bot.role)
+                .tw(14, lh: 20).foregroundStyle(p.foreground.opacity(0.8)).lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 12)
+            HStack(spacing: 6) {
+                let blocked = BotPermissions.blocked(bot).count
+                Chip(text: "\(blocked) запрещено", icon: "lock")
+                Chip(text: bot.model.name, icon: nil)
+            }
+            .padding(.top, 12)
+            Spacer(minLength: 16)
+            HStack(spacing: 8) {
+                LButton(title: "Открыть", kind: .outline, small: true) { app.openBot(bot.id) }
+                    .frame(maxWidth: .infinity)
+                LButton(title: copied ? "Скопировано" : "Позвать", icon: copied ? "check" : "at-sign", kind: .ghost, small: true) {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString("@\(bot.id) ", forType: .string)
+                    copied = true
+                    Task { try? await Task.sleep(for: .seconds(1.5)); copied = false }
+                }
+                .help("Скопировать @\(bot.id) — вставь в любом чате")
+            }
+        }
+        .padding(16)
+        .frame(minHeight: 196, alignment: .top)
+        .background(alignment: .topTrailing) {
+            Circle().fill(BotColor.faint(bot.hue)).frame(width: 160, height: 160).blur(radius: 30).offset(x: 60, y: -60)
+                .opacity(hover ? 1 : 0.6)
+        }
+        .background(p.card.opacity(0.4))
+        .clipShape(RoundedRectangle(cornerRadius: R.xxl))
+        .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(hover ? BotColor.soft(bot.hue) : p.border))
+        .onHover { hover = $0 }
+        .onRightClick { app.showBotMenu(bot, at: $0) }
+        .animation(.easeOut(duration: 0.15), value: hover)
+    }
+
+    private struct Chip: View {
+        let text: String
+        let icon: String?
+        @Environment(\.palette) private var p
+        var body: some View {
+            HStack(spacing: 4) {
+                if let icon { Icon(icon, 11) }
+                Text(text)
+            }
+            .tw(11, lh: 14).foregroundStyle(p.mutedFg)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(p.foreground.opacity(0.06), in: RoundedRectangle(cornerRadius: R.md))
+        }
+    }
+}
+
+private struct NewBotTile: View {
+    let action: () -> Void
+    @Environment(\.palette) private var p
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Icon("plus", 20)
+                Text("Создать бота").tw(14, lh: 20)
+                Text("Роль, разрешённые инструменты и папка").tw(12, lh: 16).multilineTextAlignment(.center).frame(maxWidth: 190)
+            }
+            .foregroundStyle(hover ? p.foreground : p.mutedFg)
+            .frame(maxWidth: .infinity, minHeight: 196)
+            .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(hover ? p.glow.opacity(0.4) : p.border, style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+    }
+}
+
+// MARK: паспорт бота (правая панель его разговора)
+
+struct BotPassport: View {
+    @Bindable var app: AppModel
+    let bot: Bot
+
+    @Environment(\.palette) private var p
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 10) {
+                    BotAvatar(bot: bot, size: 56)
+                    Text(bot.name).tw(16, .semibold, lh: 22)
+                    Text(bot.role).tw(13, lh: 18).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
+                }
+                section("Может") {
+                    let granted = BotCapability.allCases.filter { bot.capabilities.contains($0) }
+                    if granted.isEmpty { Text("Только разговаривать").tw(13, lh: 18).foregroundStyle(p.mutedFg) }
+                    ForEach(granted, id: \.self) { c in
+                        IconLabel(text: c.name, icon: c.icon, size: 14).tw(13, lh: 18).foregroundStyle(BotColor.accent(bot.hue))
+                    }
+                    if bot.capabilities.contains(.run) && !bot.capabilities.contains(.write) {
+                        Text("Команды: " + (bot.commands.isEmpty ? "ни одной" : bot.commands.joined(separator: ", ")))
+                            .font(.system(size: 11, design: .monospaced)).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                section("Отрезано в коде") {
+                    ForEach(BotPermissions.blocked(bot), id: \.self) { name in
+                        IconLabel(text: name, icon: "lock", size: 14).tw(13, lh: 18).foregroundStyle(p.mutedFg)
+                    }
+                    Text("Этих инструментов в процессе бота нет вовсе — просьбой их не включить.")
+                        .tw(11, lh: 15).foregroundStyle(p.mutedFg.opacity(0.8)).fixedSize(horizontal: false, vertical: true)
+                }
+                section("Где работает") {
+                    IconLabel(text: bot.folder.map { $0.replacingOccurrences(of: NSHomeDirectory(), with: "~") } ?? "Своя пустая папка", icon: "folder", size: 14)
+                        .tw(12, lh: 16).lineLimit(2).truncationMode(.middle)
+                    IconLabel(text: "\(bot.model.name) · \(bot.effort.name.lowercased())", icon: "sparkles", size: 14).tw(12, lh: 16)
+                    if let h = bot.handoff.flatMap({ app.bot($0) }) {
+                        IconLabel(text: "Чужое передаёт @\(h.id)", icon: "at-sign", size: 14).tw(12, lh: 16)
+                    }
+                }
+                LButton(title: "Изменить бота", icon: "pencil", kind: .outline, small: true) { app.page = .botEditor(bot.id) }
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .scrollIndicators(.never)
+        .frame(width: 280)
+        .background(p.sidebar.opacity(0.5))
+        .overlay(alignment: .leading) { p.border.frame(width: 1) }
+        .foregroundStyle(p.foreground)
+    }
+
+    private func section<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).tw(12, .medium, lh: 16).foregroundStyle(p.mutedFg)
+            content()
+        }
+    }
+}
+
+// MARK: конструктор
+
+struct BotEditor: View {
+    @Bindable var app: AppModel
+    let botID: String?
+
+    @Environment(\.palette) private var p
+    @State private var draft = Bot(id: "", name: "")
+    @State private var idText = ""
+    @State private var commandsText = ""
+    @State private var startersText = ""
+    @State private var loaded = false
+
+    private var existing: Bot? { app.bot(botID) }
+
+    var body: some View {
+        PageFrame(title: existing == nil ? "Новый бот" : "Бот «\(existing?.name ?? "")»",
+                  lead: "Права выбираешь ты: чего не отмечено, того у бота нет в коде — модель даже не видит таких инструментов.") {
+            HStack(spacing: 8) {
+                LButton(title: "Отмена", kind: .ghost) { cancel() }
+                LButton(title: existing == nil ? "Создать" : "Сохранить", icon: "check", kind: .primary) { save() }
+                    .disabled(problem != nil)
+            }
+        } content: {
+            ScrollView {
+                // слева форма, справа — как бот будет выглядеть (липнет к верху)
+                HStack(alignment: .top, spacing: 40) {
+                    form.frame(maxWidth: 620, alignment: .leading)
+                    preview.frame(width: 260)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 40)
+            }
+            .scrollIndicators(.never)
+        }
+        .onAppear(perform: load)
+        .onChange(of: botID) { loaded = false; load() }
+    }
+
+    private var form: some View {
+        VStack(alignment: .leading, spacing: 28) {
+            field("Название") { GlowField(placeholder: "Например, Тестировщик", text: $draft.name) }
+            field("Имя для вызова", aside: "в чате: @\(idText.isEmpty ? "id" : idText)") {
+                GlowField(placeholder: "tester", text: $idText, mono: true)
+                    .onChange(of: idText) { _, v in
+                        let clean = v.lowercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
+                        if clean != v { idText = clean }
+                    }
+            }
+            field("Знак и цвет") {
+                VStack(alignment: .leading, spacing: 12) {
+                    LazyVGrid(columns: Array(repeating: GridItem(.fixed(36), spacing: 8), count: 10), alignment: .leading, spacing: 8) {
+                        ForEach(Bot.icons, id: \.self) { name in
+                            Button { draft.icon = name } label: {
+                                BotAvatar(icon: name, hue: draft.hue, size: 36)
+                                    .opacity(draft.icon == name ? 1 : 0.45)
+                                    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(draft.icon == name ? BotColor.accent(draft.hue) : .clear, lineWidth: 1.5).padding(-3))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    HueSlider(hue: $draft.hue)
+                }
+            }
+            field("Роль", aside: "одна строка") { GlowField(placeholder: "Проверяет приложения и правки — и только", text: $draft.role) }
+            field("Инструкции") {
+                Editor(text: $draft.instructions, placeholder: "Как работать: что делать, в каком виде отчитываться, чего не делать никогда", minHeight: 110)
+            }
+            field("Что разрешено") {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(BotCapability.allCases, id: \.self) { c in
+                        HStack(spacing: 12) {
+                            Icon(c.icon, 16).foregroundStyle(draft.capabilities.contains(c) ? BotColor.accent(draft.hue) : p.mutedFg)
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(c.name).tw(14, lh: 20)
+                                Text(note(c)).tw(12, lh: 16).foregroundStyle(p.mutedFg)
+                            }
+                            Spacer()
+                            LSwitch(isOn: Binding(get: { draft.capabilities.contains(c) },
+                                                  set: { on in if on { draft.capabilities.insert(c) } else { draft.capabilities.remove(c) } }))
+                        }
+                        .padding(.vertical, 10)
+                        .overlay(alignment: .bottom) { p.border.frame(height: 1) }
+                    }
+                    HStack(spacing: 12) {
+                        Icon("lock", 16).foregroundStyle(p.mutedFg)
+                        Text("Push на GitHub — никогда, это делаешь ты").tw(14, lh: 20).foregroundStyle(p.mutedFg)
+                    }
+                    .padding(.vertical, 10)
+                }
+            }
+            if draft.capabilities.contains(.run) && !draft.capabilities.contains(.write) {
+                field("Какие команды можно", aside: "через запятую") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        GlowField(placeholder: "swift test, ./build.sh", text: $commandsText, mono: true)
+                        Text("Без права править файлы бот запускает только эти команды — иначе он мог бы писать в файлы через терминал.")
+                            .tw(12, lh: 16).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            field("Папка") {
+                HStack(spacing: 10) {
+                    Icon("folder", 16).foregroundStyle(draft.folder == nil ? p.mutedFg : p.glow)
+                    Text(draft.folder?.replacingOccurrences(of: NSHomeDirectory(), with: "~") ?? "Своя пустая папка — чужих файлов бот не видит")
+                        .tw(13, lh: 18).foregroundStyle(draft.folder == nil ? p.mutedFg : p.foreground).lineLimit(2).truncationMode(.middle)
+                    Spacer(minLength: 0)
+                    if draft.folder != nil { IconButton(icon: "x", help: "Без папки") { draft.folder = nil } }
+                    LButton(title: "Выбрать…", kind: .outline, small: true) { chooseFolder() }
+                }
+            }
+            field("Модель") {
+                HStack(spacing: 8) {
+                    Segmented(value: $draft.model, options: ChatModel.claude.filter { app.availableModels(for: .subscription).contains($0) }.map { ($0, $0.name) })
+                    Segmented(value: $draft.effort, options: [Effort.low, .medium, .high].map { ($0, $0.name) }).frame(maxWidth: 300)
+                }
+            }
+            field("Подсказки", aside: "по одной в строке") {
+                Editor(text: $startersText, placeholder: "Протестируй последний коммит\nЧто сломалось в прошлый раз?", minHeight: 70)
+            }
+            if app.bots.contains(where: { $0.id != botID }) {
+                field("Чужое передаёт") {
+                    Segmented(value: $draft.handoff, options: [(String?.none, "Lumen")] + app.bots.filter { $0.id != botID }.map { (Optional($0.id), "@\($0.id)") })
+                }
+            }
+            if let problem {
+                IconLabel(text: problem, icon: "triangle-alert", size: 14).tw(13, lh: 18).foregroundStyle(p.mutedFg)
+            }
+        }
+    }
+
+    /// Как бот будет выглядеть в чате
+    private var preview: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Так его увидишь").tw(12, .medium, lh: 16).foregroundStyle(p.mutedFg)
+            HStack(spacing: 12) {
+                BotAvatar(icon: draft.icon, hue: draft.hue, size: 44)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(draft.name.isEmpty ? "Без названия" : draft.name).tw(14, .medium, lh: 20)
+                    Text("@\(idText.isEmpty ? "id" : idText)").tw(12, lh: 16).foregroundStyle(BotColor.accent(draft.hue))
+                }
+            }
+            Text(draft.role.isEmpty ? "Роль одной строкой" : draft.role).tw(13, lh: 18).foregroundStyle(p.mutedFg)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Отрезано в коде").tw(12, .medium, lh: 16).foregroundStyle(p.mutedFg)
+                ForEach(BotPermissions.blocked(normalized), id: \.self) { n in
+                    IconLabel(text: n, icon: "lock", size: 13).tw(12, lh: 16).foregroundStyle(p.mutedFg)
+                }
+            }
+            .padding(.top, 6)
+            if let existing {
+                LButton(title: "Удалить бота", icon: "trash", kind: .ghost, small: true) { app.deleteBot(existing) }
+                    .foregroundStyle(Palette.destructive).padding(.top, 10)
+            }
+        }
+        .padding(16)
+        .background(BotColor.faint(draft.hue), in: RoundedRectangle(cornerRadius: R.xxl))
+        .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(BotColor.soft(draft.hue)))
+    }
+
+    private func field<C: View>(_ title: String, aside: String? = nil, @ViewBuilder _ content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            GroupTitle(text: title, aside: aside)
+            content()
+        }
+    }
+
+    private func note(_ c: BotCapability) -> String {
+        switch c {
+        case .read: "в своей папке: файлы, поиск по коду"
+        case .write: "правка и создание файлов в своей папке"
+        case .run: "терминал; без правки — только команды из списка"
+        case .web: "поиск и чтение страниц"
+        case .git: "status, diff, commit — без push"
+        case .memory: "запоминать факты о тебе (читать память можно всегда)"
+        }
+    }
+
+    /// То, что будет сохранено
+    private var normalized: Bot {
+        var b = draft
+        b.id = idText
+        b.name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        b.role = draft.role.trimmingCharacters(in: .whitespacesAndNewlines)
+        b.commands = commandsText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        b.starters = startersText.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        return b
+    }
+
+    private var problem: String? {
+        let b = normalized
+        if b.name.isEmpty { return "Дай боту название" }
+        if !Bot.isValidID(b.id) { return "Имя для вызова: от 2 до 32 знаков — латиница, цифры, дефис" }
+        if b.id != botID && app.bot(b.id) != nil { return "@\(b.id) уже занят другим ботом" }
+        return nil
+    }
+
+    private func load() {
+        guard !loaded else { return }
+        loaded = true
+        let b = existing ?? Bot(id: "", name: "", hue: Double(Int.random(in: 0..<12) * 30), capabilities: [.read],
+                                commands: Bot.defaultCommands, model: .sonnet)
+        draft = b
+        idText = b.id
+        commandsText = b.commands.joined(separator: ", ")
+        startersText = b.starters.joined(separator: "\n")
+    }
+
+    private func save() {
+        guard problem == nil else { return }
+        let b = normalized
+        app.saveBot(b, replacing: existing?.id)
+        app.openBot(b.id)
+    }
+
+    private func cancel() {
+        if let existing { app.openBot(existing.id) } else { app.page = .bots }
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.prompt = "Выбрать"
+        panel.message = "Папка, в которой бот будет работать"
+        if panel.runModal() == .OK, let url = panel.url { draft.folder = url.path }
+    }
+}
+
+/// Многострочное поле в стиле полей ввода
+private struct Editor: View {
+    @Binding var text: String
+    let placeholder: String
+    var minHeight: CGFloat = 100
+
+    @Environment(\.palette) private var p
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if text.isEmpty {
+                Text(placeholder).tw(14, lh: 20).foregroundStyle(p.mutedFg).padding(.horizontal, 12).padding(.vertical, 8)
+            }
+            TextEditor(text: $text)
+                .font(.geist(14)).scrollContentBackground(.hidden)
+                .padding(.horizontal, 7).padding(.vertical, 8)
+        }
+        .frame(minHeight: minHeight)
+        .background(p.input.opacity(0.3), in: RoundedRectangle(cornerRadius: R.lg))
+        .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
+    }
+}
+
+/// Полоса оттенков: щелчок или перетаскивание выбирает цвет бота
+private struct HueSlider: View {
+    @Binding var hue: Double
+
+    var body: some View {
+        GeometryReader { g in
+            ZStack(alignment: .leading) {
+                LinearGradient(colors: stride(from: 0.0, through: 360, by: 30).map { BotColor.accent($0) }, startPoint: .leading, endPoint: .trailing)
+                    .clipShape(Capsule())
+                Circle().fill(BotColor.accent(hue)).frame(width: 18, height: 18)
+                    .overlay(Circle().strokeBorder(.white, lineWidth: 2))
+                    .offset(x: CGFloat(hue / 360) * (g.size.width - 18))
+            }
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0).onChanged { v in
+                hue = (min(max(0, v.location.x - 9), g.size.width - 18) / (g.size.width - 18) * 360).rounded()
+            })
+        }
+        .frame(height: 18)
+    }
+}

@@ -23,6 +23,10 @@ final class ChatController {
     @ObservationIgnored private var sessions: [String: ClaudeSession] = [:]
     /// Идущие ходы ChatGPT — для «Стоп»
     @ObservationIgnored private var codexRuns: [String: CodexRun] = [:]
+    /// Разговор бота, который сейчас выполняет задачу из этого чата (@id) — для «Стоп»
+    @ObservationIgnored private var delegateRunning: String?
+    /// Чей ответ идёт: бот (его знак вместо сферы) или Lumen
+    private(set) var turnBot: String?
     @ObservationIgnored private var turnTask: Task<Void, Never>?
     @ObservationIgnored private var stopRequested = false
     @ObservationIgnored private var turnStart = Date()
@@ -133,17 +137,22 @@ final class ChatController {
             return
         }
         if isNew { app.reloadConversations() }
+        // «@tester …» в обычном чате — задачу выполняет бот, ответ приходит сюда же (техплан §4.6)
+        let delegate = c.kind == .bot ? nil : app.mention(in: text)
 
         stopRequested = false
         turnStart = Date()
         running = c
         turnMessage = nil
+        turnBot = delegate?.0.id ?? (c.kind == .bot ? c.botID : nil)
         turnThinking = true
         app.orb = .thinking
         let history = messages
         turnTask = Task { [weak self] in
             guard let self else { return }
-            if c.model.isGPT {
+            if let (bot, task) = delegate {
+                await self.runDelegation(c, bot: bot, task: task)
+            } else if c.model.isGPT {
                 await self.runCodex(c, text: text)
             } else if c.usesCLI {
                 await self.runCLI(c, text: text, hadTurnsBefore: history.contains { $0.role == .assistant && $0.error == nil })
@@ -152,9 +161,74 @@ final class ChatController {
             }
             self.turnThinking = false
             self.running = nil
+            self.turnBot = nil
             self.app.orb = .idle
             self.turnTask = nil
             self.app.reloadConversations()
+        }
+    }
+
+    /// Бот изменён — его процесс гасим, следующий ход поднимет его с новыми правами (`--resume`)
+    func restart(_ id: String) {
+        guard running?.id != id else { return }
+        sessions[id]?.close()
+        sessions[id] = nil
+    }
+
+    /// Задача боту из чужого чата: бот работает в своём постоянном разговоре (туда пишется задача и ответ),
+    /// а ответ с его знаком появляется в этом чате.
+    private func runDelegation(_ c: Conversation, bot: Bot, task: String) async {
+        guard let cli = app.cli else {
+            await finish(c, text: "", error: "Claude Code не найден. Поставь его и войди в Настройках → Модели и оплата.")
+            return
+        }
+        let b = app.botConversation(for: bot)
+        let earlier = (try? app.store.messages(in: b.id)) ?? []
+        let hadTurns = earlier.contains { $0.role == .assistant && $0.error == nil }
+        let taskText = "Задача из чата «\(c.title)»:\n\(task)"
+        _ = try? app.store.save(ChatMessage(conversationID: b.id, role: .user, text: taskText))
+        app.botRuns[bot.id] = c.title
+        defer { app.botRuns[bot.id] = nil }
+        let git = Git(folder: URL(fileURLWithPath: b.folder ?? app.botFolder(bot).path))
+        var before: Git.Snapshot?
+        if bot.capabilities.contains(.write) || bot.capabilities.contains(.run), await git.isRepo { before = try? await git.snapshot() }
+        do {
+            let session = try cliSession(for: b, cli: cli, resume: hadTurns)
+            var answer = ""
+            var result: ClaudeEvent.TurnResult?
+            delegateRunning = b.id
+            defer { delegateRunning = nil }
+            for await ev in try session.send(taskText) {
+                switch ev {
+                case .textDelta(let t):
+                    answer += t
+                    appendStreaming(t, c)
+                case .step(let step):
+                    appendStep(step, c)
+                case .finished(let r):
+                    result = r
+                default: break
+                }
+            }
+            var changes: ChangeSet?
+            if let before, let files = try? await git.changes(since: before), !files.isEmpty { changes = ChangeSet(files: files) }
+            if let result {
+                try? app.store.logSpend(conversationID: b.id, backend: .subscription, model: b.model.rawValue, input: result.inputTokens,
+                                        output: result.outputTokens, cacheRead: result.cacheReadTokens,
+                                        cacheWrite: result.cacheWriteTokens, usd: result.costUSD)
+            }
+            let ok = result?.ok == true
+            let error = stopRequested ? nil : (ok ? nil : Self.cliError(result?.text ?? session.errorOutput))
+            let text = answer.isEmpty ? (ok ? result?.text ?? "" : "") : answer
+            // в постоянный разговор бота — весь ход
+            var m = ChatMessage(conversationID: b.id, role: .assistant, text: text, model: b.model, stopped: stopRequested, error: error,
+                                steps: turnMessage?.steps ?? [], changes: changes)
+            m.botID = bot.id
+            _ = try? app.store.save(m)
+            if !ok && !stopRequested { sessions[b.id] = nil }
+            await finish(c, text: text, stopped: stopRequested, error: error, changes: changes)
+        } catch {
+            await finish(c, text: "", error: error.localizedDescription)
         }
     }
 
@@ -162,7 +236,7 @@ final class ChatController {
     func stop() {
         guard let c = running else { return }
         stopRequested = true
-        if c.model.isGPT { codexRuns[c.id]?.stop() } else if c.usesCLI { sessions[c.id]?.interrupt() } else { turnTask?.cancel() }
+        if let d = delegateRunning { sessions[d]?.interrupt() } else if c.model.isGPT { codexRuns[c.id]?.stop() } else if c.usesCLI { sessions[c.id]?.interrupt() } else { turnTask?.cancel() }
     }
 
     /// «Сжать разговор»: claude пересказывает старое и освобождает окно (`/compact`, проверено в спайке)
@@ -377,7 +451,15 @@ final class ChatController {
         }
         let sid = c.cliSessionID ?? UUID().uuidString.lowercased()
         var config: ClaudeSession.Config
-        if c.kind == .agent, let folder = c.folder {
+        let bot = c.kind == .bot ? app.bot(c.botID) : nil
+        if let bot {
+            // бот: только инструменты его роли, без настроек пользователя; всё прочее отклоняется (dontAsk)
+            let perms = BotPermissions(bot)
+            config = .init(model: bot.model.rawValue, effort: bot.effort.rawValue, tools: perms.tools, userSettings: false,
+                           sessionID: sid, resume: resume, cwd: app.botFolder(bot), appendSystemPrompt: app.botPrompt(bot),
+                           allowedTools: perms.allowed, disallowedTools: perms.disallowed)
+            if c.backend == .api, let key = app.keychain.read(Keychain.anthropicKey) { config.extraEnv["ANTHROPIC_API_KEY"] = key }
+        } else if c.kind == .agent, let folder = c.folder {
             config = .agent(model: c.model.rawValue, effort: c.effort.rawValue, persona: app.agentPrompt(for: c),
                             folder: URL(fileURLWithPath: folder), sessionID: sid, resume: resume)
             // агент по ключу: тот же claude, но платит ключ (§2.4 техплана)
@@ -387,9 +469,10 @@ final class ChatController {
                            tools: [], userSettings: false, sessionID: sid, resume: resume)
         }
         // память: lumen-mcp с инструментами remember и recall
-        if let mcp = try? app.writeMCPConfig(for: c) {
+        if let mcp = try? app.writeMCPConfig(for: c, memoryReadOnly: bot.map { !$0.capabilities.contains(.memory) } ?? false) {
             config.mcpConfig = mcp.path
-            config.allowedTools += ["mcp__lumen__remember", "mcp__lumen__recall"]
+            // у бота разрешённое уже посчитано в BotPermissions
+            if bot == nil { config.allowedTools += ["mcp__lumen__remember", "mcp__lumen__recall"] }
         }
         let s = try ClaudeSession(cli: cli, config: config)
         sessions[c.id] = s
@@ -487,7 +570,7 @@ final class ChatController {
             turnThinking = false
             if here { app.orb = .writing }
         }
-        if turnMessage == nil { turnMessage = ChatMessage(conversationID: c.id, role: .assistant, text: "", model: c.model) }
+        if turnMessage == nil { turnMessage = ChatMessage(conversationID: c.id, role: .assistant, text: "", model: c.model); turnMessage?.botID = turnBot }
         received += t
         guard revealTask == nil else { return }
         revealTask = Task { @MainActor [weak self] in
@@ -535,7 +618,7 @@ final class ChatController {
             turnThinking = false
             if here { app.orb = .idle }
         }
-        if turnMessage == nil { turnMessage = ChatMessage(conversationID: c.id, role: .assistant, text: "", model: c.model) }
+        if turnMessage == nil { turnMessage = ChatMessage(conversationID: c.id, role: .assistant, text: "", model: c.model); turnMessage?.botID = turnBot }
         turnMessage?.steps.append(step)
     }
 
@@ -544,7 +627,8 @@ final class ChatController {
         // ответ допечатывается до конца; «Стоп» и ошибки — сразу
         await drainReveal(instant: stopped || error != nil)
         // шаги показываем у агента; в чате вызовы памяти видны плашками «Запомнил» и «Опирался на»
-        let steps = c.kind == .agent ? (turnMessage?.steps ?? []) : []
+        // у агента и ботов шаги видны; в чате вызовы памяти видны плашками «Запомнил» и «Опирался на»
+        let steps = c.kind != .chat || turnBot != nil ? (turnMessage?.steps ?? []) : []
         turnMessage = nil
         let remembered = (try? app.store.memoryUses(conversationID: c.id, since: turnStart, action: "remember")) ?? []
         let recalled = (try? app.store.memoryUses(conversationID: c.id, since: turnStart, action: "recall")) ?? []
@@ -554,6 +638,7 @@ final class ChatController {
                             model: c.model, stopped: stopped, error: error, steps: steps, changes: changes,
                             remembered: remembered, recalled: recalled.filter { !remembered.contains($0) })
         m.next = stopped ? nil : next
+        m.botID = turnBot
         if let context, context.0 > 0 {
             m.contextTokens = context.0
             m.contextWindow = context.1 > 0 ? context.1 : nil
@@ -647,7 +732,7 @@ final class ChatController {
 
 extension Conversation {
     /// Агент всегда работает через claude (и по подписке, и по ключу), чат — через claude только по подписке
-    var usesCLI: Bool { !model.isGPT && (kind == .agent || backend == .subscription) }
+    var usesCLI: Bool { !model.isGPT && (kind != .chat || backend == .subscription) }
 }
 
 extension AppModel {
@@ -664,13 +749,14 @@ extension AppModel {
     }
 
     /// mcp.json для claude: lumen-mcp с базой и разговором
-    func writeMCPConfig(for c: Conversation) throws -> URL {
+    func writeMCPConfig(for c: Conversation, memoryReadOnly: Bool = false) throws -> URL {
         guard let bin = mcpBinary else { throw CocoaError(.fileNoSuchFile) }
         let dir = paths.run.appendingPathComponent(c.id, isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let config: [String: Any] = ["mcpServers": ["lumen": [
             "command": bin.path, "args": [],
-            "env": ["LUMEN_DB": paths.database.path, "LUMEN_CONVERSATION_ID": c.id, "LUMEN_CONVERSATION_TITLE": c.title],
+            "env": ["LUMEN_DB": paths.database.path, "LUMEN_CONVERSATION_ID": c.id, "LUMEN_CONVERSATION_TITLE": c.title,
+                    "LUMEN_MEMORY_READONLY": memoryReadOnly ? "1" : "0"],
         ]]]
         let url = dir.appendingPathComponent("mcp.json")
         try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted]).write(to: url)

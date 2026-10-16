@@ -19,6 +19,9 @@ public struct RootView: View {
                 case .memory: MemoryView(app: app)
                 case .project(let id): ProjectView(app: app, projectID: id)
                 case .settings: SettingsView(app: app)
+                case .bots: BotsView(app: app)
+                case .bot: ChatView(app: app)
+                case .botEditor(let id): BotEditor(app: app, botID: id)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -65,6 +68,13 @@ public struct RootView: View {
 struct Sidebar: View {
     @Bindable var app: AppModel
 
+    private var botsActive: Bool {
+        switch app.page {
+        case .bots, .bot, .botEditor: true
+        default: false
+        }
+    }
+
     @Environment(\.palette) private var p
 
     var body: some View {
@@ -106,6 +116,9 @@ struct Sidebar: View {
             .scrollIndicators(.never)
 
             VStack(spacing: 2) {
+                NavRow(title: "Боты", icon: "bot", active: botsActive, trailing: app.bots.isEmpty ? nil : "\(app.bots.count)") {
+                    app.page = .bots
+                }
                 NavRow(title: "Память", icon: "brain", active: app.page == .memory, trailing: "\(app.memoryCount)") {
                     app.page = .memory
                 }

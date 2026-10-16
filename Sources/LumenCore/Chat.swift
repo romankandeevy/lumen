@@ -97,7 +97,7 @@ public enum Effort: String, Codable, Sendable, CaseIterable, Identifiable {
 }
 
 /// Чат — просто разговор; агент — работа в папке проекта
-public enum ConversationKind: String, Codable, Sendable { case chat, agent }
+public enum ConversationKind: String, Codable, Sendable { case chat, agent, bot }
 
 /// Шаг агента: что он делал (читал, правил, запускал) — из вызовов инструментов
 public struct AgentStep: Codable, Sendable, Equatable, Hashable {
@@ -279,6 +279,8 @@ public struct Conversation: Codable, Sendable, Equatable, Identifiable, Hashable
     public var pinned = false
     /// Проект, в котором разговор (nil — вне проектов)
     public var projectID: String?
+    /// Постоянный разговор этого бота (kind = .bot)
+    public var botID: String?
     public var createdAt: Date
     public var updatedAt: Date
 
@@ -328,6 +330,8 @@ public struct ChatMessage: Codable, Sendable, Equatable, Identifiable {
     public var note: String?
     /// «Что дальше» после хода агента; nil — карточку убрали или её не было
     public var next: NextStep?
+    /// Ответил бот (позвали через @id или это его разговор)
+    public var botID: String?
     public var createdAt: Date
 
     public init(id: Int64? = nil, conversationID: String, role: Role, text: String, apiContent: String? = nil,

@@ -13,11 +13,18 @@ struct ChatView: View {
     private var backend: Backend { chat.conversation?.backend ?? app.prefs.backend }
     private var agent: Bool { chat.conversation.map { $0.kind == .agent } ?? (app.tab == .agent) }
     private var folder: URL? { chat.conversation?.folder.map { URL(fileURLWithPath: $0) } ?? app.agentFolder }
+    /// Открыт постоянный разговор бота
+    private var bot: Bot? { chat.conversation?.kind == .bot ? app.bot(chat.conversation?.botID) : nil }
 
     var body: some View {
         HStack(spacing: 0) {
             content
-            if app.prefs.contextOpen { ContextPanel(app: app).transition(.move(edge: .trailing)) }
+            if app.prefs.contextOpen {
+                Group {
+                    if let bot { BotPassport(app: app, bot: bot) } else { ContextPanel(app: app) }
+                }
+                .transition(.move(edge: .trailing))
+            }
         }
         .animation(.easeOut(duration: 0.2), value: app.prefs.contextOpen)
     }
@@ -28,7 +35,7 @@ struct ChatView: View {
             if chat.messages.isEmpty && !chat.busy {
                 Group {
                     // новая задача агента — вариант A: поле по центру, своё нижнее поле не нужно
-                    if agent { AgentHome(app: app, draft: $draft, backend: backend) } else { empty }
+                    if let bot { botEmpty(bot) } else if agent { AgentHome(app: app, draft: $draft, backend: backend) } else { empty }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -44,7 +51,9 @@ struct ChatView: View {
     /// h-14 border-b px-5 gap-3: знак 28 со сферой 18, заголовок text-sm medium, подпись text-xs
     private var header: some View {
         HStack(spacing: 12) {
-            if agent {
+            if let bot {
+                BotAvatar(bot: bot, size: 28)
+            } else if agent {
                 Icon("folder", 16).foregroundStyle(p.glow)
                     .frame(width: 28, height: 28)
                     .background(p.foreground.opacity(0.07), in: RoundedRectangle(cornerRadius: R.lg))
@@ -52,12 +61,21 @@ struct ChatView: View {
                 Orb(state: app.orb, size: 18).frame(width: 28, height: 28)
             }
             VStack(alignment: .leading, spacing: 0) {
-                if let c = chat.conversation {
+                if let bot {
+                    Text(bot.name).tw(14, .medium, lh: 20).lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text("@\(bot.id)").foregroundStyle(BotColor.accent(bot.hue))
+                        Text("·").foregroundStyle(p.foreground.opacity(0.2))
+                        Text(bot.role)
+                    }
+                    .tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(1)
+                } else if let c = chat.conversation {
                     RenamableTitle(app: app, conversation: c)
                 } else {
                     Text(agent ? "Новая задача" : "Новый чат").tw(14, .medium, lh: 20).lineLimit(1)
                 }
-                if agent {
+                if bot != nil {
+                } else if agent {
                     HStack(spacing: 6) {
                         Text("Агент в папке \(folder?.lastPathComponent ?? "—")")
                         Text("·").foregroundStyle(p.foreground.opacity(0.2))
@@ -71,7 +89,9 @@ struct ChatView: View {
                 }
             }
             Spacer()
-            IconButton(icon: "panel-right", help: "Контекст: память, окно, расход", active: app.prefs.contextOpen) {
+            if let bot { IconButton(icon: "pencil", help: "Изменить бота") { app.page = .botEditor(bot.id) } }
+            IconButton(icon: "panel-right", help: bot == nil ? "Контекст: память, окно, расход" : "Паспорт бота: что может и что отрезано",
+                       active: app.prefs.contextOpen) {
                 app.update { $0.contextOpen.toggle() }
             }
         }
@@ -103,6 +123,22 @@ struct ChatView: View {
         .padding(.horizontal, 24)
     }
 
+    /// Пустой разговор бота: знак, роль, его подсказки
+    private func botEmpty(_ b: Bot) -> some View {
+        VStack(spacing: 0) {
+            BotAvatar(bot: b, size: 64)
+            Text(b.name).tw(24, .semibold, lh: 32).tracking(-0.48).padding(.top, 24)
+            Text(b.role).tw(14, lh: 20).foregroundStyle(p.mutedFg).multilineTextAlignment(.center).padding(.top, 8)
+            Text("Это его единственный разговор. Позвать из любого чата: @\(b.id) и задача.")
+                .tw(12, lh: 16).foregroundStyle(p.mutedFg.opacity(0.8)).padding(.top, 4)
+            if !b.starters.isEmpty {
+                FlowChips(items: b.starters) { draft = $0 }.padding(.top, 24)
+            }
+        }
+        .frame(maxWidth: 704)
+        .padding(.horizontal, 24)
+    }
+
     private var transcript: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -117,8 +153,13 @@ struct ChatView: View {
                         MessageRow(message: s, chat: chat, streaming: true)
                     } else if chat.thinking {
                         HStack(spacing: 12) {
-                            Orb(state: .thinking, size: 22)
-                            Text("Думает…").tw(14, lh: 20).foregroundStyle(p.mutedFg)
+                            if let b = app.bot(chat.turnBot) {
+                                BotAvatar(bot: b, size: 22)
+                                Text("\(b.name) работает…").tw(14, lh: 20).foregroundStyle(p.mutedFg)
+                            } else {
+                                Orb(state: .thinking, size: 22)
+                                Text("Думает…").tw(14, lh: 20).foregroundStyle(p.mutedFg)
+                            }
                         }
                     }
                     Color.clear.frame(height: 1).id("bottom")
@@ -178,6 +219,7 @@ struct FlowChips: View {
 enum Plural {
     /// «1 факт», «3 факта», «15 фактов»
     static func facts(_ n: Int) -> String { "\(n) " + form(n, "факт", "факта", "фактов") }
+    static func bots(_ n: Int) -> String { "\(n) " + form(n, "бот", "бота", "ботов") }
 
     static func form(_ n: Int, _ one: String, _ few: String, _ many: String) -> String {
         let n10 = n % 10, n100 = n % 100
@@ -217,8 +259,16 @@ struct MessageRow: View {
             }
         } else {
             HStack(alignment: .top, spacing: 14) {
-                Orb(state: streaming ? .writing : .idle, size: 22, animated: streaming).padding(.top, 2)
+                if let b = chat?.app.bot(message.botID) {
+                    BotAvatar(bot: b, size: 22).padding(.top, 2)
+                } else {
+                    Orb(state: streaming ? .writing : .idle, size: 22, animated: streaming).padding(.top, 2)
+                }
                 VStack(alignment: .leading, spacing: 12) {
+                    // ответ бота в чужом чате — подписан, чтобы было видно, кто отвечал
+                    if let b = chat?.app.bot(message.botID), chat?.conversation?.kind != .bot {
+                        Text("@\(b.id) · \(b.name)").tw(12, .medium, lh: 16).foregroundStyle(BotColor.accent(b.hue))
+                    }
                     if !message.steps.isEmpty {
                         StepsView(steps: message.steps, live: streaming)
                     }
@@ -360,9 +410,36 @@ struct Composer: View {
     private var ready: Bool { !agent || chat.conversation != nil || app.agentFolder != nil }
     private var canSend: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
+    /// Набирают «@…» в начале — какие боты подходят (в разговоре самого бота не нужно)
+    private var mentionHits: [Bot] {
+        guard chat.conversation?.kind != .bot, draft.hasPrefix("@"), !draft.contains(" "), !draft.contains("\n") else { return [] }
+        let q = draft.dropFirst().lowercased()
+        return app.bots.filter { q.isEmpty || $0.id.hasPrefix(q) || $0.name.lowercased().contains(q) }
+    }
+    private var inBot: Bool { chat.conversation?.kind == .bot }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            TextField(big ? "Опиши задачу: что сделать, починить или проверить" : (agent ? "Что сделать в проекте?" : "Просто напиши"),
+            if !mentionHits.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(mentionHits) { b in
+                        Button { draft = "@\(b.id) " } label: {
+                            HStack(spacing: 10) {
+                                BotAvatar(bot: b, size: 22)
+                                Text("@\(b.id)").font(.geist(13, .medium)).foregroundStyle(BotColor.accent(b.hue))
+                                Text(b.role).font(.geist(12)).foregroundStyle(p.mutedFg).lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 8).padding(.vertical, 5)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.bottom, 4)
+                .overlay(alignment: .bottom) { p.border.frame(height: 1) }
+            }
+            TextField(big ? "Опиши задачу: что сделать, починить или проверить" : (agent ? "Что сделать в проекте?" : (inBot ? "Задача для бота" : "Просто напиши")),
                       text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.geist(big ? 15 : 14))
@@ -386,8 +463,11 @@ struct Composer: View {
                     .padding(.leading, 6)
                 }
                 Spacer()
-                modelPicker
-                effortPicker
+                // у бота модель задана в его паспорте
+                if !inBot {
+                    modelPicker
+                    effortPicker
+                }
                 sendButton.padding(.leading, 4)
             }
             .frame(height: big ? 32 : 28)

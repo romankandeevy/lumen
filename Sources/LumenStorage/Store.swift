@@ -163,7 +163,51 @@ public final class Store: Sendable {
                 t.add(column: "projectID", .text).indexed().references("project", onDelete: .setNull)
             }
         }
+        m.registerMigration("v9-bots") { db in
+            try db.create(table: "bot") { t in
+                t.primaryKey("id", .text)
+                t.column("name", .text).notNull()
+                t.column("icon", .text).notNull()
+                t.column("hue", .double).notNull()
+                t.column("role", .text).notNull()
+                t.column("instructions", .text).notNull()
+                t.column("capabilities", .jsonText).notNull()
+                t.column("commands", .jsonText).notNull()
+                t.column("folder", .text)
+                t.column("model", .text).notNull()
+                t.column("effort", .text).notNull()
+                t.column("starters", .jsonText).notNull()
+                t.column("handoff", .text)
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+            }
+            // постоянный разговор бота и ответы бота в чужих чатах (@id)
+            try db.alter(table: "conversation") { t in t.add(column: "botID", .text).indexed() }
+            try db.alter(table: "message") { t in t.add(column: "botID", .text) }
+        }
         return m
+    }
+
+    // MARK: боты
+
+    public func bots() throws -> [Bot] {
+        try db.read { db in try Bot.order(Column("createdAt")).fetchAll(db) }
+    }
+
+    public func save(_ b: Bot) throws {
+        try db.write { db in try b.save(db) }
+    }
+
+    /// Бот уходит вместе со своим разговором; его ответы в других чатах остаются
+    public func deleteBot(_ id: String) throws {
+        try db.write { db in
+            let convs = try String.fetchAll(db, sql: "SELECT id FROM conversation WHERE botID = ? AND kind = 'bot'", arguments: [id])
+            for c in convs {
+                try db.execute(sql: "DELETE FROM message WHERE conversationID = ?", arguments: [c])
+                try db.execute(sql: "DELETE FROM conversation WHERE id = ?", arguments: [c])
+            }
+            _ = try Bot.deleteOne(db, key: id)
+        }
     }
 
     // MARK: проекты
@@ -363,6 +407,10 @@ public final class Store: Sendable {
         guard !ids.isEmpty else { return [] }
         return try db.read { db in try MemoryFact.fetchAll(db, keys: ids) }
     }
+}
+
+extension Bot: FetchableRecord, PersistableRecord {
+    public static let databaseTableName = "bot"
 }
 
 extension Project: FetchableRecord, PersistableRecord {
