@@ -239,6 +239,10 @@ struct ChatRow: View {
     @Environment(\.palette) private var p
     @State private var hover = false
 
+    @State private var renaming = false
+    @State private var newTitle = ""
+    @FocusState private var focused: Bool
+
     private var active: Bool { app.page == .chat && app.chat.conversation?.id == c.id }
     private var running: Bool { app.chat.running?.id == c.id }
 
@@ -252,15 +256,23 @@ struct ChatRow: View {
                     }
                     .foregroundStyle(p.mutedFg).frame(width: 20, height: 18)
                     VStack(alignment: .leading, spacing: 0) {
-                        Text(c.title).font(.geist(14)).lineLimit(1)
-                            .foregroundStyle(active || hover ? p.foreground : p.foreground.opacity(0.8))
+                        if renaming {
+                            renameField
+                        } else {
+                            Text(c.title).font(.geist(14)).lineLimit(1)
+                                .foregroundStyle(active || hover ? p.foreground : p.foreground.opacity(0.8))
+                        }
                         Text(URL(fileURLWithPath: c.folder ?? "").lastPathComponent).font(.geist(11)).foregroundStyle(p.mutedFg).lineLimit(1)
                     }
                     Spacer(minLength: 4)
                     Text(when).font(.geist(11)).foregroundStyle(p.mutedFg)
                 } else {
-                    Text(c.title).font(.geist(14)).lineLimit(1)
-                        .foregroundStyle(active || hover ? p.foreground : p.foreground.opacity(0.8))
+                    if renaming {
+                        renameField
+                    } else {
+                        Text(c.title).font(.geist(14)).lineLimit(1)
+                            .foregroundStyle(active || hover ? p.foreground : p.foreground.opacity(0.8))
+                    }
                     Spacer(minLength: 4)
                     if running {
                         ProgressView().controlSize(.mini).tint(p.glow)
@@ -280,9 +292,30 @@ struct ChatRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
+        .simultaneousGesture(TapGesture(count: 2).onEnded { startRename() })
         .contextMenu {
+            Button("Переименовать") { startRename() }
             Button("Удалить разговор", role: .destructive) { app.deleteChat(c) }
         }
+    }
+
+    private func startRename() {
+        newTitle = c.title
+        renaming = true
+        focused = true
+    }
+
+    /// Поле переименования прямо в строке: Enter — сохранить, Esc — отменить
+    private var renameField: some View {
+        TextField("", text: $newTitle)
+            .textFieldStyle(.plain).font(.geist(14))
+            .focused($focused)
+            .onSubmit {
+                app.renameChat(c, newTitle)
+                renaming = false
+            }
+            .onExitCommand { renaming = false }
+            .onChange(of: focused) { _, f in if !f { renaming = false } }
     }
 
     /// «сейчас», «2 ч», «12 окт» — как в макете

@@ -147,3 +147,18 @@ import Testing
     #expect(plan.map(\.state) == [.done, .doing])
     #expect(PlanItem.apply(.update(id: "1", status: "deleted", text: nil), to: plan).count == 1)
 }
+
+@MainActor @Test func renameConversation() throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-ren-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    let c = Conversation(title: "привет", backend: .subscription, model: .sonnet, effort: .medium)
+    try app.store.save(c)
+    app.reloadConversations()
+    app.openChat(c)
+    app.renameChat(c, "  План на неделю  ")
+    #expect(app.conversations.first?.title == "План на неделю")
+    #expect(app.chat.conversation?.title == "План на неделю")
+    app.renameChat(c, "   ") // пустое не сохраняется
+    #expect(try app.store.conversations().first?.title == "План на неделю")
+}

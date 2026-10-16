@@ -215,4 +215,23 @@ func pointToMCP() {
     #expect(reply.next != nil, "карточка «что дальше»: \(reply.text.suffix(300))")
     #expect(!reply.text.contains("<lumen-next>"))
 }
+
+@MainActor @Test(.enabled(if: live)) func liveAnswerTypesSmoothly() async throws {
+    pointToMCP()
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-type-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    await app.refreshClaude()
+    app.finishOnboarding(name: "Тест", address: .ty, backend: .subscription, theme: .lumen)
+    app.chat.send("Расскажи в 5 предложениях, как устроена Луна.")
+    var lengths: [Int] = []
+    while app.chat.running != nil {
+        if let n = app.chat.streaming?.text.count, n != lengths.last { lengths.append(n) }
+        try await Task.sleep(for: .milliseconds(15))
+    }
+    let final = app.chat.messages.last?.text.count ?? 0
+    // claude присылает текст пачками; на экране он растёт многими мелкими шагами
+    #expect(lengths.count >= 20, "шагов печати: \(lengths.count), всего \(final) знаков")
+    #expect((lengths.last ?? 0) == final)
+}
 }

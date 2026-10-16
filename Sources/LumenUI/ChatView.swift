@@ -49,7 +49,11 @@ struct ChatView: View {
                 Orb(state: app.orb, size: 18).frame(width: 28, height: 28)
             }
             VStack(alignment: .leading, spacing: 0) {
-                Text(chat.conversation?.title ?? (agent ? "Новая задача" : "Новый чат")).tw(14, .medium, lh: 20).lineLimit(1)
+                if let c = chat.conversation {
+                    RenamableTitle(app: app, conversation: c)
+                } else {
+                    Text(agent ? "Новая задача" : "Новый чат").tw(14, .medium, lh: 20).lineLimit(1)
+                }
                 if agent {
                     HStack(spacing: 6) {
                         Text("Агент в папке \(folder?.lastPathComponent ?? "—")")
@@ -214,7 +218,7 @@ struct MessageRow: View {
                     // блок «что дальше» пока пишется — не показывать сырым
                     let shown = NextStep.split(message.text).text
                     if !shown.isEmpty {
-                        RichText(text: shown)
+                        RichText(text: shown, caret: streaming)
                     }
                     if let changes = message.changes, let chat {
                         ChangeCard(message: message, changes: changes, chat: chat)
@@ -243,13 +247,24 @@ struct MessageRow: View {
 /// Текст ответа: text-[0.9375rem] leading-[1.65], абзацы через 12; разметка (жирный, курсив, `код`, ссылки) и блоки кода ```
 struct RichText: View {
     let text: String
+    /// Пока ответ печатается — в конце мигает светящийся курсор (`.caret` в макете)
+    var caret = false
 
     @Environment(\.palette) private var p
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(Array(Self.parts(text).enumerated()), id: \.offset) { _, part in
+            let parts = Self.parts(text)
+            ForEach(Array(parts.enumerated()), id: \.offset) { i, part in
                 switch part {
+                case .prose(let s) where caret && i == parts.count - 1:
+                    // мигает раз в полсекунды, как steps(2) за 1 с
+                    TimelineView(.periodic(from: .now, by: 0.5)) { tl in
+                        let on = Int(tl.date.timeIntervalSinceReferenceDate * 2) % 2 == 0
+                        (Text(Self.markdown(s)) + Text(" ▍").foregroundColor(on ? p.glow : .clear))
+                            .tw(15, lh: 24.75)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 case .prose(let s):
                     Text(Self.markdown(s)).tw(15, lh: 24.75).textSelection(.enabled)
                         .tint(p.glow)
@@ -519,5 +534,37 @@ struct EffortBars: View {
             }
         }
         .frame(height: 14, alignment: .bottom)
+    }
+}
+
+/// Название разговора в шапке: двойной щелчок — переименовать
+struct RenamableTitle: View {
+    @Bindable var app: AppModel
+    let conversation: Conversation
+
+    @State private var editing = false
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        if editing {
+            TextField("", text: $text)
+                .textFieldStyle(.plain).tw(14, .medium, lh: 20)
+                .focused($focused)
+                .onSubmit {
+                    app.renameChat(conversation, text)
+                    editing = false
+                }
+                .onExitCommand { editing = false }
+                .onChange(of: focused) { _, f in if !f { editing = false } }
+        } else {
+            Text(conversation.title).tw(14, .medium, lh: 20).lineLimit(1)
+                .onTapGesture(count: 2) {
+                    text = conversation.title
+                    editing = true
+                    focused = true
+                }
+                .help("Дважды щёлкни, чтобы переименовать")
+        }
     }
 }

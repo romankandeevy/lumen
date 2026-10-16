@@ -155,6 +155,17 @@ public final class AppModel {
         page = .chat
     }
 
+    /// Переименовать разговор (пустое название не сохраняем)
+    func renameChat(_ c: Conversation, _ title: String) {
+        let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty, t != c.title else { return }
+        var updated = (try? store.conversations().first { $0.id == c.id }) ?? c
+        updated.title = t
+        try? store.save(updated)
+        chat.renamed(c.id, t)
+        reloadConversations()
+    }
+
     func deleteChat(_ c: Conversation) {
         chat.forget(c.id)
         try? store.deleteConversation(c.id)

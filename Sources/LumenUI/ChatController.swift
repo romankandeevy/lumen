@@ -24,9 +24,10 @@ final class ChatController {
     @ObservationIgnored private var turnTask: Task<Void, Never>?
     @ObservationIgnored private var stopRequested = false
     @ObservationIgnored private var turnStart = Date()
-    /// Дельты текста копятся и уходят в интерфейс раз в 40 мс (§10.1): без этого окно перерисовывается на каждый токен
-    @ObservationIgnored private var pendingText = ""
-    @ObservationIgnored private var flushScheduled = false
+    /// Плавная печать: claude присылает текст пачками раз в ~0,5 с (замер: 10–20 кусков сразу),
+    /// поэтому полученное копится здесь, а на экран выходит равномерно, раз в 30 мс (§10.1)
+    @ObservationIgnored private var received = ""
+    @ObservationIgnored private var revealTask: Task<Void, Never>?
 
     init(app: AppModel) {
         self.app = app
@@ -46,6 +47,11 @@ final class ChatController {
         guard conversation?.id != c.id else { return }
         conversation = c
         messages = (try? app.store.messages(in: c.id)) ?? []
+    }
+
+    func renamed(_ id: String, _ title: String) {
+        if conversation?.id == id { conversation?.title = title }
+        if running?.id == id { running?.title = title }
     }
 
     func reloadMessages() {
@@ -188,11 +194,11 @@ final class ChatController {
 
     private func runCLI(_ c: Conversation, text: String, hadTurnsBefore: Bool) async {
         guard let cli = app.cli else {
-            finish(c, text: "", error: "Claude Code не найден. Поставь его и войди в Настройках → Модели и оплата.")
+            await finish(c, text: "", error: "Claude Code не найден. Поставь его и войди в Настройках → Модели и оплата.")
             return
         }
         if c.backend == .api, let stop = app.limitReached {
-            finish(c, text: "", error: stop)
+            await finish(c, text: "", error: stop)
             return
         }
         // агент: что было изменено в папке до хода — чтобы показать только его правки
@@ -223,7 +229,7 @@ final class ChatController {
             }
             guard let result else {
                 sessions[c.id] = nil
-                finish(c, text: answer, error: Self.cliError(session.errorOutput), changes: changes)
+                await finish(c, text: answer, error: Self.cliError(session.errorOutput), changes: changes)
                 return
             }
             // расход: по подписке claude даёт оценку «сколько стоило бы по API»; агент по ключу платит ключом
@@ -233,14 +239,14 @@ final class ChatController {
                                     cacheWrite: result.cacheWriteTokens, usd: result.costUSD)
             let ctx = (result.contextTokens, result.contextWindow)
             if stopRequested {
-                finish(c, text: answer, stopped: true, changes: changes, context: ctx)
+                await finish(c, text: answer, stopped: true, changes: changes, context: ctx)
             } else if result.ok {
-                finish(c, text: answer.isEmpty ? result.text : answer, changes: changes, context: ctx)
+                await finish(c, text: answer.isEmpty ? result.text : answer, changes: changes, context: ctx)
             } else {
-                finish(c, text: answer, error: Self.cliError(result.text), changes: changes, context: ctx)
+                await finish(c, text: answer, error: Self.cliError(result.text), changes: changes, context: ctx)
             }
         } catch {
-            finish(c, text: "", error: error.localizedDescription)
+            await finish(c, text: "", error: error.localizedDescription)
         }
     }
 
@@ -278,11 +284,11 @@ final class ChatController {
 
     private func runAPI(_ c: Conversation, history: [ChatMessage]) async {
         guard let key = app.keychain.read(Keychain.anthropicKey) else {
-            finish(c, text: "", error: APIChatError.noKey.localizedDescription)
+            await finish(c, text: "", error: APIChatError.noKey.localizedDescription)
             return
         }
         if let stop = app.limitReached {
-            finish(c, text: "", error: stop)
+            await finish(c, text: "", error: stop)
             return
         }
         let tools = MemoryTools(store: app.store, conversationID: c.id, conversationTitle: c.title)
@@ -323,18 +329,18 @@ final class ChatController {
                 }
                 guard let (reason, content) = finished else {
                     // поток кончился без конца ответа — значит, нажали «Стоп»
-                    finish(c, text: answer, stopped: true)
+                    await finish(c, text: answer, stopped: true)
                     return
                 }
                 let blocks = (try? JSONSerialization.jsonObject(with: Data(content.utf8)) as? [[String: Any]]) ?? []
                 turn.append(["role": "assistant", "content": blocks])
                 if reason == "refusal" {
-                    finish(c, text: answer, error: "Модель отказалась отвечать на это сообщение.")
+                    await finish(c, text: answer, error: "Модель отказалась отвечать на это сообщение.")
                     return
                 }
                 let calls = blocks.filter { $0["type"] as? String == "tool_use" }
                 guard reason == "tool_use", !calls.isEmpty else {
-                    finish(c, text: answer, apiContent: Self.turnJSON(turn), context: (context, 1_000_000))
+                    await finish(c, text: answer, apiContent: Self.turnJSON(turn), context: (context, 1_000_000))
                     return
                 }
                 // выполнить инструменты памяти и продолжить ход
@@ -349,9 +355,9 @@ final class ChatController {
                 request.messages.append(["role": "assistant", "content": JSONBox(blocks)])
                 request.messages.append(["role": "user", "content": JSONBox(results)])
             }
-            finish(c, text: answer, apiContent: Self.turnJSON(turn))
+            await finish(c, text: answer, apiContent: Self.turnJSON(turn))
         } catch {
-            finish(c, text: answer, stopped: stopRequested, error: stopRequested ? nil : error.localizedDescription)
+            await finish(c, text: answer, stopped: stopRequested, error: stopRequested ? nil : error.localizedDescription)
         }
     }
 
@@ -368,20 +374,35 @@ final class ChatController {
             if here { app.orb = .writing }
         }
         if turnMessage == nil { turnMessage = ChatMessage(conversationID: c.id, role: .assistant, text: "", model: c.model) }
-        pendingText += t
-        guard !flushScheduled else { return }
-        flushScheduled = true
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(40))
-            self?.flushText()
+        received += t
+        guard revealTask == nil else { return }
+        revealTask = Task { @MainActor [weak self] in
+            while let self, !Task.isCancelled {
+                let shown = self.turnMessage?.text.count ?? 0
+                let backlog = self.received.count - shown
+                if backlog > 0 {
+                    // хвост догоняется примерно за 0,4 с, но не быстрее символа за кадр
+                    let step = max(1, Int((Double(backlog) / 12).rounded(.up)))
+                    let next = self.received.prefix(shown + step)
+                    self.turnMessage?.text = String(next)
+                }
+                try? await Task.sleep(for: .milliseconds(30))
+            }
         }
     }
 
-    private func flushText() {
-        flushScheduled = false
-        guard !pendingText.isEmpty else { return }
-        turnMessage?.text += pendingText
-        pendingText = ""
+    /// Дождаться, пока печать догонит полученное (не дольше 1,5 с), и остановить её
+    private func drainReveal(instant: Bool) async {
+        if !instant {
+            let deadline = Date().addingTimeInterval(1.5)
+            while (turnMessage?.text.count ?? 0) < received.count, Date() < deadline {
+                try? await Task.sleep(for: .milliseconds(30))
+            }
+        }
+        revealTask?.cancel()
+        revealTask = nil
+        if turnMessage != nil { turnMessage?.text = received }
+        received = ""
     }
 
     private func updatePlan(_ change: PlanItem.Change, _ c: Conversation) {
@@ -405,9 +426,10 @@ final class ChatController {
     }
 
     private func finish(_ c: Conversation, text: String, apiContent: String? = nil, stopped: Bool = false, error: String? = nil,
-                        changes: ChangeSet? = nil, context: (Int, Int)? = nil) {
+                        changes: ChangeSet? = nil, context: (Int, Int)? = nil) async {
+        // ответ допечатывается до конца; «Стоп» и ошибки — сразу
+        await drainReveal(instant: stopped || error != nil)
         // шаги показываем у агента; в чате вызовы памяти видны плашками «Запомнил» и «Опирался на»
-        flushText()
         let steps = c.kind == .agent ? (turnMessage?.steps ?? []) : []
         turnMessage = nil
         let remembered = (try? app.store.memoryUses(conversationID: c.id, since: turnStart, action: "remember")) ?? []
