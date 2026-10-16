@@ -236,12 +236,12 @@ struct BotPassport: View {
                     Text(bot.role).tw(13, lh: 18).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
                 }
                 section("Может") {
-                    let granted = BotCapability.allCases.filter { bot.capabilities.contains($0) }
+                    let granted = BotCapability.allCases.filter { bot.can.contains($0) }
                     if granted.isEmpty { Text("Только разговаривать").tw(13, lh: 18).foregroundStyle(p.mutedFg) }
                     ForEach(granted, id: \.self) { c in
                         IconLabel(text: c.name, icon: c.icon, size: 14).tw(13, lh: 18).foregroundStyle(BotColor.accent(bot.hue))
                     }
-                    if bot.capabilities.contains(.run) && !bot.capabilities.contains(.write) {
+                    if bot.can.contains(.run) && !bot.can.contains(.write) {
                         Text("Команды: " + (bot.commands.isEmpty ? "ни одной" : bot.commands.joined(separator: ", ")))
                             .font(.system(size: 11, design: .monospaced)).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
                     }
@@ -312,6 +312,7 @@ struct BotEditor: View {
     @State private var loaded = false
     @State private var phrase = ""
     @State private var drafting = false
+    @State private var describeNote: String?
 
     private var existing: Bot? { app.bot(botID) }
 
@@ -341,18 +342,7 @@ struct BotEditor: View {
 
     private var form: some View {
         VStack(alignment: .leading, spacing: 28) {
-            if existing == nil {
-                field("Описать словами", aside: "Lumen предложит роль и минимум прав") {
-                    VStack(alignment: .leading, spacing: 10) {
-                        GlowField(placeholder: "Например: бот, который тестирует сборки моих Mac-приложений", text: $phrase) { describe() }
-                        HStack(spacing: 10) {
-                            LButton(title: drafting ? "Настраиваю…" : "Настроить", icon: "sparkles", kind: .outline, small: true, busy: drafting) { describe() }
-                                .disabled(phrase.trimmingCharacters(in: .whitespaces).isEmpty || drafting || app.cli == nil)
-                            Text("Права после этого проверь ниже — включаешь ты.").tw(12, lh: 16).foregroundStyle(p.mutedFg)
-                        }
-                    }
-                }
-            }
+            if existing == nil { describeCard }
             field("Название") { GlowField(placeholder: "Например, Тестировщик", text: $draft.name) }
             field("Имя для вызова", aside: "в чате: @\(idText.isEmpty ? "id" : idText)") {
                 GlowField(placeholder: "tester", text: $idText, mono: true)
@@ -362,18 +352,36 @@ struct BotEditor: View {
                     }
             }
             field("Знак и цвет") {
-                VStack(alignment: .leading, spacing: 12) {
-                    LazyVGrid(columns: Array(repeating: GridItem(.fixed(36), spacing: 8), count: 10), alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 14) {
+                    LazyVGrid(columns: Array(repeating: GridItem(.fixed(40), spacing: 6), count: 10), alignment: .leading, spacing: 6) {
                         ForEach(Bot.icons, id: \.self) { name in
+                            let on = draft.icon == name
                             Button { draft.icon = name } label: {
-                                BotAvatar(icon: name, hue: draft.hue, size: 36)
-                                    .opacity(draft.icon == name ? 1 : 0.45)
-                                    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(draft.icon == name ? BotColor.accent(draft.hue) : .clear, lineWidth: 1.5).padding(-3))
+                                Group {
+                                    if on {
+                                        BotAvatar(icon: name, hue: draft.hue, size: 40)
+                                    } else {
+                                        Icon(name, 18).foregroundStyle(p.mutedFg)
+                                            .frame(width: 40, height: 40)
+                                            .background(p.foreground.opacity(0.04), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                                    }
+                                }
+                                .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                         }
                     }
-                    HueSlider(hue: $draft.hue)
+                    HStack(spacing: 8) {
+                        // готовые цвета и полоса для точного
+                        ForEach([20.0, 45, 85, 140, 160, 200, 235, 270, 320], id: \.self) { h in
+                            Button { draft.hue = h } label: {
+                                Circle().fill(BotColor.accent(h)).frame(width: 20, height: 20)
+                                    .overlay(Circle().strokeBorder(.white.opacity(abs(draft.hue - h) < 1 ? 0.9 : 0), lineWidth: 2))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        HueSlider(hue: $draft.hue).padding(.leading, 6)
+                    }
                 }
             }
             field("Роль", aside: "одна строка") { GlowField(placeholder: "Проверяет приложения и правки — и только", text: $draft.role) }
@@ -382,7 +390,7 @@ struct BotEditor: View {
             }
             field("Что разрешено") {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(BotCapability.allCases, id: \.self) { c in
+                    ForEach(BotCapability.choosable, id: \.self) { c in
                         HStack(spacing: 12) {
                             Icon(c.icon, 16).foregroundStyle(draft.capabilities.contains(c) ? BotColor.accent(draft.hue) : p.mutedFg)
                             VStack(alignment: .leading, spacing: 0) {
@@ -392,6 +400,22 @@ struct BotEditor: View {
                             Spacer()
                             LSwitch(isOn: Binding(get: { draft.capabilities.contains(c) },
                                                   set: { on in if on { draft.capabilities.insert(c) } else { draft.capabilities.remove(c) } }))
+                        }
+                        .padding(.vertical, 10)
+                        .overlay(alignment: .bottom) { p.border.frame(height: 1) }
+                    }
+                    // у всех ботов всегда — без переключателя
+                    ForEach(BotCapability.allCases.filter { BotCapability.always.contains($0) }, id: \.self) { c in
+                        HStack(spacing: 12) {
+                            Icon(c.icon, 16).foregroundStyle(BotColor.accent(draft.hue))
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(c.name).tw(14, lh: 20)
+                                Text(note(c)).tw(12, lh: 16).foregroundStyle(p.mutedFg)
+                            }
+                            Spacer()
+                            Text("всегда").tw(12, lh: 16).foregroundStyle(p.mutedFg)
+                                .padding(.horizontal, 8).padding(.vertical, 2)
+                                .background(p.foreground.opacity(0.06), in: Capsule())
                         }
                         .padding(.vertical, 10)
                         .overlay(alignment: .bottom) { p.border.frame(height: 1) }
@@ -423,10 +447,10 @@ struct BotEditor: View {
                 }
             }
             field("Модель") {
-                HStack(spacing: 8) {
-                    Segmented(value: $draft.model, options: ChatModel.claude.filter { app.availableModels(for: .subscription).contains($0) }.map { ($0, $0.name) })
-                    Segmented(value: $draft.effort, options: [Effort.low, .medium, .high].map { ($0, $0.name) }).frame(maxWidth: 300)
-                }
+                Segmented(value: $draft.model, options: ChatModel.claude.filter { app.availableModels(for: .subscription).contains($0) }.map { ($0, $0.name) })
+            }
+            field("Сколько думать") {
+                Segmented(value: $draft.effort, options: [Effort.low, .medium, .high].map { ($0, $0.name) })
             }
             if !app.skills.isEmpty {
                 field("Навыки", aside: "бот видит только отмеченные") {
@@ -509,6 +533,45 @@ struct BotEditor: View {
         .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(BotColor.soft(draft.hue)))
     }
 
+    /// Самое быстрое: описать бота одной фразой — Lumen (Haiku 5.5) заполнит всё ниже, права проверяешь ты
+    private var describeCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Icon("sparkles", 18).foregroundStyle(p.glow)
+                    .frame(width: 34, height: 34)
+                    .background(p.glow.opacity(0.1), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Опиши бота одной фразой").tw(16, .semibold, lh: 22)
+                    Text("Lumen сам заполнит название, роль, инструкции, знак и минимум прав. Включаешь права — ты.")
+                        .tw(12, lh: 16).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            HStack(spacing: 8) {
+                GlowField(placeholder: "Например: проверяет сборки моих Mac-приложений и пишет, что сломалось", text: $phrase) { describe() }
+                LButton(title: drafting ? "Настраиваю…" : "Настроить", icon: "sparkles", kind: .primary, busy: drafting) { describe() }
+                    .disabled(phrase.trimmingCharacters(in: .whitespaces).isEmpty || drafting || app.cli == nil)
+            }
+            FlowWrap(spacing: 6) {
+                ForEach(["Тестирует сборки и пишет, что сломалось", "Пишет тексты для сайта", "Ревьюит код перед коммитом"], id: \.self) { idea in
+                    Button { phrase = idea; describe() } label: {
+                        Text(idea).tw(12, lh: 16).foregroundStyle(p.mutedFg).fixedSize()
+                            .padding(.horizontal, 10).padding(.vertical, 5)
+                            .overlay(Capsule().strokeBorder(p.border))
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(drafting || app.cli == nil)
+                }
+            }
+            if let describeNote {
+                IconLabel(text: describeNote, icon: "circle-check", size: 13).tw(12, lh: 16).foregroundStyle(p.mutedFg)
+            }
+        }
+        .padding(18)
+        .background(p.glow.opacity(0.05), in: RoundedRectangle(cornerRadius: R.xxl))
+        .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(p.glow.opacity(0.3)))
+    }
+
     private func field<C: View>(_ title: String, aside: String? = nil, @ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             GroupTitle(text: title, aside: aside)
@@ -523,8 +586,8 @@ struct BotEditor: View {
         case .run: "терминал; без правки — только команды из списка"
         case .web: "поиск и чтение страниц"
         case .git: "status, diff, commit — без push"
-        case .memory: "запоминать факты о тебе (читать память можно всегда)"
-        case .bots: "передать свою часть другому боту через @ — на один шаг, без цепочек"
+        case .memory: "запоминает важное о тебе и проектах, вспоминает прошлое"
+        case .bots: "передаёт чужую часть задачи другому боту — на один шаг"
         }
     }
 
@@ -568,6 +631,9 @@ struct BotEditor: View {
                 idText = b.id
                 commandsText = (b.commands.isEmpty ? Bot.defaultCommands : b.commands).joined(separator: ", ")
                 startersText = b.starters.joined(separator: "\n")
+                describeNote = "Готово — проверь ниже, особенно «Что разрешено», и нажми «Создать»."
+            } else {
+                describeNote = "Lumen не ответил — попробуй ещё раз."
             }
             drafting = false
         }

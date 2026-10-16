@@ -98,7 +98,8 @@ private func tempDir(_ name: String) -> URL {
 @Test func botThatMayCallBotsGetsDelegate() {
     let b = Bot(id: "lead", name: "Ведущий", capabilities: [.read, .bots])
     #expect(BotPermissions(b).allowed.contains("mcp__lumen__delegate"))
-    #expect(!BotPermissions(Bot(id: "x", name: "x", capabilities: [.read])).allowed.contains("mcp__lumen__delegate"))
+    // звать ботов может любой бот
+    #expect(BotPermissions(Bot(id: "x", name: "x", capabilities: [.read])).allowed.contains("mcp__lumen__delegate"))
     let others = [b, Bot(id: "tester", name: "Тестировщик", role: "Проверяет сборки")]
     let rules = b.rules(handoff: nil, userName: "Рома", ty: true, skills: nil, bots: others)
     #expect(rules.contains("delegate") && rules.contains("@tester: Проверяет сборки") && !rules.contains("@lead:"))

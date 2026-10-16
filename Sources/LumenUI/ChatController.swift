@@ -245,7 +245,7 @@ final class ChatController {
         defer { app.botRuns[bot.id] = nil }
         let git = Git(folder: URL(fileURLWithPath: b.folder ?? app.botFolder(bot).path))
         var before: Git.Snapshot?
-        if bot.capabilities.contains(.write) || bot.capabilities.contains(.run), await git.isRepo { before = try? await git.snapshot() }
+        if bot.can.contains(.write) || bot.can.contains(.run), await git.isRepo { before = try? await git.snapshot() }
         do {
             let session = try cliSession(for: b, cli: cli, resume: hadTurns)
             var answer = ""
@@ -539,7 +539,7 @@ final class ChatController {
                            allowedTools: perms.allowed, disallowedTools: perms.disallowed)
             if c.backend == .api, let key = app.keychain.read(Keychain.anthropicKey) { config.extraEnv["ANTHROPIC_API_KEY"] = key }
             // позванный бот может работать минутами — MCP-вызову delegate даём до 15 минут
-            if bot.capabilities.contains(.bots) { config.extraEnv["MCP_TOOL_TIMEOUT"] = "900000" }
+            if bot.can.contains(.bots) { config.extraEnv["MCP_TOOL_TIMEOUT"] = "900000" }
         } else if c.kind == .agent, let folder = c.folder {
             let mode = c.mode ?? app.prefs.agentMode
             config = .agent(model: c.model.rawValue, effort: c.effort.rawValue, persona: app.agentPrompt(for: c),
@@ -552,7 +552,7 @@ final class ChatController {
                            tools: [], userSettings: false, sessionID: sid, resume: resume)
         }
         // память: lumen-mcp с инструментами remember и recall
-        if let mcp = try? app.writeMCPConfig(for: c, memoryReadOnly: bot.map { !$0.capabilities.contains(.memory) } ?? false) {
+        if let mcp = try? app.writeMCPConfig(for: c, memoryReadOnly: bot.map { !$0.can.contains(.memory) } ?? false) {
             config.mcpConfig = mcp.path
             // у бота разрешённое уже посчитано в BotPermissions
             if bot == nil { config.allowedTools += ["mcp__lumen__remember", "mcp__lumen__recall", "mcp__lumen__load_skill", "mcp__lumen__read_skill_file"] }

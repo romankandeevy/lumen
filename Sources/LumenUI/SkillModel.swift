@@ -164,7 +164,8 @@ extension AppModel {
         Навыки на выбор:
         \(skillList.isEmpty ? "нет" : skillList)
         """
-        guard let text = await quickAsk("Нужен бот: \(phrase)", system: system, model: .sonnet, effort: .medium),
+        // Haiku 5.5: быстро (пара секунд) и дёшево, для черновика хватает
+        guard let text = await quickAsk("Нужен бот: \(phrase)", system: system, model: .haiku, effort: .low),
               let j = Self.jsonObject(in: text) else { return nil }
         var id = (j["id"] as? String ?? "").lowercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
         if !Bot.isValidID(id) { id = "bot-\(Int.random(in: 10...99))" }

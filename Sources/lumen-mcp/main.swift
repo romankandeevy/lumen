@@ -31,7 +31,7 @@ if !tools.availableSkills.isEmpty { visible += MemoryTools.skillDefinitions }
 let callerID = env["LUMEN_BOT_ID"] ?? ""
 let depth = Int(env["LUMEN_DEPTH"] ?? "0") ?? 0
 let caller = callerID.isEmpty ? nil : (try? store.bots())?.first { $0.id == callerID }
-let canDelegate = caller?.capabilities.contains(.bots) == true && depth < 1
+let canDelegate = caller?.can.contains(.bots) == true && depth < 1
 if canDelegate {
     visible.append(("delegate", "Передать часть задачи другому боту Lumen и дождаться его ответа. Указывай задачу полностью: бот не видит этот разговор.",
                     ["type": "object", "additionalProperties": false, "required": ["bot", "task"],
@@ -67,7 +67,7 @@ func delegate(_ args: [String: Any]) -> String {
     let mcp: [String: Any] = ["mcpServers": ["lumen": [
         "command": CommandLine.arguments[0], "args": [],
         "env": ["LUMEN_DB": dbPath, "LUMEN_CONVERSATION_ID": conv?.id ?? "", "LUMEN_CONVERSATION_TITLE": target.name,
-                "LUMEN_MEMORY_READONLY": target.capabilities.contains(.memory) ? "0" : "1",
+                "LUMEN_MEMORY_READONLY": target.can.contains(.memory) ? "0" : "1",
                 "LUMEN_SKILLS_DIR": paths.skills.path, "LUMEN_SKILLS": target.skills.joined(separator: ","),
                 "LUMEN_BOT_ID": target.id, "LUMEN_DEPTH": "1"],
     ]]]

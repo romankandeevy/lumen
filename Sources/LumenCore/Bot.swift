@@ -55,6 +55,9 @@ public struct Bot: Codable, Sendable, Equatable, Identifiable, Hashable {
         self.updatedAt = updatedAt
     }
 
+    /// Что боту доступно на деле: выбранное плюс то, что есть у всех (память, другие боты)
+    public var can: Set<BotCapability> { capabilities.union(BotCapability.always) }
+
     /// @id: 2–32 знака, латиница в нижнем регистре, цифры, дефис; не «lumen»
     public static func isValidID(_ s: String) -> Bool {
         s.range(of: #"^[a-z0-9][a-z0-9-]{1,31}$"#, options: .regularExpression) != nil && s != "lumen"
@@ -75,13 +78,13 @@ extension Bot {
     public func rules(handoff: Bot?, userName: String, ty: Bool, skills: String?, bots: [Bot] = []) -> String {
         var lines = ["Ты — бот «\(name)» (@\(id)) в Lumen, приложении на Маке. Твоя роль: \(role)."]
         if !instructions.isEmpty { lines.append(instructions) }
-        let granted = BotCapability.allCases.filter { capabilities.contains($0) }.map(\.name)
+        let granted = BotCapability.allCases.filter { can.contains($0) }.map(\.name)
         lines.append("Тебе доступно: \(granted.isEmpty ? "только разговор" : granted.joined(separator: ", ")). "
             + "Отрезано в коде: \(BotPermissions.blocked(self).joined(separator: ", ")). Этих инструментов у тебя нет — не пытайся обойти.")
-        if capabilities.contains(.run) && !capabilities.contains(.write) && !commands.isEmpty {
+        if can.contains(.run) && !can.contains(.write) && !commands.isEmpty {
             lines.append("Команды можно запускать только такие: \(commands.joined(separator: ", ")).")
         }
-        if capabilities.contains(.bots) {
+        if can.contains(.bots) {
             let others = bots.filter { $0.id != id }
             if !others.isEmpty {
                 lines.append("Если часть задачи не по твоей роли, передай её инструментом delegate одному из ботов и дождись ответа:\n"
@@ -104,6 +107,11 @@ extension Bot {
 /// Что боту разрешено. Push на GitHub не разрешается никому: его делает человек.
 public enum BotCapability: String, Codable, Sendable, CaseIterable, Hashable {
     case read, write, run, web, git, memory, bots
+
+    /// Есть у каждого бота всегда и не выключаются (Рома, 16.10): ничему не мешают и делают ботов полезнее
+    public static let always: Set<BotCapability> = [.memory, .bots]
+    /// Что выбирает человек в конструкторе
+    public static let choosable: [BotCapability] = [.read, .write, .run, .web, .git]
 
     public var name: String {
         switch self {
@@ -143,7 +151,7 @@ public struct BotPermissions: Sendable, Equatable {
     public var memoryReadOnly: Bool
 
     public init(_ bot: Bot) {
-        let can = bot.capabilities
+        let can = bot.can
         var tools: [String] = []
         var allowed: [String] = []
         if can.contains(.read) || can.contains(.write) {
@@ -187,6 +195,6 @@ public struct BotPermissions: Sendable, Equatable {
 
     /// «Отрезано в коде» — для паспорта бота
     public static func blocked(_ bot: Bot) -> [String] {
-        BotCapability.allCases.filter { !bot.capabilities.contains($0) }.map(\.name) + ["Push на GitHub"]
+        BotCapability.allCases.filter { !bot.can.contains($0) }.map(\.name) + ["Push на GitHub"]
     }
 }
