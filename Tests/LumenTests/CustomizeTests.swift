@@ -576,3 +576,42 @@ extension LiveCustomizeSuite {
         #expect(!app.chat.busy)
     }
 }
+
+@MainActor @Test func lumenGetsWhatBotsSaidWhileItWasAway() throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-unseen-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    app.saveBot(Bot(id: "designer", name: "Дизайнер"))
+    let c = Conversation(title: "т", backend: .subscription, model: .haiku, effort: .low)
+    var bot = ChatMessage(conversationID: c.id, role: .assistant, text: "Беру вариант А")
+    bot.botID = "designer"
+    let h = [ChatMessage(conversationID: c.id, role: .user, text: "@designer что думаешь?"), bot,
+             ChatMessage(conversationID: c.id, role: .user, text: "люмен согласен?")]
+    let ctx = app.chat.unseenContext(h, c)
+    #expect(ctx.contains("@designer (Дизайнер): Беру вариант А") && ctx.contains("@designer что думаешь?") && !ctx.contains("люмен согласен"))
+    // Lumen уже ответил после бота — повторять не надо
+    let seen = h.prefix(2) + [ChatMessage(conversationID: c.id, role: .assistant, text: "Согласен"), h[2]]
+    #expect(app.chat.unseenContext(Array(seen), c).isEmpty)
+    // в истории для API ответ бота подписан
+    #expect((AnthropicChatRequest.history([bot]).first?["content"] as? String)?.hasPrefix("[Это ответил бот @designer") == true)
+}
+
+extension LiveCustomizeSuite {
+    /// «люмен согласен?» после ответа бота: Lumen видит, что сказал бот
+    @MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["LUMEN_LIVE"] == "1")) func liveLumenSeesBotReply() async throws {
+        pointToMCP()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-seebot-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let app = try AppModel(paths: AppPaths(root: root))
+        await app.refreshClaude()
+        app.finishOnboarding(name: "Тест", address: .ty, backend: .subscription, theme: .lumen)
+        app.saveBot(Bot(id: "pick", name: "Выбиральщик", role: "Выбирает цвет", instructions: "На любой вопрос отвечай ровно: «Выбираю цвет БИРЮЗОВЫЙ».", model: .haiku, effort: .low))
+        app.chat.set(model: .haiku, effort: .low)
+        app.chat.send("@pick какой цвет взять?")
+        while app.chat.busy { try await Task.sleep(for: .milliseconds(200)) }
+        app.chat.send("Lumen, какой цвет выбрал бот? Одним словом.")
+        while app.chat.busy { try await Task.sleep(for: .milliseconds(200)) }
+        let r = try #require(app.chat.messages.last)
+        #expect(r.botID == nil && r.text.uppercased().contains("БИРЮЗ"), "\(r.text)")
+    }
+}

@@ -34,7 +34,8 @@ public struct AnthropicChatRequest: Sendable {
                     return ["role": "assistant", "content": JSONBox(blocks)]
                 }
                 guard m.error == nil, !m.text.isEmpty else { return nil }
-                return ["role": "assistant", "content": m.text]
+                // ответ бота в этом чате — подписан, чтобы Lumen не принял его за свой
+                return ["role": "assistant", "content": m.botID.map { "[Это ответил бот @\($0), не ты]\n" + m.text } ?? m.text]
             }
         }
         return plain.flatMap { msg -> [[String: any Sendable]] in

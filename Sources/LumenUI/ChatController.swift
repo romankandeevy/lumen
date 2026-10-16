@@ -266,9 +266,10 @@ final class ChatController {
             if let (bot, task) = delegate {
                 await self.runDelegation(c, bot: bot, task: task, attachments: attachments)
             } else if c.model.isGPT {
-                await self.runCodex(c, text: text, attachments: attachments)
+                await self.runCodex(c, text: self.unseenContext(history, c) + text, attachments: attachments)
             } else if c.usesCLI {
-                await self.runCLI(c, text: text, attachments: attachments, hadTurnsBefore: history.contains { $0.role == .assistant && $0.error == nil && ($0.botID == nil || c.kind == .bot) })
+                await self.runCLI(c, text: self.unseenContext(history, c) + text, attachments: attachments,
+                                  hadTurnsBefore: history.contains { $0.role == .assistant && $0.error == nil && ($0.botID == nil || c.kind == .bot) })
             } else {
                 await self.runAPI(c, history: history)
             }
@@ -276,6 +277,31 @@ final class ChatController {
             self.settleOrb()
             self.app.reloadConversations()
         }
+    }
+
+    /// Что было в чате без Lumen: вопросы ботам через @ и их ответы шли в процессах ботов, сессия Lumen их не видела.
+    /// Перед своим ходом Lumen получает это скрытым блоком — на экране его нет.
+    func unseenContext(_ history: [ChatMessage], _ c: Conversation) -> String {
+        guard c.kind != .bot, history.count > 1 else { return "" }
+        let before = history.dropLast()
+        let lastOwn = before.lastIndex { $0.role == .assistant && $0.botID == nil && $0.error == nil }
+        let missed = before[(lastOwn.map { $0 + 1 } ?? before.startIndex)...]
+        guard missed.contains(where: { $0.botID != nil }) else { return "" }
+        let name = app.profile.name.isEmpty ? "Человек" : app.profile.name
+        var lines: [String] = []
+        for m in missed where m.error == nil {
+            let files = m.attachments.isEmpty ? "" : " [вложения: \(m.attachments.map(\.name).joined(separator: ", "))]"
+            if m.role == .user {
+                lines.append("\(name): \(m.text.prefix(2000))\(files)")
+            } else if let id = m.botID {
+                let b = app.bot(id)
+                lines.append("@\(id)\(b.map { " (\($0.name))" } ?? ""): \(m.text.prefix(6000))")
+            }
+        }
+        var block = lines.joined(separator: "\n\n")
+        if block.count > 16_000 { block = "…" + block.suffix(16_000) }
+        return "<lumen-chat-context>\nПока ты не отвечал, в этом чате было (ботов звали через @, ты этого не видел):\n\n"
+            + block + "\n</lumen-chat-context>\n\n"
     }
 
     /// Под ответом появился предложенный навык
