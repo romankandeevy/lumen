@@ -891,7 +891,7 @@ private struct ViaChip: View {
         } label: {
             HStack(spacing: 4) {
                 Icon("at-sign", 11)
-                Text(via.title.hasPrefix("@") ? "позвал \(via.title)" : "из чата «\(via.title)»").lineLimit(1)
+                Text(via.fromBot ? "позвал \(via.title)" : "из чата «\(via.title)»").lineLimit(1)
             }
             .tw(11, lh: 14).foregroundStyle(p.mutedFg)
             .contentShape(Rectangle())

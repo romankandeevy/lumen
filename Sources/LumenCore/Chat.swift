@@ -100,6 +100,9 @@ public enum Effort: String, Codable, Sendable, CaseIterable, Identifiable {
 public struct Via: Codable, Sendable, Equatable, Hashable {
     public var conversationID: String?
     public var title: String
+    /// Позвал другой бот («@id»), а не человек из чата: у чата есть id, у бота — нет,
+    /// и название чата тоже может начинаться с «@» («@designer привет»)
+    public var fromBot: Bool { conversationID == nil && title.hasPrefix("@") && !title.contains(" ") }
 
     public init(conversationID: String? = nil, title: String) {
         self.conversationID = conversationID
