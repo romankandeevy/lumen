@@ -28,11 +28,20 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp -R Resources/Fonts Resources/Icons "$APP/Contents/Resources/"
 # ресурсы пакетов (GRDB кладёт свой бандл с PrivacyInfo)
 for b in "$BIN"/*.bundle; do [ -e "$b" ] && cp -R "$b" "$APP/Contents/Resources/"; done
+# автообновление: Sparkle.framework рядом с программой (rpath @executable_path/../Frameworks)
+mkdir -p "$APP/Contents/Frameworks"
+ditto "$BIN/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 # Постоянная подпись, как у остальных приложений набора (Связка ключей не спрашивает пароль после каждой сборки);
 # если её нет — временная.
 SIGN_ID="-"
 security find-identity -v -p codesigning 2>/dev/null | grep -q "Local Dev Signing" && SIGN_ID="Local Dev Signing"
 codesign --force --sign "$SIGN_ID" "$APP/Contents/MacOS/lumen-mcp"
+# Sparkle подписываем изнутри наружу: службы, помощник установки, сам фреймворк
+SP="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"
+for x in "$SP"/XPCServices/*.xpc "$SP/Autoupdate" "$SP/Updater.app"; do
+    [ -e "$x" ] && codesign --force --sign "$SIGN_ID" "$x"
+done
+codesign --force --sign "$SIGN_ID" "$APP/Contents/Frameworks/Sparkle.framework"
 codesign --force --sign "$SIGN_ID" "$APP"
 echo "==> готово: $APP"
 

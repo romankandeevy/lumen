@@ -14,6 +14,12 @@ struct SettingsView: View {
         case look = "Внешний вид"
         case models = "Модели и оплата"
         case data = "Данные"
+        case updates = "Обновления"
+
+        /// Обновления есть только в собранном приложении
+        @MainActor static func visible(_ app: AppModel) -> [Section] {
+            allCases.filter { $0 != .updates || app.updater != nil }
+        }
     }
 
     /// Вкладка живёт в `app.page`: карточка профиля открывает сразу «Модели и оплата»
@@ -32,6 +38,7 @@ struct SettingsView: View {
                         case .look: section(.look) { look }
                         case .models: section(.models, lead: "Через что Lumen думает. Можно держать оба: подписку на каждый день и ключ API про запас.") { models }
                         case .data: section(.data) { data }
+                        case .updates: section(.updates) { if let u = app.updater { UpdatesCard(app: app, updater: u) } }
                         }
                     }
                     .padding(.bottom, 40)
@@ -48,7 +55,7 @@ struct SettingsView: View {
     /// w-40, пункт py-1.5 pr-2 pl-3 text-sm rounded-md, текущий — bg-foreground/[0.05] и световая черта
     private var nav: some View {
         VStack(alignment: .leading, spacing: 2) {
-            ForEach(Section.allCases, id: \.self) { s in
+            ForEach(Section.visible(app), id: \.self) { s in
                 NavLink(title: s.rawValue, active: current == s) {
                     withAnimation(.easeOut(duration: 0.18)) { app.page = .settings(s) }
                 }
@@ -81,10 +88,17 @@ struct SettingsView: View {
             ThreeColumns(empty: 0) {
                 ForEach(ChatWidth.allCases, id: \.self) { w in WidthCard(app: app, width: w) }
             }
-            HStack(spacing: 12) {
-                LSwitch(isOn: Binding(get: { app.prefs.reducedMotion }, set: { v in app.update { $0.reducedMotion = v } }))
-                Text("Меньше движения").font(.geist(14))
-                Text("сфера не дышит, свет не мерцает").font(.geist(12)).foregroundStyle(p.mutedFg)
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 12) {
+                    LSwitch(isOn: Binding(get: { app.prefs.liveBackground }, set: { v in app.update { $0.liveBackground = v } }))
+                    Text("Живой фон в чате").font(.geist(14))
+                    Text("свет медленно перетекает, ярче — когда Lumen думает и пишет").font(.geist(12)).foregroundStyle(p.mutedFg)
+                }
+                HStack(spacing: 12) {
+                    LSwitch(isOn: Binding(get: { app.prefs.reducedMotion }, set: { v in app.update { $0.reducedMotion = v } }))
+                    Text("Меньше движения").font(.geist(14))
+                    Text("сфера не дышит, свет не мерцает").font(.geist(12)).foregroundStyle(p.mutedFg)
+                }
             }
             .padding(.top, 24)
         }
@@ -138,6 +152,51 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xl))
         .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
+    }
+}
+
+/// Версия, «Проверить обновления», проверять сами, бета-канал
+private struct UpdatesCard: View {
+    @Bindable var app: AppModel
+    let updater: Updater
+
+    @Environment(\.palette) private var p
+    @State private var automatic = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Lumen \(updater.version)").tw(14, .medium, lh: 20)
+                    Text(lastCheck).tw(12, lh: 16).foregroundStyle(p.mutedFg)
+                }
+                Spacer()
+                LButton(title: "Проверить обновления", icon: "refresh-cw", kind: .outline, small: true) { updater.check() }
+                    .disabled(!updater.canCheck)
+            }
+            p.border.frame(height: 1).padding(.vertical, 16)
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 12) {
+                    LSwitch(isOn: Binding(get: { automatic }, set: { automatic = $0; updater.automatic = $0 }))
+                    Text("Проверять сам раз в день").font(.geist(14))
+                }
+                HStack(spacing: 12) {
+                    LSwitch(isOn: Binding(get: { app.prefs.betaUpdates }, set: { v in app.update { $0.betaUpdates = v } }))
+                    Text("Бета-версии").font(.geist(14))
+                    Text("приходят раньше стабильных, могут быть сырыми").font(.geist(12)).foregroundStyle(p.mutedFg)
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: 640, alignment: .leading)
+        .background(p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xl))
+        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
+        .onAppear { automatic = updater.automatic }
+    }
+
+    private var lastCheck: String {
+        guard let d = updater.lastCheck else { return "Ещё не проверял" }
+        return "Проверял \(RelativeWhen.string(d))"
     }
 }
 

@@ -74,6 +74,9 @@ public final class AppModel {
     /// Последние 4 знака сохранённого ключа — чтобы узнать его, не показывая
     var savedKeyTail: String?
 
+    /// Автообновление (Updater.swift); нет — когда запущено не из .app
+    @ObservationIgnored private(set) var updater: Updater?
+
     public init(paths: AppPaths = .standard) throws {
         try paths.create()
         self.paths = paths
@@ -95,6 +98,8 @@ public final class AppModel {
         }
         agentFolder = prefs.recentFolders.lazy.map { URL(fileURLWithPath: $0) }
             .first { FileManager.default.fileExists(atPath: $0.path) }
+        updater = Updater.make()
+        updater?.beta = { [weak self] in self?.prefs.betaUpdates ?? false }
     }
 
     // MARK: разговоры

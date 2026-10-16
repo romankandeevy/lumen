@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Лента обновлений Lumen для Sparkle. Пишет её tools/release.sh, руками не править.
+     Стабильные версии — без канала, бета — <sparkle:channel>beta</sparkle:channel>. -->
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+    <channel>
+        <title>Lumen</title>
+        <link>https://github.com/romankandeevy/lumen</link>
+        <language>ru</language>
+    </channel>
+</rss>
