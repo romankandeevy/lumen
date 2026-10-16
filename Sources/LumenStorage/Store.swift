@@ -141,7 +141,62 @@ public final class Store: Sendable {
         m.registerMigration("v7-pinned") { db in
             try db.alter(table: "conversation") { t in t.add(column: "pinned", .boolean).notNull().defaults(to: false) }
         }
+        m.registerMigration("v8-projects") { db in
+            try db.create(table: "project") { t in
+                t.primaryKey("id", .text)
+                t.column("name", .text).notNull()
+                t.column("instructions", .text).notNull().defaults(to: "")
+                t.column("folder", .text)
+                t.column("pinned", .boolean).notNull().defaults(to: false)
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+            }
+            try db.create(table: "projectFile") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("projectID", .text).notNull().indexed().references("project", onDelete: .cascade)
+                t.column("name", .text).notNull()
+                t.column("text", .text).notNull()
+                t.column("addedAt", .datetime).notNull()
+            }
+            // удалили проект — его разговоры остаются, просто без проекта
+            try db.alter(table: "conversation") { t in
+                t.add(column: "projectID", .text).indexed().references("project", onDelete: .setNull)
+            }
+        }
         return m
+    }
+
+    // MARK: проекты
+
+    public func projects() throws -> [Project] {
+        try db.read { db in try Project.order(Column("pinned").desc, Column("updatedAt").desc).fetchAll(db) }
+    }
+
+    public func save(_ p: Project) throws {
+        var p = p
+        p.updatedAt = Date()
+        try db.write { db in try p.save(db) }
+    }
+
+    public func deleteProject(_ id: String) throws {
+        _ = try db.write { db in try Project.deleteOne(db, key: id) }
+    }
+
+    public func files(in projectID: String) throws -> [ProjectFile] {
+        try db.read { db in try ProjectFile.filter(Column("projectID") == projectID).order(Column("addedAt")).fetchAll(db) }
+    }
+
+    @discardableResult
+    public func save(_ f: ProjectFile) throws -> ProjectFile {
+        try db.write { db in
+            var f = f
+            try f.save(db)
+            return f
+        }
+    }
+
+    public func deleteFile(_ id: Int64) throws {
+        _ = try db.write { db in try ProjectFile.deleteOne(db, key: id) }
     }
 
     // MARK: траты
@@ -308,6 +363,15 @@ public final class Store: Sendable {
         guard !ids.isEmpty else { return [] }
         return try db.read { db in try MemoryFact.fetchAll(db, keys: ids) }
     }
+}
+
+extension Project: FetchableRecord, PersistableRecord {
+    public static let databaseTableName = "project"
+}
+
+extension ProjectFile: FetchableRecord, MutablePersistableRecord {
+    public static let databaseTableName = "projectFile"
+    public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
 }
 
 extension Conversation: FetchableRecord, PersistableRecord {

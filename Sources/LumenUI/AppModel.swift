@@ -19,7 +19,7 @@ public final class AppModel {
     var orb: Orb.State = .idle
 
     // MARK: окно
-    enum Page: Equatable { case chat, memory, settings(SettingsView.Section) }
+    enum Page: Equatable { case chat, memory, project(String), settings(SettingsView.Section) }
 
     var page: Page = .chat
     /// Вся память — для страницы «Что Lumen знает», счётчика и плашек в чате
@@ -28,6 +28,9 @@ public final class AppModel {
     var lastForgotten: MemoryFact?
     /// Открытое своё меню (Menus.swift), поиск ⌘K, разговор, который сейчас переименовывают
     var menu: MenuState?
+    /// Проекты (ProjectModel.swift) и проект, название которого сейчас правят
+    var projects: [Project] = []
+    var renamingProjectID: String?
     var searchOpen = false
     var renamingID: String?
     /// Подсказки пустого чата, придуманные Lumen (Suggestions.swift)
@@ -83,6 +86,7 @@ public final class AppModel {
         }
         conversations = (try? store.conversations()) ?? []
         memories = (try? store.memories()) ?? []
+        projects = (try? store.projects()) ?? []
         suggestionCache = try? store.value("suggestions", as: SuggestionCache.self)
         writeMemoryFiles()
         // выход из приложения: процессы claude не должны пережить Lumen
@@ -186,6 +190,10 @@ public final class AppModel {
         menu = MenuState(items: [
             MenuItem(title: c.pinned ? "Открепить" : "Закрепить", key: "p") { [weak self] in self?.togglePin(c) },
             MenuItem(title: "Переименовать", key: "r") { [weak self] in self?.renamingID = c.id },
+            MenuItem(title: "Переместить в проект…", key: "m") { [weak self] in
+                // второе меню открывается на том же месте
+                DispatchQueue.main.async { self?.showMoveMenu(c, at: point) }
+            },
             MenuItem(title: "Удалить", key: "d", destructive: true, separated: true) { [weak self] in self?.deleteChat(c) },
         ], anchor: point)
     }

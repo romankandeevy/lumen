@@ -49,6 +49,23 @@ final class ChatController {
         messages = (try? app.store.messages(in: c.id)) ?? []
     }
 
+    func moved(_ id: String, _ projectID: String?) {
+        if conversation?.id == id { conversation?.projectID = projectID }
+        if running?.id == id { running?.projectID = projectID }
+        promptChanged(conversationID: id)
+    }
+
+    /// Инструкции или файлы проекта поменялись — процессы его разговоров гасим, следующий ход возьмёт новый промпт
+    func promptChanged(projectID: String? = nil, conversationID: String? = nil) {
+        for (id, s) in sessions where id != running?.id {
+            let pid = id == conversation?.id ? conversation?.projectID : app.conversations.first { $0.id == id }?.projectID
+            if id == conversationID || (projectID != nil && pid == projectID) {
+                s.close()
+                sessions[id] = nil
+            }
+        }
+    }
+
     func renamed(_ id: String, _ title: String) {
         if conversation?.id == id { conversation?.title = title }
         if running?.id == id { running?.title = title }
@@ -59,8 +76,12 @@ final class ChatController {
         messages = (try? app.store.messages(in: c.id)) ?? []
     }
 
+    /// Проект для нового разговора, пока он не начат
+    private(set) var newProjectID: String?
+
     /// Новый чат ещё не в базе: появится в списке после первого сообщения
-    func startNew() {
+    func startNew(projectID: String? = nil) {
+        newProjectID = projectID
         conversation = nil
         messages = []
     }
@@ -94,6 +115,7 @@ final class ChatController {
         } else {
             c = Conversation(title: Self.title(from: text), backend: app.prefs.backend, model: app.prefs.model, effort: app.prefs.effort)
         }
+        if conversation == nil { c.projectID = newProjectID }
         let isNew = conversation == nil
         if c.usesCLI && c.cliSessionID == nil { c.cliSessionID = UUID().uuidString.lowercased() }
         do {
@@ -264,12 +286,12 @@ final class ChatController {
         let sid = c.cliSessionID ?? UUID().uuidString.lowercased()
         var config: ClaudeSession.Config
         if c.kind == .agent, let folder = c.folder {
-            config = .agent(model: c.model.rawValue, effort: c.effort.rawValue, persona: app.agentPrompt(),
+            config = .agent(model: c.model.rawValue, effort: c.effort.rawValue, persona: app.agentPrompt(for: c),
                             folder: URL(fileURLWithPath: folder), sessionID: sid, resume: resume)
             // агент по ключу: тот же claude, но платит ключ (§2.4 техплана)
             if c.backend == .api, let key = app.keychain.read(Keychain.anthropicKey) { config.extraEnv["ANTHROPIC_API_KEY"] = key }
         } else {
-            config = .init(model: c.model.rawValue, effort: c.effort.rawValue, systemPrompt: app.systemPrompt(),
+            config = .init(model: c.model.rawValue, effort: c.effort.rawValue, systemPrompt: app.systemPrompt(for: c),
                            tools: [], userSettings: false, sessionID: sid, resume: resume)
         }
         // память: lumen-mcp с инструментами remember и recall
@@ -300,7 +322,7 @@ final class ChatController {
                                     usd: c.model.cost(input: spent.input, output: spent.output, cacheRead: spent.cacheRead, cacheWrite: spent.cacheWrite))
         }
         defer { log() }
-        var request = AnthropicChatRequest(model: c.model, effort: c.effort, system: app.systemPrompt(),
+        var request = AnthropicChatRequest(model: c.model, effort: c.effort, system: app.systemPrompt(for: c),
                                            messages: AnthropicChatRequest.history(history))
         request.tools = MemoryTools.definitions.map {
             JSONBox(["name": $0.name, "description": $0.description, "input_schema": $0.schema, "strict": true])
@@ -577,7 +599,13 @@ extension AppModel {
     }
 
     /// Дописывается к системному промпту Claude Code у агента: кто такой Lumen и правило про push
-    func agentPrompt() -> String {
+    /// Инструкции и файлы проекта разговора — в конец системного промпта
+    func projectBlock(for c: Conversation?) -> String? {
+        guard let p = project(c?.projectID) else { return nil }
+        return p.promptBlock(files: files(of: p))
+    }
+
+    func agentPrompt(for c: Conversation? = nil) -> String {
         var lines = ["Ты — Lumen, агент на Маке. Отвечай по-русски, по делу."]
         if !profile.name.isEmpty { lines.append("Собеседника зовут \(profile.name), обращайся на \(profile.address == .ty ? "«ты»" : "«вы»").") }
         lines.append("Push, публикацию и выкатку не делай: это только с явного OK, и делает их человек.")
@@ -586,13 +614,14 @@ extension AppModel {
             <lumen-next>{"recap": "два-три коротких предложения: что теперь сделано и что не сделано или не проверено", "ask": "один вопрос, если следующий шаг решает человек, иначе null", "primary": {"label": "1–3 слова", "reply": "что отправится от человека"} или null, "secondary": такая же вторая кнопка, только если это реальная альтернатива, иначе null}</lumen-next>
             Этот блок Lumen показывает отдельной карточкой — в тексте ответа итог не повторяй.
             """)
+        if let block = projectBlock(for: c) { lines.append(block) }
         lines.append(memoryRules)
         return lines.joined(separator: "\n")
     }
 
     /// Системный промпт Lumen (SOUL v0): кто он, с кем говорит, закреплённые факты.
     /// Детерминированный — одинаковый от хода к ходу, поэтому кэшируется.
-    func systemPrompt() -> String {
+    func systemPrompt(for c: Conversation? = nil) -> String {
         var lines = ["Ты — Lumen, личный помощник на Маке. Отвечай по-русски, если тебя не попросили иначе. Пиши по делу, без воды."]
         if !profile.name.isEmpty { lines.append("Собеседника зовут \(profile.name).") }
         lines.append(profile.address == .ty ? "Обращайся к нему на «ты»." : "Обращайся к нему на «вы».")
@@ -602,6 +631,7 @@ extension AppModel {
             lines += pinned.map { "- \($0)" }
         }
         lines.append("Это чат: у тебя нет доступа к файлам и командам этого Мака.")
+        if let block = projectBlock(for: c) { lines.append(block) }
         lines.append(memoryRules)
         return lines.joined(separator: "\n")
     }

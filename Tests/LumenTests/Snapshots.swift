@@ -206,3 +206,27 @@ enum Snap {
     app.update { $0.sidebarHidden = true }
     try await Snap.save(RootView(app: app), "23-sidebar-hidden")
 }
+
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotProjects() async throws {
+    Snap.registerFonts()
+    let app = try Snap.app()
+    app.finishOnboarding(name: "Роман", address: .ty, backend: .subscription, theme: .lumen)
+    let pr = app.createProject()
+    app.updateProject(pr) {
+        $0.name = "Блог kandeev.com"
+        $0.instructions = "Пиши как редактор блога: коротко, без канцелярита. Цены и кейсы с цифрами не упоминать."
+    }
+    let file = FileManager.default.temporaryDirectory.appendingPathComponent("стиль-блога.md")
+    try "# Стиль\nКороткие абзацы.".write(to: file, atomically: true, encoding: .utf8)
+    app.addFile(file, to: app.project(pr.id)!)
+    for t in ["Пост про новый сайт", "Заголовки для рассылки"] {
+        var c = Conversation(title: t, backend: .subscription, model: .sonnet, effort: .medium)
+        c.projectID = pr.id
+        try app.store.save(c)
+    }
+    try app.store.save(Conversation(title: "привет", backend: .subscription, model: .sonnet, effort: .medium))
+    app.reloadConversations()
+    app.reloadProjects()
+    app.page = .project(pr.id)
+    try await Snap.save(RootView(app: app), "24-project")
+}

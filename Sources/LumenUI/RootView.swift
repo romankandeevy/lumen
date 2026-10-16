@@ -17,6 +17,7 @@ public struct RootView: View {
                 switch app.page {
                 case .chat: ChatView(app: app)
                 case .memory: MemoryView(app: app)
+                case .project(let id): ProjectView(app: app, projectID: id)
                 case .settings: SettingsView(app: app)
                 }
             }
@@ -79,6 +80,7 @@ struct Sidebar: View {
                     if app.tab == .chat {
                         NewButton(title: "Новый чат") { app.newChat() }
                             .padding(.bottom, 12)
+                        ProjectsSection(app: app, kind: .chat)
                         ForEach(groups, id: \.0) { name, items in
                             VStack(alignment: .leading, spacing: 0) {
                                 Text(name).tw(12, lh: 16).foregroundStyle(p.mutedFg)
@@ -90,6 +92,7 @@ struct Sidebar: View {
                     } else {
                         NewButton(title: "Новая задача") { app.newAgentTask() }
                             .padding(.bottom, 12)
+                        ProjectsSection(app: app, kind: .agent)
                         if !sessions.isEmpty {
                             Text("Сессии").tw(12, lh: 16).foregroundStyle(p.mutedFg)
                                 .padding(.horizontal, 10).padding(.bottom, 4)
@@ -125,13 +128,14 @@ struct Sidebar: View {
     }
 
     private var sessions: [Conversation] {
-        let s = app.conversations.filter { $0.kind == .agent }
+        let s = app.conversations.filter { $0.kind == .agent && $0.projectID == nil }
         return s.filter(\.pinned) + s.filter { !$0.pinned }
     }
 
     /// «Закреплённые», «Сегодня» и «Раньше»
     private var groups: [(String, [Conversation])] {
-        let chats = app.conversations.filter { $0.kind == .chat }
+        // разговоры проектов — внутри своих проектов
+        let chats = app.conversations.filter { $0.kind == .chat && $0.projectID == nil }
         let pinned = chats.filter(\.pinned)
         let rest = chats.filter { !$0.pinned }
         let today = rest.filter { Calendar.current.isDateInToday($0.updatedAt) }

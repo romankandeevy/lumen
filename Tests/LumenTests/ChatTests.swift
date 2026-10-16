@@ -184,8 +184,44 @@ import Testing
     #expect(app.conversations.first { $0.id == a.id }?.pinned == true)
     let fresh = try #require(app.conversations.first { $0.id == a.id })
     app.showChatMenu(fresh, at: .zero)
-    #expect(app.menu?.items.map(\.title) == ["Открепить", "Переименовать", "Удалить"])
-    #expect(app.menu?.items.map(\.key) == ["p", "r", "d"])
+    #expect(app.menu?.items.map(\.title) == ["Открепить", "Переименовать", "Переместить в проект…", "Удалить"])
+    #expect(app.menu?.items.map(\.key) == ["p", "r", "m", "d"])
     app.menu?.items[1].action() // «Переименовать» включает поле в строке
     #expect(app.renamingID == a.id)
+}
+
+@MainActor @Test func projectsCarryInstructionsAndFiles() throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-proj-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    let pr = app.createProject()
+    #expect(app.page == .project(pr.id))
+    app.updateProject(pr) {
+        $0.name = "Блог"
+        $0.instructions = "Пиши как редактор блога."
+    }
+    let file = home.appendingPathComponent("стиль.md")
+    try "Короткие абзацы.".write(to: file, atomically: true, encoding: .utf8)
+    #expect(app.addFile(file, to: app.project(pr.id)!))
+
+    // новый чат в проекте получает его инструкции и файлы
+    app.newChat(in: app.project(pr.id)!)
+    #expect(app.chat.newProjectID == pr.id)
+    var c = Conversation(title: "Пост", backend: .subscription, model: .sonnet, effort: .medium)
+    c.projectID = pr.id
+    let prompt = app.systemPrompt(for: c)
+    #expect(prompt.contains("проекте «Блог»"))
+    #expect(prompt.contains("Пиши как редактор блога."))
+    #expect(prompt.contains("<file name=\"стиль.md\">"))
+    #expect(!app.systemPrompt(for: Conversation(title: "x", backend: .api, model: .sonnet, effort: .low)).contains("Блог"))
+
+    // перенос и удаление проекта: разговор остаётся, просто без проекта
+    let other = Conversation(title: "Черновик", backend: .subscription, model: .sonnet, effort: .medium)
+    try app.store.save(other)
+    app.reloadConversations()
+    app.move(other, to: pr.id)
+    #expect(app.conversations(in: pr.id).map(\.title) == ["Черновик"])
+    app.deleteProject(app.project(pr.id)!)
+    #expect(app.projects.isEmpty)
+    #expect(app.conversations.first { $0.id == other.id }?.projectID == nil)
 }

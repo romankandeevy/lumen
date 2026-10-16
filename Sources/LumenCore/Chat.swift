@@ -259,6 +259,8 @@ public struct Conversation: Codable, Sendable, Equatable, Identifiable, Hashable
     public var plan: [PlanItem] = []
     /// Закреплён — всегда сверху списка
     public var pinned = false
+    /// Проект, в котором разговор (nil — вне проектов)
+    public var projectID: String?
     public var createdAt: Date
     public var updatedAt: Date
 
