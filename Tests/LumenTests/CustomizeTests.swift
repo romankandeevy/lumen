@@ -528,3 +528,51 @@ extension LiveCustomizeSuite {
         #expect(r2.botID == "eye" && r2.error == nil && !r2.text.isEmpty)
     }
 }
+
+extension LiveCustomizeSuite {
+    /// «Стоп» в чате посреди ответа: ход кончается быстро, ответ помечен «Остановлено», дальше можно писать
+    @MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["LUMEN_LIVE"] == "1")) func liveChatStopButtonStops() async throws {
+        pointToMCP()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-stop-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let app = try AppModel(paths: AppPaths(root: root))
+        await app.refreshClaude()
+        app.finishOnboarding(name: "Тест", address: .ty, backend: .subscription, theme: .lumen)
+        app.chat.set(model: .haiku, effort: .low)
+        app.chat.send("Напиши очень длинный рассказ про море, 3000 слов.")
+        // ждём, пока пойдёт текст
+        let start = Date()
+        while app.chat.streaming == nil && Date().timeIntervalSince(start) < 30 { try await Task.sleep(for: .milliseconds(100)) }
+        #expect(app.chat.busy)
+        let t = Date()
+        app.chat.stop()
+        while app.chat.busy && Date().timeIntervalSince(t) < 10 { try await Task.sleep(for: .milliseconds(50)) }
+        print("DBG stop took", Date().timeIntervalSince(t))
+        #expect(!app.chat.busy)
+        #expect(app.chat.messages.last?.stopped == true)
+        app.chat.send("Ответь одним словом: да")
+        while app.chat.busy { try await Task.sleep(for: .milliseconds(200)) }
+        #expect(app.chat.messages.last?.error == nil && app.chat.messages.last?.stopped == false)
+    }
+}
+
+extension LiveCustomizeSuite {
+    /// «Стоп» сразу, пока claude ещё запускается («Думает…»): ход всё равно кончается
+    @MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["LUMEN_LIVE"] == "1")) func liveChatStopWhileStarting() async throws {
+        pointToMCP()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-stop0-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let app = try AppModel(paths: AppPaths(root: root))
+        await app.refreshClaude()
+        app.finishOnboarding(name: "Тест", address: .ty, backend: .subscription, theme: .lumen)
+        app.saveConnector(MCPServer(command: "npx", args: ["-y", "@playwright/mcp@latest"]), name: "playwright")
+        app.chat.set(model: .haiku, effort: .low)
+        app.chat.send("Напиши очень длинный рассказ про море, 3000 слов.")
+        try await Task.sleep(for: .milliseconds(300))
+        let t = Date()
+        app.chat.stop()
+        while app.chat.busy && Date().timeIntervalSince(t) < 20 { try await Task.sleep(for: .milliseconds(50)) }
+        print("DBG stop-early took", Date().timeIntervalSince(t), app.chat.messages.last?.text.count as Any)
+        #expect(!app.chat.busy)
+    }
+}

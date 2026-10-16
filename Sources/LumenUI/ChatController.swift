@@ -345,6 +345,7 @@ final class ChatController {
             // картинки и файлы из сообщения — боту тоже
             let turn = attachments.isEmpty ? try session.send(taskText)
                 : try session.send(content: Attachment.userContent(text: taskText, attachments: attachments, agent: true))
+            if isStopped(c) { session.interrupt() }
             for await ev in turn {
                 switch ev {
                 case .textDelta(let t):
@@ -389,6 +390,15 @@ final class ChatController {
             pendingPermissions[c.id] = nil
         }
         if let d = tr.delegate { sessions[d]?.interrupt() } else if c.model.isGPT { codexRuns[c.id]?.stop() } else if c.usesCLI { sessions[c.id]?.interrupt() } else { tr.task?.cancel() }
+        // не послушался за 3 с — процесс закрываем: ход кончится, следующий продолжит разговор (--resume)
+        let key = tr.delegate ?? c.id
+        Task { [weak self, weak tr] in
+            try? await Task.sleep(for: .seconds(3))
+            guard let self, let tr, self.turns[id] === tr else { return }
+            self.app.log("«Стоп» не сработал за 3 с — закрываю процесс", conversation: c)
+            self.sessions[key]?.close()
+            self.sessions[key] = nil
+        }
     }
 
     /// «Сжать разговор»: claude пересказывает старое и освобождает окно (`/compact`, проверено в спайке)
@@ -472,8 +482,14 @@ final class ChatController {
             let session = try cliSession(for: c, cli: cli, resume: hadTurnsBefore)
             var answer = ""
             var result: ClaudeEvent.TurnResult?
+            // «Стоп» нажали, пока ход готовился (вход в коннекторы, запуск claude) — процесса ещё не было
+            if isStopped(c) {
+                await finish(c, text: "", stopped: true)
+                return
+            }
             let turn = attachments.isEmpty ? try session.send(text)
                 : try session.send(content: Attachment.userContent(text: text, attachments: attachments, agent: c.kind != .chat))
+            if isStopped(c) { session.interrupt() }
             for await ev in turn {
                 switch ev {
                 case .textDelta(let t):
