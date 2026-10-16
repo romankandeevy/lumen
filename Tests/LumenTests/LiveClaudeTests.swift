@@ -234,4 +234,25 @@ func pointToMCP() {
     #expect(lengths.count >= 20, "шагов печати: \(lengths.count), всего \(final) знаков")
     #expect((lengths.last ?? 0) == final)
 }
+
+@MainActor @Test(.enabled(if: live)) func liveSuggestionsComeFromMemory() async throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-sug-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    await app.refreshClaude()
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .subscription, theme: .lumen)
+    app.addMemory("Делает Mac-приложение Lumen — личного агента", kind: .project, pinned: true)
+    app.addMemory("По вечерам бегает в парке", kind: .you, pinned: false)
+    try app.store.save(Conversation(title: "Почему падает Shelf при двойном щелчке", backend: .subscription, model: .sonnet, effort: .medium))
+    app.reloadConversations()
+    await app.refreshSuggestions()
+    let items = app.suggestions
+    #expect(items != Suggestions.fallback, "подсказки не придуманы")
+    #expect(items.count == 3)
+    #expect(items.allSatisfy { $0.count <= 60 })
+    print("ПОДСКАЗКИ:", items)
+    // сохранились и читаются при следующем запуске
+    let again = try AppModel(paths: AppPaths(root: home))
+    #expect(again.suggestions == items)
+}
 }

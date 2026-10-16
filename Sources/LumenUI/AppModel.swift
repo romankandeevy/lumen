@@ -26,6 +26,9 @@ public final class AppModel {
     var memories: [MemoryFact] = []
     /// Последний забытый факт — чтобы «Вернуть»
     var lastForgotten: MemoryFact?
+    /// Подсказки пустого чата, придуманные Lumen (Suggestions.swift)
+    var suggestionCache: SuggestionCache?
+    var suggestionsLoading = false
     /// Вкладка панели: Чат или Агент
     enum Tab { case chat, agent }
     var tab: Tab = .chat
@@ -76,6 +79,7 @@ public final class AppModel {
         }
         conversations = (try? store.conversations()) ?? []
         memories = (try? store.memories()) ?? []
+        suggestionCache = try? store.value("suggestions", as: SuggestionCache.self)
         writeMemoryFiles()
         // выход из приложения: процессы claude не должны пережить Lumen
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in

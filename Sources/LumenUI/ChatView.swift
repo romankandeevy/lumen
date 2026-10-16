@@ -88,9 +88,11 @@ struct ChatView: View {
             Text("Помню \(Plural.facts(app.memoryCount)) о тебе, проектах и людях.")
                 .tw(14, lh: 20).foregroundStyle(p.mutedFg)
                 .padding(.top, 8)
-            // голосовой кнопки и @бота нет, пока они не работают
-            FlowChips(items: ["Как прошёл день?", "Объясни, как работает память Lumen", "Запомни, что я встаю в 9"]) { draft = $0 }
+            // Lumen сам предлагает, чем заняться — из памяти и недавних разговоров
+            FlowChips(items: app.suggestions) { draft = $0 }
                 .padding(.top, 24)
+                .animation(.easeOut(duration: 0.3), value: app.suggestions)
+                .task { app.refreshSuggestionsIfNeeded() }
         }
         .frame(maxWidth: 704)
         .padding(.horizontal, 24)

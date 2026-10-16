@@ -162,3 +162,11 @@ import Testing
     app.renameChat(c, "   ") // пустое не сохраняется
     #expect(try app.store.conversations().first?.title == "План на неделю")
 }
+
+@Test func suggestionsParse() {
+    #expect(Suggestions.parse(#"```json\n["Доделаем Lumen?", "Что с Shelf?", "Куда сходить вечером"]\n```"#)
+            == ["Доделаем Lumen?", "Что с Shelf?", "Куда сходить вечером"])
+    #expect(Suggestions.parse("[\"«Одна»\", \"Две\", \"Три\", \"Четыре\"]") == ["Одна", "Две", "Три"])
+    #expect(Suggestions.parse("не json") == nil)
+    #expect(Suggestions.prompt(name: "Рома", address: .ty, facts: ["Делает Lumen"], recent: ["Почему падает Shelf?"]).contains("Почему падает Shelf?"))
+}
