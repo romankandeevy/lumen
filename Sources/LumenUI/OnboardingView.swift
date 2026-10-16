@@ -84,13 +84,13 @@ struct OnboardingView: View {
             .padding(.top, 32)
 
             HStack {
-                LButton(title: "Назад", icon: "arrow.left", kind: .ghost) { withAnimation { step -= 1 } }
+                LButton(title: "Назад", icon: "arrow-left", kind: .ghost) { withAnimation { step -= 1 } }
                 Spacer()
                 if step < steps.count - 1 {
                     LButton(title: "Дальше", kind: .primary) { withAnimation { step += 1 } }
                         .disabled(!canContinue)
                 } else {
-                    LButton(title: "Начать", icon: "checkmark", kind: .glow) {
+                    LButton(title: "Начать", icon: "check", kind: .glow) {
                         app.finishOnboarding(name: name, address: address, backend: backend, theme: app.prefs.theme)
                     }
                 }
@@ -132,14 +132,14 @@ struct OnboardingView: View {
         VStack(alignment: .leading, spacing: 8) {
             heading("Через что мне думать?", "Можно поменять потом в настройках, «Модели и оплата».")
                 .padding(.bottom, 16)
-            ChoiceCard(title: "Подписка Claude Code", note: app.claudeOnboardingNote, icon: "terminal",
+            ChoiceCard(title: "Подписка Claude Code", note: app.claudeOnboardingNote, icon: "square-terminal",
                        active: backend == .subscription) { backend = .subscription }
             if case .signedOut = app.claude {
                 LButton(title: "Войти через браузер", kind: .outline, small: true, busy: app.subscriptionBusy) {
                     Task { await app.signIn() }
                 }
             }
-            ChoiceCard(title: "Ключ Anthropic API", note: "Вставишь ключ на следующем экране", icon: "key",
+            ChoiceCard(title: "Ключ Anthropic API", note: "Вставишь ключ на следующем экране", icon: "key-round",
                        active: backend == .api) { backend = .api }
         }
         .task { if app.claude == .checking { await app.refreshClaude() } }
@@ -246,7 +246,7 @@ struct ThemeCard: View {
                                 Text(note).font(.geist(12)).foregroundStyle(current.mutedFg)
                             }
                             Spacer()
-                            if active { Image(systemName: "checkmark").font(.system(size: 13, weight: .semibold)).foregroundStyle(current.glow) }
+                            if active { Icon("check", 16).foregroundStyle(current.glow) }
                         }
                         .padding(.horizontal, 6).padding(.top, 10).padding(.bottom, 4)
                     }
@@ -303,7 +303,7 @@ struct KeyField: View {
                 GlowField(placeholder: app.savedKeyTail.map { "sk-ant-…  (сохранён, ••••\($0))" } ?? "sk-ant-…",
                           text: $key, secure: !show, mono: true, onSubmit: check) {
                     Button { show.toggle() } label: {
-                        Image(systemName: show ? "eye.slash" : "eye").font(.system(size: 13)).foregroundStyle(p.mutedFg)
+                        Icon(show ? "eye-off" : "eye", 16).foregroundStyle(p.mutedFg)
                     }
                     .buttonStyle(.plain)
                     .help(show ? "Скрыть ключ" : "Показать ключ")

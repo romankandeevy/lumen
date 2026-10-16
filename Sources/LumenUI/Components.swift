@@ -54,7 +54,7 @@ struct LButton: View {
                 if busy {
                     ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 14, height: 14)
                 } else if let icon {
-                    Image(systemName: icon).font(.system(size: size == .xs ? 11 : 13, weight: .medium))
+                    Icon(icon, size == .xs ? 12 : 16)
                 }
                 Text(title).font(font)
             }
@@ -150,24 +150,23 @@ struct ChoiceCard: View {
                 if settingsStyle {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Text(title).font(.geist(14, .medium))
+                            Text(title).tw(14, .medium, lh: 20)
                             Spacer()
                             if active { check }
                         }
-                        Text(note).font(.geist(12)).lineSpacing(3.5).foregroundStyle(p.mutedFg)
+                        Text(note).tw(12, lh: 19.5).foregroundStyle(p.mutedFg)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 } else {
                     HStack(spacing: 12) {
                         if let icon {
-                            Image(systemName: icon)
-                                .font(.system(size: 14))
+                            Icon(icon, 16)
                                 .frame(width: 36, height: 36)
                                 .background(p.foreground.opacity(0.06), in: RoundedRectangle(cornerRadius: R.lg))
                         }
                         VStack(alignment: .leading, spacing: 0) {
-                            Text(title).font(.geist(14, .medium))
-                            Text(note).font(.geist(12)).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
+                            Text(title).tw(14, .medium, lh: 20)
+                            Text(note).tw(12, lh: 16).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
                         }
                         Spacer(minLength: 0)
                         if active { check }
@@ -187,7 +186,7 @@ struct ChoiceCard: View {
     }
 
     private var check: some View {
-        Image(systemName: "checkmark").font(.system(size: 13, weight: .semibold)).foregroundStyle(p.glow)
+        Icon("check", 16).foregroundStyle(p.glow)
     }
 
     private var background: Color {
@@ -209,11 +208,10 @@ struct SettingsCard<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .font(.system(size: 14))
+                Icon(icon, 16)
                     .frame(width: 36, height: 36)
                     .background(p.foreground.opacity(0.06), in: RoundedRectangle(cornerRadius: R.xl))
-                Text(title).font(.geist(14, .medium))
+                Text(title).tw(14, .medium, lh: 20)
                 Spacer()
                 status
             }
@@ -283,9 +281,9 @@ struct GroupTitle: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(text).font(.geist(14, .medium))
+            Text(text).tw(14, .medium, lh: 20)
             Spacer()
-            if let aside { Text(aside).font(.geist(12)).foregroundStyle(p.mutedFg) }
+            if let aside { Text(aside).tw(12, lh: 16).foregroundStyle(p.mutedFg) }
         }
         .padding(.bottom, 10)
     }
@@ -357,11 +355,11 @@ struct LSwitch: View {
 }
 
 /// Пункт меню-поповера (`Option` в pickers.tsx): иконка, название, пояснение, галочка
-struct PopoverOption<Icon: View>: View {
+struct PopoverOption<Leading: View>: View {
     let name: String
     let note: String
     let active: Bool
-    @ViewBuilder let icon: Icon
+    @ViewBuilder let icon: Leading
     let action: () -> Void
 
     @Environment(\.palette) private var p
@@ -376,7 +374,7 @@ struct PopoverOption<Icon: View>: View {
                     Text(note).font(.geist(12)).foregroundStyle(p.mutedFg)
                 }
                 Spacer(minLength: 0)
-                if active { Image(systemName: "checkmark").font(.system(size: 13, weight: .semibold)).foregroundStyle(p.glow) }
+                if active { Icon("check", 16).foregroundStyle(p.glow) }
             }
             .foregroundStyle(p.foreground)
             .padding(.horizontal, 8).padding(.vertical, 8)
@@ -405,5 +403,19 @@ struct PopoverPanel<Content: View>: View {
         .frame(width: width)
         .background(p.popover)
         .preferredColorScheme(.dark)
+    }
+}
+
+/// Иконка Lucide и подпись — замена Label(systemImage:)
+struct IconLabel: View {
+    let text: String
+    let icon: String
+    var size: CGFloat = 16
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Icon(icon, size).alignmentGuide(.firstTextBaseline) { d in d[.bottom] * 0.8 }
+            Text(text).fixedSize(horizontal: false, vertical: true)
+        }
     }
 }

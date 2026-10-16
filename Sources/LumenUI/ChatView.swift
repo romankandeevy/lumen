@@ -42,29 +42,29 @@ struct ChatView: View {
     private var header: some View {
         HStack(spacing: 12) {
             if agent {
-                Image(systemName: "folder").font(.system(size: 14)).foregroundStyle(p.glow)
+                Icon("folder", 16).foregroundStyle(p.glow)
                     .frame(width: 28, height: 28)
                     .background(p.foreground.opacity(0.07), in: RoundedRectangle(cornerRadius: R.lg))
             } else {
                 Orb(state: app.orb, size: 18).frame(width: 28, height: 28)
             }
             VStack(alignment: .leading, spacing: 0) {
-                Text(chat.conversation?.title ?? (agent ? "Новая задача" : "Новый чат")).font(.geist(14, .medium)).lineLimit(1)
+                Text(chat.conversation?.title ?? (agent ? "Новая задача" : "Новый чат")).tw(14, .medium, lh: 20).lineLimit(1)
                 if agent {
                     HStack(spacing: 6) {
                         Text("Агент в папке \(folder?.lastPathComponent ?? "—")")
                         Text("·").foregroundStyle(p.foreground.opacity(0.2))
-                        Image(systemName: "laptopcomputer").font(.system(size: 10))
+                        Icon("laptop", 12)
                         Text("на этом Маке" + (backend == .api ? ", по ключу API" : ""))
                     }
-                    .font(.geist(12)).foregroundStyle(p.mutedFg).lineLimit(1)
+                    .tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(1)
                 } else {
                     Text("Чат — просто разговор, Lumen ничего не трогает" + (backend == .api ? " · через API" : ""))
-                        .font(.geist(12)).foregroundStyle(p.mutedFg).lineLimit(1)
+                        .tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(1)
                 }
             }
             Spacer()
-            IconButton(icon: "sidebar.right", help: "Контекст: память, окно, расход", active: app.prefs.contextOpen) {
+            IconButton(icon: "panel-right", help: "Контекст: память, окно, расход", active: app.prefs.contextOpen) {
                 app.update { $0.contextOpen.toggle() }
             }
         }
@@ -78,13 +78,14 @@ struct ChatView: View {
         VStack(spacing: 0) {
             Orb(state: app.orb, size: 72)
             Text(app.profile.name.isEmpty ? "О чём поговорим?" : "Привет, \(app.profile.name). О чём поговорим?")
-                .font(.geist(24, .semibold)).tracking(-0.48)
+                .tw(24, .semibold, lh: 32).tracking(-0.48)
                 .multilineTextAlignment(.center)
                 .padding(.top, 32)
             Text("Помню \(Plural.facts(app.memoryCount)) о тебе, проектах и людях.")
-                .font(.geist(14)).foregroundStyle(p.mutedFg)
+                .tw(14, lh: 20).foregroundStyle(p.mutedFg)
                 .padding(.top, 8)
-            FlowChips(items: ["Как прошёл день?", "Объясни, как работает память Lumen", "Помоги сформулировать мысль"]) { draft = $0 }
+            // голосовой кнопки и @бота нет, пока они не работают
+            FlowChips(items: ["Как прошёл день?", "Объясни, как работает память Lumen", "Запомни, что я встаю в 9"]) { draft = $0 }
                 .padding(.top, 24)
         }
         .frame(maxWidth: 704)
@@ -106,7 +107,7 @@ struct ChatView: View {
                     } else if chat.thinking {
                         HStack(spacing: 12) {
                             Orb(state: .thinking, size: 22)
-                            Text("Думает…").font(.geist(14)).foregroundStyle(p.mutedFg)
+                            Text("Думает…").tw(14, lh: 20).foregroundStyle(p.mutedFg)
                         }
                     }
                     Color.clear.frame(height: 1).id("bottom")
@@ -151,7 +152,7 @@ struct FlowChips: View {
 
         var body: some View {
             Button(action: action) {
-                Text(text).font(.geist(14))
+                Text(text).tw(14, lh: 20)
                     .padding(.horizontal, 14).padding(.vertical, 6)
                     .background(hover ? p.card : p.card.opacity(0.5), in: Capsule())
                     .overlay(Capsule().strokeBorder(hover ? p.glow.opacity(0.4) : p.border))
@@ -186,7 +187,7 @@ struct MessageRow: View {
     var body: some View {
         if let note = message.note {
             HStack(spacing: 8) {
-                Image(systemName: "arrow.counterclockwise").font(.system(size: 11))
+                Icon("rotate-ccw", 14)
                 Text(note)
             }
             .font(.geist(12)).foregroundStyle(p.mutedFg)
@@ -195,7 +196,7 @@ struct MessageRow: View {
             HStack(spacing: 0) {
                 Spacer(minLength: 0)
                 Text(message.text)
-                    .font(.geist(14)).lineSpacing(6)
+                    .tw(14, lh: 22.75)
                     .textSelection(.enabled)
                     .padding(.horizontal, 16).padding(.vertical, 10)
                     .background(p.secondary, in: UnevenRoundedRectangle(topLeadingRadius: R.xxl, bottomLeadingRadius: R.xxl,
@@ -225,10 +226,10 @@ struct MessageRow: View {
                         }
                     }
                     if message.stopped {
-                        Label("Остановлено", systemImage: "stop.circle").font(.geist(12)).foregroundStyle(p.mutedFg)
+                        IconLabel(text: "Остановлено", icon: "circle-stop", size: 14).font(.geist(12)).foregroundStyle(p.mutedFg)
                     }
                     if let error = message.error {
-                        Label(error, systemImage: "exclamationmark.triangle")
+                        IconLabel(text: error, icon: "triangle-alert", size: 16)
                             .font(.geist(14)).foregroundStyle(Palette.destructive)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -250,7 +251,7 @@ struct RichText: View {
             ForEach(Array(Self.parts(text).enumerated()), id: \.offset) { _, part in
                 switch part {
                 case .prose(let s):
-                    Text(Self.markdown(s)).font(.geist(15)).lineSpacing(6.5).textSelection(.enabled)
+                    Text(Self.markdown(s)).tw(15, lh: 24.75).textSelection(.enabled)
                         .tint(p.glow)
                         .fixedSize(horizontal: false, vertical: true)
                 case .code(let s):
@@ -320,10 +321,11 @@ struct Composer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            TextField(agent ? "Что сделать в проекте? ⌥↩ — новая строка" : "Просто напиши. ⌥↩ — новая строка", text: $draft, axis: .vertical)
+            TextField(agent ? "Что сделать в проекте?" : "Просто напиши", text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.geist(14))
                 .lineSpacing(3)
+                .help("Enter — отправить, ⌥Enter — новая строка")
                 .lineLimit(2...12)
                 .focused($focused)
                 .onSubmit(send)
@@ -374,14 +376,14 @@ struct Composer: View {
     private var folderPicker: some View {
         let current = chat.conversation?.folder.map { URL(fileURLWithPath: $0) } ?? app.agentFolder
         return PickerButton(open: $folderOpen) {
-            Image(systemName: "folder").font(.system(size: 12)).foregroundStyle(p.glow)
+            Icon("folder", 14).foregroundStyle(p.glow)
             Text(current?.lastPathComponent ?? "Выбрать папку").font(.geist(12))
         } panel: {
             PopoverPanel(title: "Папка проекта", width: 256) {
                 ForEach(app.recentFolders, id: \.self) { f in
                     PopoverOption(name: f.lastPathComponent, note: f.deletingLastPathComponent().path.replacingOccurrences(of: NSHomeDirectory(), with: "~"),
                                   active: f.standardizedFileURL.path == current?.standardizedFileURL.path) {
-                        Image(systemName: "folder").font(.system(size: 14)).foregroundStyle(p.mutedFg)
+                        Icon("folder", 16).foregroundStyle(p.mutedFg)
                     } action: {
                         app.agentFolder = f
                         folderOpen = false
@@ -404,13 +406,13 @@ struct Composer: View {
     /// `ModelPicker`: Sparkles text-glow + название text-xs medium + стрелка
     private var modelPicker: some View {
         PickerButton(open: $modelOpen) {
-            Image(systemName: "sparkles").font(.system(size: 12)).foregroundStyle(p.glow)
+            Icon("sparkles", 14).foregroundStyle(p.glow)
             Text(model.name).font(.geist(12, .medium))
         } panel: {
             PopoverPanel(title: "Модель") {
                 ForEach(app.availableModels(for: backend)) { m in
                     PopoverOption(name: m.name, note: m.note, active: m == model) {
-                        Image(systemName: "sparkles").font(.system(size: 14)).foregroundStyle(p.mutedFg)
+                        Icon("sparkles", 16).foregroundStyle(p.mutedFg)
                     } action: {
                         chat.set(model: m)
                         modelOpen = false
@@ -445,7 +447,7 @@ struct Composer: View {
         if chat.busy {
             Button(action: chat.stop) {
                 HStack(spacing: 6) {
-                    Image(systemName: "square.fill").font(.system(size: 10))
+                    Icon("square", 12)
                     Text("Стоп").font(.geist(13, .medium))
                 }
                 .foregroundStyle(p.foreground)
@@ -458,14 +460,15 @@ struct Composer: View {
             .help("Остановить · ⌘.")
         } else {
             Button(action: send) {
-                Image(systemName: "arrow.up").font(.system(size: 13, weight: .semibold))
+                Icon("arrow-up", 16)
                     .foregroundStyle(.black)
                     .frame(width: 28, height: 28)
-                    .background(p.glow.opacity(canSend ? 1 : 0.35), in: Circle())
-                    .shadow(color: canSend ? p.glowSoft : .clear, radius: 8)
+                    // как в макете: кнопка всегда светится (bg-glow, тень 16px glow-soft)
+                    .background(p.glow, in: Circle())
+                    .shadow(color: p.glowSoft, radius: 8)
             }
             .buttonStyle(.plain)
-            .disabled(!canSend || !ready || chat.busyElsewhere)
+            .disabled(!ready || chat.busyElsewhere)
             .help(!ready ? "Сначала выбери папку проекта"
                   : chat.busyElsewhere ? "Lumen ещё отвечает в «\(chat.running?.title ?? "")»" : "Отправить · ↩")
         }
@@ -486,7 +489,7 @@ struct PickerButton<Label: View, Panel: View>: View {
         Button { open.toggle() } label: {
             HStack(spacing: 6) {
                 label
-                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).opacity(0.5)
+                Icon("chevron-down", 12).opacity(0.5)
             }
             .foregroundStyle(p.foreground)
             .padding(.horizontal, 8).frame(height: 28)

@@ -60,9 +60,9 @@ struct SettingsView: View {
 
     private func section<C: View>(_ s: Section, lead: String? = nil, @ViewBuilder content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(s.rawValue).font(.geist(18, .semibold)).tracking(-0.18)
+            Text(s.rawValue).tw(18, .semibold, lh: 28).tracking(-0.18)
             if let lead {
-                Text(lead).font(.geist(14)).foregroundStyle(p.mutedFg).padding(.top, 4).frame(maxWidth: 560, alignment: .leading)
+                Text(lead).tw(14, lh: 20).foregroundStyle(p.mutedFg).padding(.top, 4).frame(maxWidth: 560, alignment: .leading)
             }
             content().padding(.top, 16)
         }
@@ -168,9 +168,9 @@ struct PageFrame<Actions: View, Content: View>: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .bottom, spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(title).font(.geist(26.4, .semibold)).tracking(-0.53)
+                    Text(title).tw(26.4, .semibold, lh: 33).tracking(-0.53)
                     if let lead {
-                        Text(lead).font(.geist(14)).foregroundStyle(p.mutedFg).frame(maxWidth: 560, alignment: .leading)
+                        Text(lead).tw(14, lh: 20).foregroundStyle(p.mutedFg).frame(maxWidth: 560, alignment: .leading)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -204,7 +204,7 @@ struct NavLink: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.geist(14))
+                .tw(14, lh: 20)
                 .foregroundStyle(active || hover ? p.foreground : p.mutedFg)
                 .padding(.vertical, 6).padding(.leading, 12).padding(.trailing, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -269,7 +269,7 @@ struct WidthCard: View {
                         Text(info.1).font(.geist(12)).foregroundStyle(p.mutedFg)
                     }
                     Spacer()
-                    if active { Image(systemName: "checkmark").font(.system(size: 13, weight: .semibold)).foregroundStyle(p.glow) }
+                    if active { Icon("check", 16).foregroundStyle(p.glow) }
                 }
                 .padding(.horizontal, 6).padding(.top, 10).padding(.bottom, 4)
             }
@@ -291,7 +291,7 @@ struct SubscriptionCard: View {
     @State private var confirmSignOut = false
 
     var body: some View {
-        SettingsCard(title: "Подписка Claude Code", icon: "terminal", status: AnyView(status)) {
+        SettingsCard(title: "Подписка Claude Code", icon: "square-terminal", status: AnyView(status)) {
             VStack(alignment: .leading, spacing: 0) {
                 switch app.claude {
                 case .checking:
@@ -361,11 +361,11 @@ struct SubscriptionCard: View {
 
     private func buttons(signedIn: Bool) -> some View {
         HStack(spacing: 8) {
-            LButton(title: "Проверить", icon: "arrow.clockwise", kind: .outline, small: true, busy: app.subscriptionBusy) {
+            LButton(title: "Проверить", icon: "refresh-cw", kind: .outline, small: true, busy: app.subscriptionBusy) {
                 Task { await app.checkSubscription() }
             }
             if signedIn {
-                LButton(title: "Выйти", icon: "rectangle.portrait.and.arrow.right", kind: .ghost, small: true) { confirmSignOut = true }
+                LButton(title: "Выйти", icon: "log-out", kind: .ghost, small: true) { confirmSignOut = true }
             }
         }
         .padding(.top, 20)
@@ -411,7 +411,7 @@ struct ApiKeyCard: View {
     @State private var key = ""
 
     var body: some View {
-        SettingsCard(title: "Anthropic API", icon: "key", status: AnyView(status)) {
+        SettingsCard(title: "Anthropic API", icon: "key-round", status: AnyView(status)) {
             VStack(alignment: .leading, spacing: 0) {
                 KeyField(app: app, key: $key)
                 HStack(alignment: .bottom, spacing: 24) {

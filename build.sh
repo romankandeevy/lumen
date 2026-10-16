@@ -25,7 +25,7 @@ cp "$BIN/Lumen" "$APP/Contents/MacOS/Lumen"
 # помощник памяти: claude запускает его как MCP-сервер
 cp "$BIN/lumen-mcp" "$APP/Contents/MacOS/lumen-mcp"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
-cp -R Resources/Fonts "$APP/Contents/Resources/"
+cp -R Resources/Fonts Resources/Icons "$APP/Contents/Resources/"
 # ресурсы пакетов (GRDB кладёт свой бандл с PrivacyInfo)
 for b in "$BIN"/*.bundle; do [ -e "$b" ] && cp -R "$b" "$APP/Contents/Resources/"; done
 # Постоянная подпись, как у остальных приложений набора (Связка ключей не спрашивает пароль после каждой сборки);

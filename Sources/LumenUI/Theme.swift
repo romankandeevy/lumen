@@ -81,3 +81,72 @@ extension Font {
         return NSFont(name: name, size: size) != nil ? .custom(name, size: size) : .system(size: size, weight: weight)
     }
 }
+
+// MARK: иконки Lucide (как в макете), SVG в Resources/Icons
+
+/// Иконка Lucide: обводка цветом текста вокруг, размер в точках (size-4 = 16)
+struct Icon: View {
+    let name: String
+    var size: CGFloat = 16
+
+    init(_ name: String, _ size: CGFloat = 16) {
+        self.name = name
+        self.size = size
+    }
+
+    @MainActor private static var cache: [String: NSImage] = [:]
+
+    /// В бандле — Contents/Resources/Icons; в тестах и снимках — папка из LUMEN_ICONS
+    @MainActor static func image(_ name: String) -> NSImage? {
+        if let i = cache[name] { return i }
+        var url = Bundle.main.url(forResource: name, withExtension: "svg", subdirectory: "Icons")
+        if url == nil, let dir = ProcessInfo.processInfo.environment["LUMEN_ICONS"] {
+            url = URL(fileURLWithPath: dir).appendingPathComponent("\(name).svg")
+        }
+        guard let url, let img = NSImage(contentsOf: url) else { return nil }
+        img.isTemplate = true
+        cache[name] = img
+        return img
+    }
+
+    var body: some View {
+        Group {
+            if let img = Self.image(name) {
+                Image(nsImage: img).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
+            } else {
+                Color.clear
+            }
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+// MARK: высота строки как в CSS (line-height): Text в SwiftUI ниже, чем в браузере
+
+extension View {
+    /// Шрифт Geist и высота строки: `.tw(14, lh: 20)` = text-sm, `.tw(15, lh: 24.75)` = text-[0.9375rem] leading-[1.65]
+    func tw(_ size: CGFloat, _ weight: Font.Weight = .regular, lh: CGFloat) -> some View {
+        let natural = LineMetrics.height(size, weight)
+        let extra = max(0, lh - natural)
+        return self.font(.geist(size, weight))
+            .lineSpacing(extra)
+            .padding(.vertical, extra / 2)
+    }
+}
+
+enum LineMetrics {
+    @MainActor private static var cache: [String: CGFloat] = [:]
+
+    /// Естественная высота строки шрифта (как её рисует Text)
+    static func height(_ size: CGFloat, _ weight: Font.Weight) -> CGFloat {
+        let name: String
+        switch weight {
+        case .medium: name = "Geist-Medium"
+        case .semibold: name = "Geist-SemiBold"
+        case .bold, .heavy, .black: name = "Geist-Bold"
+        default: name = "Geist-Regular"
+        }
+        let font = NSFont(name: name, size: size) ?? .systemFont(ofSize: size)
+        return ceil(font.ascender - font.descender + font.leading)
+    }
+}

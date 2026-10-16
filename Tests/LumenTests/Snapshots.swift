@@ -15,6 +15,7 @@ private let snapDir = ProcessInfo.processInfo.environment["LUMEN_SNAP"]
 enum Snap {
     static func registerFonts() {
         let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../Resources/Fonts").standardized
+        setenv("LUMEN_ICONS", dir.deletingLastPathComponent().appendingPathComponent("Icons").path, 1)
         for f in ["Regular", "Medium", "SemiBold", "Bold"] {
             CTFontManagerRegisterFontsForURL(dir.appendingPathComponent("Geist-\(f).ttf") as CFURL, .process, nil)
         }
@@ -24,7 +25,11 @@ enum Snap {
         guard let dir = snapDir else { return }
         let host = NSHostingView(rootView: view.frame(width: size.width, height: size.height))
         host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        // как настоящее окно Lumen (.hiddenTitleBar): заголовок прозрачный, содержимое на всю высоту
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                              backing: .buffered, defer: false)
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host

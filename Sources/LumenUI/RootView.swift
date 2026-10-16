@@ -22,6 +22,7 @@ public struct RootView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+        .ignoresSafeArea(.container, edges: .top)
         // `.lumen-light` на всём окне: панель полупрозрачная, свет проходит сквозь неё
         .background(LumenLight(level: app.orb == .thinking ? 1.9 : 1).ignoresSafeArea())
         .overlay {
@@ -50,13 +51,11 @@ struct Sidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // место под кнопки окна macOS — в браузерном макете их нет
-            Color.clear.frame(height: 28)
             HStack(spacing: 10) {
                 Orb(state: app.orb, size: 22)
                 Text("Lumen").font(.geist(15, .semibold)).tracking(-0.15)
                 Spacer()
-                IconButton(icon: "square.and.pencil", help: "Новый чат · ⌘N") { app.newChat() }
+                IconButton(icon: "square-pen", help: "Новый чат · ⌘N") { app.newChat() }
                     .keyboardShortcut("n", modifiers: .command)
             }
             .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
@@ -70,7 +69,7 @@ struct Sidebar: View {
                             .padding(.bottom, 12)
                         ForEach(groups, id: \.0) { name, items in
                             VStack(alignment: .leading, spacing: 0) {
-                                Text(name).font(.geist(12)).foregroundStyle(p.mutedFg)
+                                Text(name).tw(12, lh: 16).foregroundStyle(p.mutedFg)
                                     .padding(.horizontal, 10).padding(.bottom, 4)
                                 ForEach(items) { c in ChatRow(app: app, c: c) }
                             }
@@ -80,7 +79,7 @@ struct Sidebar: View {
                         NewButton(title: "Новая задача") { app.newAgentTask() }
                             .padding(.bottom, 12)
                         if !sessions.isEmpty {
-                            Text("Сессии").font(.geist(12)).foregroundStyle(p.mutedFg)
+                            Text("Сессии").tw(12, lh: 16).foregroundStyle(p.mutedFg)
                                 .padding(.horizontal, 10).padding(.bottom, 4)
                             ForEach(sessions) { c in ChatRow(app: app, c: c) }
                         }
@@ -94,7 +93,7 @@ struct Sidebar: View {
                 NavRow(title: "Память", icon: "brain", active: app.page == .memory, trailing: "\(app.memoryCount)") {
                     app.page = .memory
                 }
-                NavRow(title: "Настройки", icon: "gearshape", active: { if case .settings = app.page { true } else { false } }()) {
+                NavRow(title: "Настройки", icon: "settings", active: { if case .settings = app.page { true } else { false } }()) {
                     app.page = .settings(.look)
                 }
             }
@@ -152,8 +151,8 @@ struct ProfileCard: View {
                 .frame(width: 28, height: 28)
                 .background(p.foreground.opacity(0.1), in: Circle())
             VStack(alignment: .leading, spacing: 0) {
-                Text(name.isEmpty ? "Без имени" : name).font(.geist(14)).lineLimit(1)
-                Text(plan).font(.geist(12)).foregroundStyle(p.mutedFg).lineLimit(1)
+                Text(name.isEmpty ? "Без имени" : name).tw(14, lh: 20).lineLimit(1)
+                Text(plan).tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(1)
             }
             Spacer(minLength: 0)
         }
@@ -174,8 +173,8 @@ struct TabSwitch: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            tab(.chat, "Чат", "message")
-            tab(.agent, "Агент", "terminal")
+            tab(.chat, "Чат", "message-square")
+            tab(.agent, "Агент", "square-terminal")
         }
         .padding(2)
         .background(p.foreground.opacity(0.05), in: RoundedRectangle(cornerRadius: R.xl))
@@ -195,7 +194,7 @@ struct TabSwitch: View {
             }
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: icon).font(.system(size: 12)).foregroundStyle(active ? p.glow : p.mutedFg)
+                Icon(icon, 14).foregroundStyle(active ? p.glow : p.mutedFg)
                 Text(name).font(.geist(13))
             }
             .foregroundStyle(active ? p.foreground : p.mutedFg)
@@ -219,7 +218,7 @@ struct NewButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                Image(systemName: "plus").font(.system(size: 14))
+                Icon("plus", 16)
                 Text(title).font(.geist(14))
             }
             .padding(.horizontal, 10).frame(height: 32)
@@ -249,7 +248,7 @@ struct ChatRow: View {
                 if c.kind == .agent {
                     // как в макете: ноутбук (на этом Маке) или крутилка, пока работает
                     Group {
-                        if running { ProgressView().controlSize(.mini).tint(p.glow) } else { Image(systemName: "laptopcomputer").font(.system(size: 12)) }
+                        if running { ProgressView().controlSize(.mini).tint(p.glow) } else { Icon("laptop", 14) }
                     }
                     .foregroundStyle(p.mutedFg).frame(width: 20, height: 18)
                     VStack(alignment: .leading, spacing: 0) {
@@ -332,7 +331,7 @@ struct NavRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                Image(systemName: icon).font(.system(size: 14)).foregroundStyle(active ? p.glow : p.mutedFg).frame(width: 16)
+                Icon(icon, 16).foregroundStyle(active ? p.glow : p.mutedFg).frame(width: 16)
                 Text(title).font(.geist(14))
                 Spacer(minLength: 0)
                 if let trailing { Text(trailing).font(.geist(12)).foregroundStyle(p.mutedFg).monospacedDigit() }
@@ -361,7 +360,7 @@ struct IconButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: icon).font(.system(size: 14))
+            Icon(icon, 16)
                 .foregroundStyle(hover || active ? p.foreground : p.mutedFg)
                 .frame(width: 28, height: 28)
                 .background(active ? p.secondary : (hover ? p.foreground.opacity(0.05) : .clear), in: RoundedRectangle(cornerRadius: R.lg))

@@ -45,7 +45,7 @@ struct FolderTile: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                Image(systemName: muted ? "folder.badge.plus" : "folder").font(.system(size: 14))
+                Icon(muted ? "folder-plus" : "folder", 16)
                     .foregroundStyle(active ? p.glow : p.mutedFg)
                 Text(name).font(.geist(14)).lineLimit(1).foregroundStyle(muted ? p.mutedFg : p.foreground)
                 Spacer(minLength: 0)
@@ -72,7 +72,7 @@ struct StepsView: View {
         VStack(alignment: .leading, spacing: 6) {
             Button { withAnimation(.easeOut(duration: 0.15)) { open.toggle() } } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: open ? "chevron.down" : "chevron.right").font(.system(size: 10, weight: .semibold))
+                    Icon(open ? "chevron-down" : "chevron-right", 12)
                     Text(summary).font(.geist(12))
                     if live { ProgressView().controlSize(.mini).tint(p.glow) }
                 }
@@ -85,7 +85,7 @@ struct StepsView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(Array((open ? steps : Array(steps.suffix(3))).enumerated()), id: \.offset) { _, s in
                         HStack(spacing: 8) {
-                            Image(systemName: Self.icon(s.kind)).font(.system(size: 11)).frame(width: 14)
+                            Icon(Self.icon(s.kind), 14)
                             Text(s.text).font(.geist(12)).lineLimit(1)
                         }
                     }
@@ -112,10 +112,10 @@ struct StepsView: View {
         case .read: "eye"
         case .edit: "pencil"
         case .run: "terminal"
-        case .search: "magnifyingglass"
+        case .search: "search"
         case .web: "globe"
         case .think: "brain"
-        case .other: "wrench.and.screwdriver"
+        case .other: "wrench"
         }
     }
 }
@@ -138,7 +138,7 @@ struct ChangeCard: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Image(systemName: "point.topleft.down.to.point.bottomright.curvepath").font(.system(size: 13)).foregroundStyle(p.mutedFg)
+                Icon("git-commit-horizontal", 16).foregroundStyle(p.mutedFg)
                 Text("Изменения").font(.geist(14, .medium))
                 Text("\(changes.files.count) " + Plural.form(changes.files.count, "файл", "файла", "файлов") + ", +\(added) −\(removed)")
                     .font(.geist(12)).foregroundStyle(p.mutedFg)
@@ -170,7 +170,7 @@ struct ChangeCard: View {
             }
 
             HStack(spacing: 8) {
-                LButton(title: "Откатить", icon: "arrow.uturn.backward", kind: .ghost, size: .sm) { act { await chat.revert(message) } }
+                LButton(title: "Откатить", icon: "undo-2", kind: .ghost, size: .sm) { act { await chat.revert(message) } }
                     .disabled(changes.state != .applied || busy)
                     .help("Вернуть файлы как были до этого хода. Новые файлы уйдут в Корзину.")
                 Spacer()
@@ -180,7 +180,7 @@ struct ChangeCard: View {
                         diffOpen = true
                     }
                 }
-                LButton(title: "Закоммитить", icon: "checkmark.circle", kind: .primary, size: .sm) { act { await chat.commit(message) } }
+                LButton(title: "Закоммитить", icon: "circle-check", kind: .primary, size: .sm) { act { await chat.commit(message) } }
                     .disabled(changes.state != .applied || busy)
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
@@ -305,7 +305,7 @@ struct PlanMark: View {
     var body: some View {
         switch state {
         case .done:
-            Image(systemName: "checkmark").font(.system(size: 9, weight: .heavy)).foregroundStyle(p.background)
+            Icon("check", 12).foregroundStyle(p.background)
                 .frame(width: 17, height: 17).background(p.foreground.opacity(0.7), in: Circle())
         case .doing:
             Circle().stroke(p.foreground.opacity(0.15), lineWidth: 2)
@@ -368,7 +368,7 @@ struct NextStepCard: View {
         .background(p.card.opacity(0.7), in: RoundedRectangle(cornerRadius: R.xxl))
         .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(p.border))
         .overlay(alignment: .topTrailing) {
-            Button(action: close) { Image(systemName: "xmark").font(.system(size: 12)).foregroundStyle(p.mutedFg) }
+            Button(action: close) { Icon("x", 14).foregroundStyle(p.mutedFg) }
                 .buttonStyle(.plain).help("Убрать").padding(14)
         }
         .transition(.opacity.combined(with: .move(edge: .bottom)))

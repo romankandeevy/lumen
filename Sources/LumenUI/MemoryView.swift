@@ -132,14 +132,14 @@ struct MemoryView: View {
     @ViewBuilder private var forgottenBanner: some View {
         if let f = app.lastForgotten {
             HStack(spacing: 10) {
-                Image(systemName: "xmark").font(.system(size: 11))
+                Icon("x", 14)
                 Text("Забыл: ").foregroundStyle(p.mutedFg) + Text(f.text).strikethrough()
                 Spacer(minLength: 8)
                 Button { app.restoreForgotten() } label: {
-                    Label("Вернуть", systemImage: "arrow.uturn.backward").font(.geist(13, .medium))
+                    IconLabel(text: "Вернуть", icon: "undo-2", size: 14).font(.geist(13, .medium))
                 }
                 .buttonStyle(.plain)
-                Button { app.lastForgotten = nil } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(p.mutedFg) }
+                Button { app.lastForgotten = nil } label: { Icon("x", 14).foregroundStyle(p.mutedFg) }
                     .buttonStyle(.plain)
             }
             .font(.geist(13)).lineLimit(1)
@@ -199,10 +199,10 @@ struct SearchField: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass").font(.system(size: 13)).foregroundStyle(p.mutedFg)
+            Icon("search", 16).foregroundStyle(p.mutedFg)
             TextField(placeholder, text: $text).textFieldStyle(.plain).font(.geist(14)).focused($focused)
             if !text.isEmpty {
-                Button { text = "" } label: { Image(systemName: "xmark").font(.system(size: 11)).foregroundStyle(p.mutedFg) }
+                Button { text = "" } label: { Icon("x", 14).foregroundStyle(p.mutedFg) }
                     .buttonStyle(.plain).help("Очистить")
             }
         }
@@ -263,7 +263,7 @@ struct FactRow: View {
                         .onSubmit(save)
                         .onExitCommand { editing = false }
                 } else {
-                    Text(fact.text).font(.geist(14)).lineSpacing(4).fixedSize(horizontal: false, vertical: true)
+                    Text(fact.text).tw(14, lh: 22.75).fixedSize(horizontal: false, vertical: true)
                 }
                 HStack(spacing: 8) {
                     Text(fact.kind.name)
@@ -276,14 +276,14 @@ struct FactRow: View {
                     slash
                     Text(RelativeWhen.string(fact.createdAt))
                 }
-                .font(.geist(12)).foregroundStyle(p.mutedFg)
+                .tw(12, lh: 16).foregroundStyle(p.mutedFg)
             }
             Spacer(minLength: 8)
             HStack(spacing: 2) {
                 if editing {
-                    LButton(title: "Сохранить", icon: "checkmark", kind: .primary, size: .xs, action: save)
+                    LButton(title: "Сохранить", icon: "check", kind: .primary, size: .xs, action: save)
                 } else {
-                    icon(fact.pinned ? "pin.slash" : "pin", fact.pinned ? "Открепить" : "Закрепить: всегда в разговоре") {
+                    icon(fact.pinned ? "pin-off" : "pin", fact.pinned ? "Открепить" : "Закрепить: всегда в разговоре") {
                         app.updateMemory(fact) { $0.pinned.toggle() }
                     }
                     icon("pencil", "Изменить") {
@@ -291,7 +291,7 @@ struct FactRow: View {
                         editing = true
                         focused = true
                     }
-                    icon("xmark", "Забыть") { withAnimation { app.forget(fact) } }
+                    icon("x", "Забыть") { withAnimation { app.forget(fact) } }
                 }
             }
             .opacity(editing || hover ? 1 : 0.4)
@@ -326,7 +326,7 @@ struct TalkCard: View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Image(systemName: hit.kind == .agent ? "terminal" : "message").font(.system(size: 12)).foregroundStyle(p.mutedFg)
+                    Icon(hit.kind == .agent ? "square-terminal" : "message-square", 14).foregroundStyle(p.mutedFg)
                     Text(hit.title).font(.geist(14, .medium)).lineLimit(1)
                     Spacer()
                     Text(RelativeWhen.string(hit.date)).font(.geist(12)).foregroundStyle(p.mutedFg)
@@ -359,7 +359,7 @@ struct FileRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 12) {
-                Image(systemName: "doc.text").font(.system(size: 14)).foregroundStyle(p.mutedFg)
+                Icon("file-text", 16).foregroundStyle(p.mutedFg)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(name).font(.system(size: 12, design: .monospaced))
                     Text(note).font(.geist(12)).foregroundStyle(p.mutedFg).lineLimit(1)
@@ -428,7 +428,7 @@ struct AddFactSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
-                Label { Text("Запомнить факт").font(.geist(18, .semibold)) } icon: { Image(systemName: "brain").foregroundStyle(p.glow) }
+                Label { Text("Запомнить факт").font(.geist(18, .semibold)) } icon: { Icon("brain", 16).foregroundStyle(p.glow) }
                 Text("Одна мысль — один факт. Lumen будет учитывать его в разговорах.").font(.geist(14)).foregroundStyle(p.mutedFg)
             }
             ZStack(alignment: .topLeading) {
@@ -487,7 +487,7 @@ struct RememberedCard: View {
     var body: some View {
         if let f = app.memory(id) {
             HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "brain").font(.system(size: 14)).foregroundStyle(p.glow).padding(.top, 2)
+                Icon("brain", 16).foregroundStyle(p.glow).padding(.top, 2)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Запомнил").font(.geist(12)).foregroundStyle(p.mutedFg)
                     if editing {
@@ -504,14 +504,14 @@ struct RememberedCard: View {
                 Spacer(minLength: 8)
                 HStack(spacing: 4) {
                     if editing {
-                        LButton(title: "Сохранить", icon: "checkmark", kind: .primary, size: .xs) { save(f) }
+                        LButton(title: "Сохранить", icon: "check", kind: .primary, size: .xs) { save(f) }
                     } else {
                         LButton(title: "Изменить", icon: "pencil", kind: .ghost, size: .xs) {
                             text = f.text
                             editing = true
                         }
                     }
-                    LButton(title: "Забыть", icon: "xmark", kind: .ghost, size: .xs) {
+                    LButton(title: "Забыть", icon: "x", kind: .ghost, size: .xs) {
                         forgotten = f
                         app.forget(f)
                         app.lastForgotten = nil // вернуть можно прямо здесь
@@ -537,7 +537,7 @@ struct RememberedCard: View {
             }
         } else if let f = forgotten {
             HStack(spacing: 8) {
-                Image(systemName: "xmark").font(.system(size: 11))
+                Icon("x", 14)
                 Text("Забыл: ") + Text(f.text).strikethrough()
                 Spacer(minLength: 8)
                 Button {
@@ -547,7 +547,7 @@ struct RememberedCard: View {
                     forgotten = nil
                     app.reloadMemories()
                 } label: {
-                    Label("Вернуть", systemImage: "arrow.uturn.backward").foregroundStyle(p.foreground)
+                    IconLabel(text: "Вернуть", icon: "undo-2", size: 14).foregroundStyle(p.foreground)
                 }
                 .buttonStyle(.plain)
             }
@@ -589,7 +589,7 @@ struct RecalledLine: View {
             VStack(alignment: .leading, spacing: 6) {
                 Button { withAnimation(.easeOut(duration: 0.15)) { open.toggle() } } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "brain").font(.system(size: 12))
+                        Icon("brain", 14)
                         Text("Опирался на \(facts.count) " + Plural.form(facts.count, "воспоминание", "воспоминания", "воспоминаний"))
                     }
                     .font(.geist(12)).foregroundStyle(hover ? p.glow : p.mutedFg)

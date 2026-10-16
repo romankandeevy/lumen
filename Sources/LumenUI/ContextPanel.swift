@@ -21,9 +21,9 @@ struct ContextPanel: View {
                     Side(title: "Сессия") {
                         VStack(alignment: .leading, spacing: 8) {
                             Label { Text(folder.replacingOccurrences(of: NSHomeDirectory(), with: "~")).lineLimit(1).truncationMode(.middle) }
-                                icon: { Image(systemName: "folder").foregroundStyle(p.glow) }
-                            Label("Этот Мак", systemImage: "laptopcomputer").foregroundStyle(p.mutedFg)
-                            Label("push и выкатка — только с твоего OK", systemImage: "lock").foregroundStyle(p.mutedFg)
+                                icon: { Icon("folder", 16).foregroundStyle(p.glow) }
+                            IconLabel(text: "Этот Мак", icon: "laptop").foregroundStyle(p.mutedFg)
+                            IconLabel(text: "push и выкатка — только с твоего OK", icon: "lock").foregroundStyle(p.mutedFg)
                         }
                         .font(.geist(14))
                     }
@@ -63,7 +63,7 @@ struct ContextPanel: View {
                     }
                     if conversation?.usesCLI == true, chat.lastContext != nil {
                         Button { chat.compact() } label: {
-                            Label("Сжать разговор", systemImage: "arrow.counterclockwise").font(.geist(12))
+                            IconLabel(text: "Сжать разговор", icon: "rotate-ccw", size: 14).font(.geist(12))
                         }
                         .buttonStyle(.plain).foregroundStyle(p.mutedFg)
                         .disabled(chat.running != nil)
