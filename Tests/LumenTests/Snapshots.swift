@@ -257,6 +257,20 @@ enum Snap {
 
     app.page = .botEditor("tester")
     try await Snap.save(RootView(app: app), "31-bot-editor")
+    // весь конструктор целиком — высоким окном
+    try await Snap.save(RootView(app: app), "31b-bot-editor-full", size: CGSize(width: 1180, height: 1900))
+    app.page = .botEditor(nil)
+    try await Snap.save(RootView(app: app), "31c-bot-new", size: CGSize(width: 1180, height: 1900))
+    // «Работают»: бота позвали из чата
+    app.botRuns["tester"] = "Почему падает Shelf?"
+    app.page = .bots
+    try await Snap.save(RootView(app: app), "30b-bots-working")
+    app.botRuns = [:]
+    // подсказка ботов при наборе «@»
+    app.newChat()
+    try await Snap.save(VStack { Spacer(); Composer(app: app, draft: .constant("@"), backend: .subscription) }
+        .environment(\.palette, Palette.of(.lumen)).background(Palette.of(.lumen).background), "35-mention-popup",
+        size: CGSize(width: 900, height: 360))
 
     app.openBot("tester")
     try await Snap.save(RootView(app: app), "32-bot-empty")
