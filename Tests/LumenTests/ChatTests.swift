@@ -287,3 +287,21 @@ import Testing
     app.newChat()
     #expect(app.page == .botEditor(nil))
 }
+
+
+/// Вкладка «Чат» никогда не показывает задачу агента (и наоборот), даже если вкладку переключили напрямую
+@MainActor @Test func tabNeverShowsOtherKind() throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-tabkind-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .subscription, theme: .lumen)
+    let task = Conversation(title: "Задача", kind: .agent, folder: "/tmp", backend: .subscription, model: .sonnet, effort: .high)
+    try app.store.save(task)
+    app.reloadConversations()
+    app.openChat(task)
+    #expect(app.tab == .agent && app.chat.conversation?.id == task.id)
+    app.tab = .chat
+    #expect(app.chat.conversation == nil)
+    app.openChat(task)          // открыть снова — вкладка сама становится «Агентом»
+    #expect(app.tab == .agent && app.chat.conversation?.id == task.id)
+}

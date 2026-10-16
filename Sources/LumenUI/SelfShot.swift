@@ -37,8 +37,9 @@ extension AppModel {
             try? rep.representation(using: .png, properties: [:])?.write(to: out.appendingPathComponent("\(name).png"))
         }
         searchOpen = false
-        tab = .chat
-        page = .chat
+        // вернуть окно как было: «Чат» с новым разговором, а не открытой задачей агента
+        switchTab(.chat)
+        newChat()
         try? "done".write(to: out.appendingPathComponent("done.txt"), atomically: true, encoding: .utf8)
     }
 }

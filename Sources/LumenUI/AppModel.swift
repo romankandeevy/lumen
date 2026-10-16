@@ -60,7 +60,14 @@ public final class AppModel {
     /// Вкладка панели: Чат или Агент
     /// Вкладки наверху панели, как в макете: Чат, Агент, Боты
     enum Tab { case chat, agent, bots }
-    var tab: Tab = .chat
+    var tab: Tab = .chat {
+        // вкладка и открытый разговор всегда совпадают: на «Чате» не может быть открыта задача агента и наоборот
+        didSet {
+            guard tab != oldValue, tab != .bots, let c = chat.conversation else { return }
+            let fits = tab == .agent ? c.kind == .agent : c.kind == .chat
+            if !fits { chat.startNew() }
+        }
+    }
     /// Папка для новой задачи агента
     var agentFolder: URL?
     var conversations: [Conversation] = []
