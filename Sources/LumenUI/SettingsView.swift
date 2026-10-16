@@ -192,7 +192,7 @@ private struct UpdatesCard: View {
 
     private var lastCheck: String {
         guard let d = updater.lastCheck else { return "Ещё не проверял" }
-        return "Проверял \(RelativeWhen.string(d))"
+        return "Последняя проверка: \(RelativeWhen.string(d))"
     }
 }
 

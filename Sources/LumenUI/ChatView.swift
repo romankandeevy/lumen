@@ -77,7 +77,7 @@ struct ChatView: View {
                 if bot != nil {
                 } else if agent {
                     HStack(spacing: 6) {
-                        Text("Агент в папке \(folder?.lastPathComponent ?? "—")")
+                        Text(folder.map { "Агент в папке \($0.lastPathComponent)" } ?? "Папка не выбрана")
                         Text("·").foregroundStyle(p.foreground.opacity(0.2))
                         Icon("laptop", 12)
                         Text("на этом Маке" + (backend == .api ? ", по ключу API" : ""))

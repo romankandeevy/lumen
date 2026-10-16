@@ -3,6 +3,7 @@
 #
 #   tools/release.sh 1.0          стабильная: релиз Latest, в ленте без канала
 #   tools/release.sh 1.0.1 beta   бета: Pre-release, в ленте канал beta
+#   tools/release.sh 1.0 --dry    проба: собрать и упаковать, ничего не подписывать, не коммитить, не публиковать
 #
 # Что делает: ставит номер в Info.plist, собирает build/Lumen.app, пакует zip,
 # подписывает его ключом EdDSA из Связки ключей (generate_keys --account lumen),
@@ -16,6 +17,24 @@ cd "$(dirname "$0")/.."
 
 VERSION="${1:?номер версии, например 1.0 или 1.0.1}"
 CHANNEL="${2:-stable}"
+DRY=0
+if [ "$CHANNEL" = --dry ] || [ "${3:-}" = --dry ]; then DRY=1; [ "$CHANNEL" = --dry ] && CHANNEL=stable; fi
+
+if [ $DRY = 1 ]; then
+    # проба: та же сборка и упаковка, но Info.plist и лента не меняются, без подписи и публикации
+    ./build.sh
+    OUT="build/dry-$VERSION"
+    rm -rf "$OUT"; mkdir -p "$OUT"
+    ditto -c -k --sequesterRsrc --keepParent build/Lumen.app "$OUT/Lumen-$VERSION.zip"
+    [ -f "docs/releases/$VERSION.md" ] && echo "==> заметки на месте: docs/releases/$VERSION.md" || echo "!! нет заметок docs/releases/$VERSION.md"
+    codesign --verify --deep --strict build/Lumen.app && echo "==> подпись приложения цела"
+    unzip -q "$OUT/Lumen-$VERSION.zip" -d "$OUT/unzipped" && codesign --verify --deep --strict "$OUT/unzipped/Lumen.app" && echo "==> из архива приложение тоже цело"
+    [ -x "$OUT/unzipped/Lumen.app/Contents/MacOS/lumen-mcp" ] && echo "==> lumen-mcp внутри"
+    [ -d "$OUT/unzipped/Lumen.app/Contents/Frameworks/Sparkle.framework" ] && echo "==> Sparkle внутри"
+    ls -lh "$OUT/Lumen-$VERSION.zip"
+    echo "==> проба готова: $OUT (ничего не опубликовано)"
+    exit 0
+fi
 NOTES="docs/releases/$VERSION.md"
 TAG="v$VERSION"
 case "$VERSION" in *.*.*) ;; *) TAG="v$VERSION.0" ;; esac

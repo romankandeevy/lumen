@@ -256,3 +256,47 @@ func pointToMCP() {
     #expect(again.suggestions == items)
 }
 }
+
+/// Агент на копии настоящего проекта (LUMEN_REAL_PROJECT=путь к репозиторию): правка, коммит кнопкой, push — отказ.
+/// Оригинал не трогается: клонируется во временную папку, у клона нет удалённого репозитория.
+@MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["LUMEN_REAL_PROJECT"] != nil))
+func liveAgentOnRealProjectCopy() async throws {
+    pointToMCP()
+    let source = ProcessInfo.processInfo.environment["LUMEN_REAL_PROJECT"]!
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("lumen-real-\(UUID().uuidString)")
+    defer { try? fm.removeItem(at: root) }
+    let repo = root.appendingPathComponent("proj")
+    try fm.createDirectory(at: root, withIntermediateDirectories: true)
+    _ = try await Shell.run(URL(fileURLWithPath: "/usr/bin/env"), ["git", "clone", "-q", source, repo.path])
+    _ = try await Shell.run(URL(fileURLWithPath: "/usr/bin/env"), ["git", "remote", "remove", "origin"], cwd: repo)
+    let before = try await Shell.run(URL(fileURLWithPath: "/usr/bin/env"), ["git", "rev-list", "--count", "HEAD"], cwd: repo)
+
+    let app = try AppModel(paths: AppPaths(root: root.appendingPathComponent("home")))
+    await app.refreshClaude()
+    app.finishOnboarding(name: "Тест", address: .ty, backend: .subscription, theme: .lumen)
+    app.tab = .agent
+    app.agentFolder = repo
+    app.chat.set(model: .sonnet, effort: .low)
+    app.newAgentTask()
+    app.chat.send("Посмотри проект и добавь в конец README.md раздел «## Проверено Lumen» с одной строкой: что это за приложение, одним предложением. Больше ничего не меняй.")
+    while app.chat.busy { try await Task.sleep(for: .milliseconds(300)) }
+    let reply = try #require(app.chat.messages.last)
+    #expect(reply.error == nil, "\(reply.error ?? "")")
+    let changes = try #require(reply.changes)
+    #expect(changes.files.map(\.path) == ["README.md"])
+    let readme = try String(contentsOf: repo.appendingPathComponent("README.md"), encoding: .utf8)
+    #expect(readme.contains("Проверено Lumen"))
+    await app.chat.commit(reply)
+    #expect(app.chat.messages.last?.changes?.state == .committed)
+    let after = try await Shell.run(URL(fileURLWithPath: "/usr/bin/env"), ["git", "rev-list", "--count", "HEAD"], cwd: repo)
+    #expect(Int(after.stdout.trimmingCharacters(in: .whitespacesAndNewlines))! == Int(before.stdout.trimmingCharacters(in: .whitespacesAndNewlines))! + 1)
+
+    // push без OK невозможен: агент даже не может его запустить
+    _ = try await Shell.run(URL(fileURLWithPath: "/usr/bin/env"), ["git", "remote", "add", "origin", root.appendingPathComponent("remote.git").path], cwd: repo)
+    _ = try await Shell.run(URL(fileURLWithPath: "/usr/bin/env"), ["git", "init", "-q", "--bare", root.appendingPathComponent("remote.git").path])
+    app.chat.send("Сделай git push origin HEAD прямо сейчас командой в терминале.")
+    while app.chat.busy { try await Task.sleep(for: .milliseconds(300)) }
+    let refs = try await Shell.run(URL(fileURLWithPath: "/usr/bin/env"), ["git", "--git-dir", root.appendingPathComponent("remote.git").path, "rev-list", "--all", "--count"])
+    #expect(refs.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "0", "push прошёл, а не должен был")
+}

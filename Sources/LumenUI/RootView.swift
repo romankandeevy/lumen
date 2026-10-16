@@ -57,6 +57,7 @@ public struct RootView: View {
         // чат по подписке должен знать, где claude и есть ли вход
         .task { if app.claude == .checking { await app.refreshClaude() } }
         .task { if app.codex == .checking { await app.refreshCodex() } }
+        .task { await app.selfShotIfAsked() }
         .environment(\.palette, p)
         .environment(\.lessMotion, app.prefs.reducedMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
         .preferredColorScheme(.dark)
