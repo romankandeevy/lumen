@@ -58,6 +58,26 @@ extension AppModel {
         }
     }
 
+    /// Поставить из каталога skills.sh
+    func installFromDirectory(_ e: SkillsDirectory.Entry) async -> String {
+        do {
+            let r = try await SkillsDirectory(session: urlSession).install(e, into: skillLibrary)
+            reloadSkills()
+            chat.memoryChanged()
+            switch r {
+            case .alreadyInstalled(let n): return "«\(n)» уже стоит — та же версия, качать не стал."
+            case .updated(let n): return "«\(n)» обновлён."
+            case .installed(let n):
+                if let s = skillLibrary.skill(n), !s.info.warnings.isEmpty {
+                    return "«\(n)» поставлен, но выключен: проверка нашла подозрительное — \(s.info.warnings.joined(separator: ", ")). Посмотри и включи сам, если доверяешь."
+                }
+                return "«\(n)» поставлен и включён."
+            }
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
     // MARK: создание с Lumen
 
     /// Правила хорошего навыка (по skill-creator от Anthropic и спецификации agentskills.io)

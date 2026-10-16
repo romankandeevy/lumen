@@ -10,13 +10,9 @@ struct SkillsView: View {
     @Bindable var app: AppModel
 
     @Environment(\.palette) private var p
-    @State private var mode: Mode = .mine
     @State private var link = ""
     @State private var installing: String?
     @State private var note: String?
-    @State private var catalog: [GitHubSkills.Entry] = []
-    @State private var catalogError: String?
-    @State private var loadingCatalog = false
 
     enum Mode: Hashable { case mine, catalog }
 
@@ -30,7 +26,7 @@ struct SkillsView: View {
         } content: {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 12) {
-                    MiniSegmented(value: $mode, options: [(.mine, "Мои, \(app.skills.count)"), (.catalog, "Каталог Anthropic")])
+                    MiniSegmented(value: $app.skillsMode, options: [(.mine, "Мои, \(app.skills.count)"), (.catalog, "Каталог skills.sh")])
                     GlowField(placeholder: "Ссылка на навык на GitHub", text: $link, mono: true) { install(link) }
                     LButton(title: "Поставить", icon: "download", kind: .outline, small: true, busy: installing == link && !link.isEmpty) { install(link) }
                         .disabled(link.trimmingCharacters(in: .whitespaces).isEmpty || installing != nil)
@@ -40,7 +36,7 @@ struct SkillsView: View {
                 }
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
-                        if mode == .mine { mine } else { catalogList }
+                        if app.skillsMode == .mine { mine } else { SkillsCatalog(app: app) }
                     }
                     .padding(.bottom, 40)
                 }
@@ -48,7 +44,6 @@ struct SkillsView: View {
             }
         }
         .onAppear { app.reloadSkills() }
-        .onChange(of: mode) { if mode == .catalog && catalog.isEmpty { loadCatalog() } }
     }
 
     @ViewBuilder private var mine: some View {
@@ -65,44 +60,6 @@ struct SkillsView: View {
         ForEach(app.skills) { s in SkillRow(app: app, skill: s) }
     }
 
-    @ViewBuilder private var catalogList: some View {
-        if loadingCatalog {
-            HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Открываю каталог на GitHub…").tw(13, lh: 18) }.padding(.vertical, 24)
-        }
-        if let catalogError {
-            VStack(alignment: .leading, spacing: 8) {
-                IconLabel(text: catalogError, icon: "triangle-alert", size: 14).tw(13, lh: 18).foregroundStyle(Palette.destructive)
-                LButton(title: "Ещё раз", icon: "refresh-cw", kind: .outline, small: true) { loadCatalog() }
-            }
-        }
-        ForEach(catalog) { e in
-            let have = app.skills.first { $0.info.source == e.location.source }
-            HStack(alignment: .top, spacing: 12) {
-                Icon("book-open", 16).foregroundStyle(p.glow).padding(.top, 2)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(e.name).tw(14, .medium, lh: 20)
-                    Text(e.description).tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(3)
-                }
-                Spacer(minLength: 12)
-                if have != nil {
-                    IconLabel(text: "Стоит", icon: "check", size: 14).tw(12, lh: 16).foregroundStyle(p.mutedFg)
-                } else {
-                    LButton(title: "Поставить", kind: .outline, small: true, busy: installing == e.location.source) {
-                        install(e.location.source, origin: .catalog)
-                    }
-                    .disabled(installing != nil)
-                }
-            }
-            .padding(14)
-            .background(p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xl))
-            .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
-        }
-        if !catalog.isEmpty {
-            Text("Источник: github.com/anthropics/skills. Уже поставленная версия не скачивается заново.")
-                .tw(11, lh: 15).foregroundStyle(p.mutedFg)
-        }
-    }
-
     private func install(_ l: String, origin: SkillInfo.Origin = .github) {
         let link = l.trimmingCharacters(in: .whitespaces)
         guard !link.isEmpty, installing == nil else { return }
@@ -115,14 +72,6 @@ struct SkillsView: View {
         }
     }
 
-    private func loadCatalog() {
-        loadingCatalog = true
-        catalogError = nil
-        Task {
-            do { catalog = try await GitHubSkills(session: app.urlSession).catalogEntries() } catch { catalogError = error.localizedDescription }
-            loadingCatalog = false
-        }
-    }
 }
 
 private struct SkillRow: View {
@@ -176,7 +125,7 @@ private struct SkillRow: View {
         case .created: "свой"
         case .learned: "сам научился"
         case .github: "GitHub"
-        case .catalog: "каталог Anthropic"
+        case .catalog: "skills.sh"
         }
     }
 
@@ -431,5 +380,230 @@ struct SkillProposalCard: View {
 
     private func dismiss() {
         if let id = message.id { app.chat.attachSkillDraft(nil, to: id, conversationID: message.conversationID) }
+    }
+}
+
+
+// MARK: каталог skills.sh
+
+/// Каталог как на skills.sh: рейтинг «за всё время / тренды / горячее», поиск, линия активности за 8 недель, установки
+struct SkillsCatalog: View {
+    @Bindable var app: AppModel
+
+    @Environment(\.palette) private var p
+    @State private var view: SkillsDirectory.View = .allTime
+    @State private var boards: [SkillsDirectory.View: SkillsDirectory.Board] = [:]
+    @State private var query = ""
+    @State private var found: [SkillsDirectory.Entry]?
+    @State private var error: String?
+    @State private var loading = false
+    @State private var open: String?
+    @State private var installing: String?
+    @State private var note: String?
+    @FocusState private var searchFocused: Bool
+
+    private var rows: [SkillsDirectory.Entry] { found ?? boards[view]?.entries ?? [] }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                Icon("search", 14).foregroundStyle(p.mutedFg)
+                TextField("Найти навык…", text: $query).textFieldStyle(.plain).font(.system(size: 13, design: .monospaced))
+                    .focused($searchFocused)
+                    .onChange(of: query) { _, q in search(q) }
+            }
+            .padding(.horizontal, 12).frame(height: 36)
+            .background(p.input.opacity(0.3), in: RoundedRectangle(cornerRadius: R.lg))
+            .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(searchFocused ? p.foreground.opacity(0.25) : p.border))
+
+            if found == nil {
+                HStack(spacing: 18) {
+                    tab(.allTime, "За всё время" + (boards[.allTime]?.allTimeTotal.map { " (\(Self.number($0)))" } ?? ""))
+                    tab(.trending, "Тренды (24 ч)")
+                    tab(.hot, "Горячее")
+                    Spacer()
+                    if let t = boards[.allTime]?.totalSkills { Text("\(Self.number(t)) навыков").font(.system(size: 11, design: .monospaced)).foregroundStyle(p.mutedFg) }
+                }
+            }
+            if let note { IconLabel(text: note, icon: "circle-check", size: 13).tw(12, lh: 16).foregroundStyle(p.mutedFg) }
+
+            VStack(spacing: 0) {
+                header
+                if loading && rows.isEmpty {
+                    HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Открываю skills.sh…").tw(13, lh: 18) }.padding(.vertical, 28)
+                }
+                if let error {
+                    VStack(spacing: 8) {
+                        IconLabel(text: error, icon: "triangle-alert", size: 14).tw(13, lh: 18).foregroundStyle(Palette.destructive)
+                        LButton(title: "Ещё раз", icon: "refresh-cw", kind: .outline, small: true) { load(view, force: true) }
+                    }
+                    .padding(.vertical, 24)
+                }
+                if found?.isEmpty == true {
+                    Text("Ничего не нашлось").tw(13, lh: 18).foregroundStyle(p.mutedFg).padding(.vertical, 28)
+                }
+                ForEach(Array(rows.enumerated()), id: \.element.id) { i, e in
+                    CatalogRow(app: app, rank: i + 1, entry: e, open: open == e.id, installing: installing == e.id, showRank: found == nil) {
+                        open = open == e.id ? nil : e.id
+                    } install: { install(e) }
+                    p.border.frame(height: 1)
+                }
+            }
+            Text("Источник — skills.sh: каталог открытых навыков для агентов (тот же, что у npx skills). Уже стоящая версия не скачивается заново.")
+                .tw(11, lh: 15).foregroundStyle(p.mutedFg)
+        }
+        .onAppear { load(view) }
+        .onChange(of: view) { load(view) }
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            Text("#").frame(width: 34, alignment: .leading)
+            Text("НАВЫК")
+            Spacer()
+            Text("8 НЕД.").frame(width: 96, alignment: .leading)
+            Text("УСТАНОВКИ").frame(width: 88, alignment: .trailing)
+            Color.clear.frame(width: 96)
+        }
+        .font(.system(size: 11, design: .monospaced)).foregroundStyle(p.mutedFg)
+        .padding(.horizontal, 10).padding(.vertical, 8)
+        .overlay(alignment: .bottom) { p.border.frame(height: 1) }
+    }
+
+    private func tab(_ v: SkillsDirectory.View, _ title: String) -> some View {
+        Button { view = v } label: {
+            Text(title).font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(view == v ? p.foreground : p.mutedFg)
+                .padding(.bottom, 6)
+                .overlay(alignment: .bottom) { if view == v { p.foreground.frame(height: 1) } }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func load(_ v: SkillsDirectory.View, force: Bool = false) {
+        guard force || boards[v] == nil else { return }
+        loading = true
+        error = nil
+        Task {
+            do { boards[v] = try await SkillsDirectory(session: app.urlSession).board(v) } catch { self.error = error.localizedDescription }
+            loading = false
+        }
+    }
+
+    private func search(_ q: String) {
+        let text = q.trimmingCharacters(in: .whitespaces)
+        guard text.count >= 2 else { found = nil; return }
+        Task {
+            try? await Task.sleep(for: .milliseconds(250)) // пока печатают — не дёргать сайт на каждую букву
+            guard text == query.trimmingCharacters(in: .whitespaces) else { return }
+            found = (try? await SkillsDirectory(session: app.urlSession).search(text)) ?? []
+        }
+    }
+
+    private func install(_ e: SkillsDirectory.Entry) {
+        guard installing == nil else { return }
+        installing = e.id
+        note = nil
+        Task {
+            note = await app.installFromDirectory(e)
+            installing = nil
+        }
+    }
+
+    /// 3 881 956 → «3,9 млн», 155 405 → «155 тыс.», 812 → «812»
+    static func short(_ n: Int) -> String {
+        if n >= 1_000_000 { return String(format: "%.1f млн", Double(n) / 1_000_000).replacingOccurrences(of: ".", with: ",") }
+        if n >= 10_000 { return "\(n / 1000) тыс." }
+        if n >= 1000 { return String(format: "%.1f тыс.", Double(n) / 1000).replacingOccurrences(of: ".", with: ",") }
+        return "\(n)"
+    }
+
+    static func number(_ n: Int) -> String {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.groupingSeparator = "\u{00A0}"
+        return f.string(from: NSNumber(value: n)) ?? "\(n)"
+    }
+}
+
+private struct CatalogRow: View {
+    @Bindable var app: AppModel
+    let rank: Int
+    let entry: SkillsDirectory.Entry
+    let open: Bool
+    let installing: Bool
+    let showRank: Bool
+    let toggle: () -> Void
+    let install: () -> Void
+
+    @Environment(\.palette) private var p
+    @State private var hover = false
+    @State private var text: String?
+
+    private var installed: Bool { app.skills.contains { $0.info.source == entry.lockSource || $0.name == entry.skillID } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Text(showRank ? "\(rank)" : "·").frame(width: 34, alignment: .leading).foregroundStyle(p.mutedFg)
+                HStack(spacing: 8) {
+                    Text(entry.name).fontWeight(.medium).lineLimit(1)
+                    Text(entry.source).foregroundStyle(p.mutedFg).lineLimit(1).truncationMode(.middle)
+                    if entry.official { Icon("circle-check", 12).foregroundStyle(p.mutedFg).help("Официальный навык") }
+                }
+                Spacer(minLength: 8)
+                Sparkline(values: entry.weekly).stroke(p.mutedFg.opacity(0.8), lineWidth: 1.2).frame(width: 80, height: 16)
+                    .frame(width: 96, alignment: .leading)
+                Text(SkillsCatalog.short(entry.installs)).frame(width: 88, alignment: .trailing)
+                Group {
+                    if installed {
+                        IconLabel(text: "Стоит", icon: "check", size: 12).foregroundStyle(p.mutedFg)
+                    } else {
+                        LButton(title: installing ? "Ставлю…" : "Поставить", kind: .outline, small: true, busy: installing, action: install)
+                            .opacity(hover || installing || open ? 1 : 0)
+                    }
+                }
+                .frame(width: 96, alignment: .trailing)
+            }
+            .font(.system(size: 13, design: .monospaced))
+            if open {
+                VStack(alignment: .leading, spacing: 8) {
+                    if let text, let parsed = SkillFormat.parse(text) {
+                        Text(parsed.fields["description"] ?? "").tw(13, lh: 19).fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        HStack(spacing: 6) { ProgressView().controlSize(.mini); Text("Читаю описание…").tw(12, lh: 16).foregroundStyle(p.mutedFg) }
+                    }
+                    Link("Открыть на skills.sh →", destination: entry.page).font(.system(size: 12, design: .monospaced)).foregroundStyle(p.glow)
+                }
+                .padding(.leading, 46).padding(.bottom, 4)
+                .task { if text == nil { text = try? await SkillsDirectory(session: app.urlSession).skillText(entry) } }
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 9)
+        .background(hover || open ? p.foreground.opacity(0.03) : .clear)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: toggle)
+        .onHover { hover = $0 }
+    }
+}
+
+/// Линия активности за 8 недель
+struct Sparkline: Shape {
+    let values: [Int]
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        guard values.count > 1, let lo = values.min(), let hi = values.max() else {
+            path.move(to: CGPoint(x: 0, y: rect.midY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+            return path
+        }
+        let span = Double(max(hi - lo, 1))
+        for (i, v) in values.enumerated() {
+            let pt = CGPoint(x: rect.width * CGFloat(i) / CGFloat(values.count - 1),
+                             y: rect.height * (1 - CGFloat(Double(v - lo) / span)))
+            if i == 0 { path.move(to: pt) } else { path.addLine(to: pt) }
+        }
+        return path
     }
 }

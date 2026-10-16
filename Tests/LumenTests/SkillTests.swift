@@ -153,18 +153,24 @@ private let live = ProcessInfo.processInfo.environment["LUMEN_LIVE"] == "1"
 
 @Suite(.serialized) struct LiveSkillSuite {
 
-    /// Каталог Anthropic открывается; навык ставится один раз, второй раз — «уже стоит» без скачивания
-    @MainActor @Test(.enabled(if: live)) func liveCatalogInstallsOnce() async throws {
-        let home = tempDir("lumen-livecatalog")
+    /// Каталог skills.sh: рейтинг и поиск открываются; навык ставится один раз, второй раз — «уже стоит»
+    @MainActor @Test(.enabled(if: live)) func liveSkillsShInstallsOnce() async throws {
+        let home = tempDir("lumen-liveskillssh")
         defer { try? FileManager.default.removeItem(at: home) }
-        let gh = GitHubSkills()
-        let entries = try await gh.catalogEntries()
-        #expect(entries.contains { $0.name == "pdf" } && entries.count > 10)
+        let dir = SkillsDirectory()
+        let board = try await dir.board(.allTime)
+        #expect(board.entries.count > 50)
+        #expect((board.totalSkills ?? 0) > 1000 && (board.allTimeTotal ?? 0) > 100_000)
+        #expect(board.entries.first?.weekly.count == 8)
+        let trending = try await dir.board(.trending)
+        #expect(!trending.entries.isEmpty)
+        let found = try await dir.search("pdf")
+        let pdf = try #require(found.first { $0.source == "anthropics/skills" && $0.skillID == "pdf" })
         let lib = SkillLibrary(root: home.appendingPathComponent("skills"))
-        let loc = try #require(entries.first { $0.name == "skill-creator" }?.location)
-        #expect(try await gh.install(loc, into: lib, origin: .catalog) == .installed("skill-creator"))
-        #expect(try await gh.install(loc, into: lib, origin: .catalog) == .alreadyInstalled("skill-creator"))
-        #expect(lib.skill("skill-creator")?.files.isEmpty == false)
+        #expect(try await dir.install(pdf, into: lib) == .installed("pdf"))
+        #expect(try await dir.install(pdf, into: lib) == .alreadyInstalled("pdf"))
+        let s = try #require(lib.skill("pdf"))
+        #expect(s.files.contains("forms.md") && s.info.source == "skills.sh:anthropics/skills/pdf")
     }
 
     /// Навык реально берётся в чате: модель сама вызывает load_skill и следует ему
@@ -263,4 +269,19 @@ private let live = ProcessInfo.processInfo.environment["LUMEN_LIVE"] == "1"
         // вывод попадает в правила бота
         #expect(app.botPrompt(app.bot("tester")!).contains("Чему ты научился"))
     }
+}
+
+
+@Test func skillsShBoardIsParsedFromPage() throws {
+    // так рейтинг лежит в странице skills.sh: строки потока Next.js с экранированным JSON
+    let payload = #"4c:["$","$L53",null,{"initialSkills":[{"source":"vercel-labs/skills","skillId":"find-skills","name":"find-skills","installs":3881956,"weeklyInstalls":[1,2,3,4,5,6,7,8],"isOfficial":true},{"source":"me/repo","skillId":"x","name":"x \"q\" [1]","installs":12}],"totalSkills":9908,"allTimeTotal":1339037,"view":"all-time"}]"#
+    let escaped = String(decoding: try JSONSerialization.data(withJSONObject: payload, options: [.fragmentsAllowed]), as: UTF8.self)
+    let html = "<html><script>self.__next_f.push([1," + escaped + "])</script></html>"
+    let b = try SkillsDirectory.parseBoard(html)
+    #expect(b.entries.count == 2)
+    #expect(b.entries[0].official && b.entries[0].weekly.count == 8 && b.entries[0].installs == 3_881_956)
+    #expect(b.entries[1].name == "x \"q\" [1]")
+    #expect(b.totalSkills == 9908 && b.allTimeTotal == 1_339_037)
+    #expect(b.entries[0].lockSource == "skills.sh:vercel-labs/skills/find-skills")
+    #expect(SkillsCatalog.short(3_881_956) == "3,9 млн" && SkillsCatalog.short(155_405) == "155 тыс." && SkillsCatalog.short(812) == "812")
 }

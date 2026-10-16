@@ -15,7 +15,8 @@ extension AppModel {
             ("chat-new", { [self] in tab = .chat; newChat() }),
             ("agent-new", { [self] in tab = .agent; newAgentTask() }),
             ("bots", { [self] in page = .bots }),
-            ("skills", { [self] in page = .skills }),
+            ("skills", { [self] in skillsMode = .mine; page = .skills }),
+            ("skills-catalog", { [self] in skillsMode = .catalog; page = .skills }),
             ("memory", { [self] in memoryMode = .facts; page = .memory }),
             ("memory-graph", { [self] in memoryMode = .graph; page = .memory }),
             ("search", { [self] in page = .chat; searchOpen = true }),
@@ -28,7 +29,8 @@ extension AppModel {
         }
         for (name, go) in shots {
             go()
-            try? await Task.sleep(for: .seconds(1.5))
+            // каталог тянется из сети — ему дольше
+            try? await Task.sleep(for: .seconds(name == "skills-catalog" ? 5 : 1.5))
             guard let view = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil })?.contentView,
                   let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
             view.cacheDisplay(in: view.bounds, to: rep)
