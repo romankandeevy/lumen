@@ -279,6 +279,45 @@ final class ChatController {
         }
     }
 
+    /// Lumen сам позвал бота (чат по ключу API): бот работает в своём разговоре, ответ уходит Lumen инструментом
+    func askBot(_ raw: String, task: String, from c: Conversation) async -> String {
+        let id = raw.trimmingCharacters(in: CharacterSet(charactersIn: "@ ")).lowercased()
+        guard let bot = app.bot(id) else { return "Нет такого бота: @\(id). Есть: " + app.bots.map { "@\($0.id)" }.joined(separator: ", ") + "." }
+        guard !task.isEmpty else { return "Пустая задача." }
+        guard let cli = app.cli else { return "Claude Code не найден — бот не может работать." }
+        let b = app.botConversation(for: bot)
+        if turns[b.id] != nil { return "@\(bot.id) сейчас отвечает в своём разговоре." }
+        let hadTurns = ((try? app.store.messages(in: b.id)) ?? []).contains { $0.role == .assistant && $0.error == nil }
+        var asked = ChatMessage(conversationID: b.id, role: .user, text: task)
+        asked.via = Via(conversationID: c.id, title: c.title)
+        _ = try? app.store.save(asked)
+        app.botRuns[bot.id] = c.title
+        defer { app.botRuns[bot.id] = nil }
+        turns[c.id]?.delegate = b.id
+        defer { turns[c.id]?.delegate = nil }
+        var answer = ""
+        var result: ClaudeEvent.TurnResult?
+        do {
+            let session = try cliSession(for: b, cli: cli, resume: hadTurns)
+            for await ev in try session.send(Via.modelText(task: task, from: "Lumen, разговор «\(c.title)»", context: "")) {
+                switch ev {
+                case .textDelta(let t): answer += t
+                case .finished(let r): result = r
+                default: break
+                }
+            }
+        } catch {
+            return "@\(bot.id) не запустился: \(error.localizedDescription)"
+        }
+        let ok = result?.ok == true
+        let text = answer.isEmpty ? (result?.text ?? "") : answer
+        var m = ChatMessage(conversationID: b.id, role: .assistant, text: text, model: bot.model, error: ok ? nil : Self.cliError(result?.text ?? ""))
+        m.botID = bot.id
+        _ = try? app.store.save(m)
+        if !ok { sessions[b.id] = nil }
+        return ok ? "@\(bot.id) ответил:\n\(text)" : "@\(bot.id) не справился: \(text)"
+    }
+
     /// Что было в чате без Lumen: вопросы ботам через @ и их ответы шли в процессах ботов, сессия Lumen их не видела.
     /// Перед своим ходом Lumen получает это скрытым блоком — на экране его нет.
     func unseenContext(_ history: [ChatMessage], _ c: Conversation) -> String {
@@ -763,6 +802,14 @@ final class ChatController {
         request.tools = (MemoryTools.definitions + (tools.availableSkills.isEmpty ? [] : MemoryTools.skillDefinitions) + SkillAdmin.definitions + CustomizeAdmin.definitions).map {
             JSONBox(["name": $0.name, "description": $0.description, "input_schema": $0.schema, "strict": true])
         }
+        // Lumen сам зовёт ботов — как delegate у lumen-mcp
+        if !app.bots.isEmpty, c.kind != .bot {
+            request.tools.append(JSONBox(["name": "delegate",
+                "description": "Передать задачу боту Lumen и дождаться его ответа. Указывай задачу полностью: бот не видит этот разговор.",
+                "input_schema": ["type": "object", "additionalProperties": false, "required": ["bot", "task"],
+                                 "properties": ["bot": ["type": "string", "description": "id бота без @"],
+                                                "task": ["type": "string", "description": "Что сделать, с нужным контекстом"]]]] as [String: Any]))
+        }
         // коннекторы из «Кастомизации»: Lumen сам держит их клиенты (MCPPool), модель видит «сервер__инструмент»
         let wanted = app.connectorsFor(c)
         if !wanted.isEmpty {
@@ -816,7 +863,9 @@ final class ChatController {
                     let input = call["input"] as? [String: Any] ?? [:]
                     // навыки (создать, найти, поставить) — общий код с lumen-mcp; остальное — память и чтение навыков
                     let out: String
-                    if app.mcpPool.handles(name) {
+                    if name == "delegate" {
+                        out = await askBot(input["bot"] as? String ?? "", task: input["task"] as? String ?? "", from: c)
+                    } else if app.mcpPool.handles(name) {
                         out = await app.mcpPool.call(name, JSONBox(input))
                     } else if CustomizeAdmin.names.contains(name) {
                         out = await CustomizeAdmin.call(name, CustomizeAdmin.Args(input), paths: app.paths, conversationID: c.id, session: app.urlSession)
