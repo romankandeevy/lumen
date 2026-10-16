@@ -420,3 +420,21 @@ struct IconLabel: View {
         }
     }
 }
+
+/// Идёт работа — мигающая точка, как в Claude (вместо крутилки)
+struct LiveDot: View {
+    var color: Color
+    var size: CGFloat = 7
+
+    @State private var on = false
+
+    var body: some View {
+        Circle().fill(color)
+            .frame(width: size, height: size)
+            .opacity(on ? 1 : 0.25)
+            .shadow(color: color.opacity(on ? 0.8 : 0), radius: on ? 4 : 0)
+            .frame(width: 14, height: 14)
+            .onAppear { withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) { on = true } }
+            .accessibilityLabel("Работает")
+    }
+}

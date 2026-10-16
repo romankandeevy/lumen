@@ -157,7 +157,7 @@ struct StepsView: View {
                 HStack(spacing: 8) {
                     Icon(open ? "chevron-down" : "chevron-right", 12)
                     Text(summary).font(.geist(12))
-                    if live { ProgressView().controlSize(.mini).tint(p.glow) }
+                    if live { LiveDot(color: p.glow, size: 6) }
                 }
                 .foregroundStyle(p.mutedFg)
                 .padding(.vertical, 2)

@@ -677,6 +677,12 @@ final class ChatController {
                 config.allowedTools += app.connectorsFor(c).map { "mcp__\($0.name)" }
             }
         }
+        // инструменты коннекторов — по требованию (ToolSearch): иначе их описания целиком лежат в контексте
+        // (Notion и Playwright — десятки тысяч токенов на пустой чат)
+        if !app.connectorsFor(c).isEmpty, let t = config.tools, !t.contains("ToolSearch") {
+            config.tools = t + ["ToolSearch"]
+            config.allowedTools.append("ToolSearch")
+        }
         // секреты коннекторов — в окружение claude, в файлах их нет
         config.extraEnv.merge(app.secretValues(for: app.connectorsFor(c).map(\.server))) { a, _ in a }
         // хуки из «Кастомизации»

@@ -304,7 +304,7 @@ struct ChatRow: View {
                 if c.kind == .agent {
                     // как в макете: ноутбук (на этом Маке) или крутилка, пока работает
                     Group {
-                        if running { ProgressView().controlSize(.mini).tint(p.glow) } else { Icon("laptop", 14) }
+                        if running { LiveDot(color: p.glow) } else { Icon("laptop", 14) }
                     }
                     .foregroundStyle(p.mutedFg).frame(width: 20, height: 18)
                     VStack(alignment: .leading, spacing: 0) {
@@ -327,7 +327,7 @@ struct ChatRow: View {
                     }
                     Spacer(minLength: 4)
                     if running {
-                        ProgressView().controlSize(.mini).tint(p.glow)
+                        LiveDot(color: p.glow)
                     } else {
                         Text(when).font(.geist(11)).foregroundStyle(p.mutedFg).opacity(hover ? 0 : 1)
                     }
@@ -554,7 +554,7 @@ private struct BotRow: View {
                     Text("@\(bot.id)").tw(11, lh: 14).foregroundStyle(BotColor.accent(bot.hue).opacity(0.8)).lineLimit(1)
                 }
                 Spacer(minLength: 4)
-                if working { ProgressView().controlSize(.mini).tint(BotColor.accent(bot.hue)) }
+                if working { LiveDot(color: BotColor.accent(bot.hue)) }
             }
             .foregroundStyle(active ? p.foreground : p.foreground.opacity(0.8))
             .padding(.horizontal, 10).padding(.vertical, 6)

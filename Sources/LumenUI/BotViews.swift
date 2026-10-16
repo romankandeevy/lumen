@@ -107,7 +107,7 @@ struct BotsView: View {
                         Text(from).tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(1)
                     }
                     Spacer()
-                    ProgressView().controlSize(.small).tint(BotColor.accent(bot.hue))
+                    LiveDot(color: BotColor.accent(bot.hue))
                 }
                 .padding(.horizontal, 16).padding(.vertical, 12)
                 .background(BotColor.faint(bot.hue), in: RoundedRectangle(cornerRadius: R.xl))

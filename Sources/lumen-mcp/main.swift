@@ -104,6 +104,10 @@ func delegate(_ args: [String: Any]) -> String {
                                       cwd: folder, appendSystemPrompt: rules,
                                       allowedTools: perms.allowed.filter { $0 != "mcp__lumen__delegate" }, disallowedTools: perms.disallowed)
     config.mcpConfig = mcpURL.path
+    if file.enabled.contains(where: { target.connectors.contains($0.name) }), let t = config.tools, !t.contains("ToolSearch") {
+        config.tools = t + ["ToolSearch"]
+        config.allowedTools.append("ToolSearch")
+    }
     let asked = Via.modelText(task: task, from: "@\(caller.id) — бот «\(caller.name)»", context: "")
 
     final class Box: @unchecked Sendable { var text = "" }
