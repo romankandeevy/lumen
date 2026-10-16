@@ -57,7 +57,8 @@ private func tester() -> Bot {
     let (b, task) = try #require(app.mention(in: "@tester проверь сборку Shelf"))
     #expect(b.id == "tester" && task == "проверь сборку Shelf")
     #expect(app.mention(in: "@nobody привет") == nil)
-    #expect(app.mention(in: "@tester") == nil)          // без задачи — не вызов
+    #expect(app.mention(in: "@tester")?.1 == "")         // без задачи — тоже к боту: он спросит, чем помочь
+    #expect(app.systemPrompt().contains("@tester — Тестировщик"))   // Lumen знает своих ботов
     #expect(app.mention(in: "напиши @tester") == nil)   // только в начале
 
     // постоянный разговор — один, в списках чатов и агента его нет

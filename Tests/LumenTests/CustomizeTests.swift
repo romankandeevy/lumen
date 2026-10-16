@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import LumenCore
@@ -498,5 +499,32 @@ extension LiveCustomizeSuite {
         let reply = try #require(app.chat.messages.last)
         #expect(app.chat.messages.count == 4)
         #expect(reply.error == nil && reply.text.uppercased().contains("ЛИМОН") && !reply.text.uppercased().contains("АРБУЗ"), "\(reply.text)")
+    }
+}
+
+extension LiveCustomizeSuite {
+    /// «@бот» без задачи и с картинкой: бот отвечает сам и видит картинку
+    @MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["LUMEN_LIVE"] == "1")) func liveBareMentionWithImageReachesBot() async throws {
+        pointToMCP()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-bare-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let app = try AppModel(paths: AppPaths(root: root))
+        await app.refreshClaude()
+        app.finishOnboarding(name: "Тест", address: .ty, backend: .subscription, theme: .lumen)
+        app.saveBot(Bot(id: "eye", name: "Глаз", role: "Описывает картинки", model: .haiku, effort: .low))
+        // картинка: красный квадрат
+        let img = NSImage(size: NSSize(width: 64, height: 64))
+        img.lockFocus(); NSColor.red.setFill(); NSRect(x: 0, y: 0, width: 64, height: 64).fill(); img.unlockFocus()
+        let a = try #require(app.importImage(img, name: "квадрат"))
+        app.chat.set(model: .haiku, effort: .low)
+        app.chat.send("@eye какого цвета квадрат? одним словом", attachments: [a])
+        while app.chat.busy { try await Task.sleep(for: .milliseconds(200)) }
+        let r1 = try #require(app.chat.messages.last)
+        #expect(r1.botID == "eye" && r1.error == nil)
+        #expect(r1.text.lowercased().contains("красн"), "\(r1.text)")
+        app.chat.send("@eye")
+        while app.chat.busy { try await Task.sleep(for: .milliseconds(200)) }
+        let r2 = try #require(app.chat.messages.last)
+        #expect(r2.botID == "eye" && r2.error == nil && !r2.text.isEmpty)
     }
 }

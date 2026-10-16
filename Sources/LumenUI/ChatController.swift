@@ -264,7 +264,7 @@ final class ChatController {
         tr.task = Task { [weak self] in
             guard let self else { return }
             if let (bot, task) = delegate {
-                await self.runDelegation(c, bot: bot, task: task)
+                await self.runDelegation(c, bot: bot, task: task, attachments: attachments)
             } else if c.model.isGPT {
                 await self.runCodex(c, text: text, attachments: attachments)
             } else if c.usesCLI {
@@ -303,7 +303,7 @@ final class ChatController {
 
     /// Задача боту из чужого чата: бот работает в своём постоянном разговоре (туда пишется задача и ответ),
     /// а ответ с его знаком появляется в этом чате.
-    private func runDelegation(_ c: Conversation, bot: Bot, task: String) async {
+    private func runDelegation(_ c: Conversation, bot: Bot, task: String, attachments: [Attachment] = []) async {
         guard let cli = app.cli else {
             await finish(c, text: "", error: "Claude Code не найден. Поставь его и войди в Настройках → Модели и оплата.")
             return
@@ -321,8 +321,14 @@ final class ChatController {
             let who = m.role == .user ? (app.profile.name.isEmpty ? "Человек" : app.profile.name) : (m.botID.map { "@\($0)" } ?? "Lumen")
             return "\(who): \(m.text.prefix(600))"
         }.joined(separator: "\n")
-        let taskText = Via.modelText(task: task, from: c.title, context: context)
-        var asked = ChatMessage(conversationID: b.id, role: .user, text: task)
+        let shownTask = task.isEmpty && attachments.isEmpty ? "@\(bot.id)" : task
+        let modelTask = task.isEmpty
+            ? (attachments.isEmpty ? "(Тебя позвали без задачи — поздоровайся коротко и спроси, чем помочь по твоей роли.)"
+                                   : "(Задачи словами нет — посмотри вложения и скажи, что о них думаешь по своей роли.)")
+            : task
+        let taskText = Via.modelText(task: modelTask, from: c.title, context: context)
+        var asked = ChatMessage(conversationID: b.id, role: .user, text: shownTask)
+        asked.attachments = attachments
         asked.via = Via(conversationID: c.id, title: c.title)
         _ = try? app.store.save(asked)
         app.botRuns[bot.id] = c.title
@@ -336,7 +342,10 @@ final class ChatController {
             var result: ClaudeEvent.TurnResult?
             turns[c.id]?.delegate = b.id
             defer { turns[c.id]?.delegate = nil }
-            for await ev in try session.send(taskText) {
+            // картинки и файлы из сообщения — боту тоже
+            let turn = attachments.isEmpty ? try session.send(taskText)
+                : try session.send(content: Attachment.userContent(text: taskText, attachments: attachments, agent: true))
+            for await ev in turn {
                 switch ev {
                 case .textDelta(let t):
                     answer += appendStreaming(t, c)
@@ -1080,7 +1089,16 @@ extension AppModel {
         propose_hook — предложить хук. Предложение появляется карточкой под ответом, подключает человек одним нажатием \
         («Кастомизация» в Lumen). Когда просят коннектор, MCP или хук — делай это сам этими инструментами, не отказывайся и не \
         отправляй делать руками; не говори, что уже подключено, пока человек не нажал. \(connectorLine)
+        \(botLine)
         """
+    }
+
+    /// Боты Lumen — чтобы он знал их и подсказывал, кого позвать
+    private var botLine: String {
+        guard !bots.isEmpty else { return "Ботов пока нет — их создают во вкладке «Боты»." }
+        return "Твои боты (свои роли, свои права): " + bots.map { "@\($0.id) — \($0.name)\($0.role.isEmpty ? "" : ": \($0.role)")" }.joined(separator: "; ")
+            + ". Позвать бота — написать в начале сообщения @id и задачу: Lumen сам передаст ему задачу, его ответ придёт сюда же. "
+            + "Если задача по роли бота — предложи позвать его, напиши точную строку для этого."
     }
 
     /// Какие коннекторы подключены сейчас — чтобы Lumen не говорил «нет», когда есть

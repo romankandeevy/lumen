@@ -112,8 +112,9 @@ extension AppModel {
         let rest = text.dropFirst()
         let id = String(rest.prefix { $0.isLetter || $0.isNumber || $0 == "-" }).lowercased()
         guard let b = bot(id) else { return nil }
+        // «@designer» без задачи тоже к боту: он сам спросит, чем помочь
         let task = rest.dropFirst(id.count).trimmingCharacters(in: .whitespacesAndNewlines)
-        return task.isEmpty ? nil : (b, task)
+        return (b, task)
     }
 
     /// Правила бота (Bot.rules) с его навыками и списком других ботов
