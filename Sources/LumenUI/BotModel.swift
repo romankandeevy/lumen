@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import LumenCore
 import LumenProviders
+import LumenStorage
 
 /// Боты в приложении: список, постоянный разговор каждого, вызов через @id, правила для модели.
 extension AppModel {
@@ -88,22 +89,10 @@ extension AppModel {
         return task.isEmpty ? nil : (b, task)
     }
 
-    /// Правила бота: роль, что ему доступно и что отрезано, кому передавать чужое
+    /// Правила бота (Bot.rules) с его навыками и списком других ботов
     func botPrompt(_ b: Bot) -> String {
-        var lines = ["Ты — бот «\(b.name)» (@\(b.id)) в Lumen, приложении на Маке. Твоя роль: \(b.role)."]
-        if !b.instructions.isEmpty { lines.append(b.instructions) }
-        let granted = BotCapability.allCases.filter { b.capabilities.contains($0) }.map(\.name)
-        lines.append("Тебе доступно: \(granted.isEmpty ? "только разговор" : granted.joined(separator: ", ")). "
-            + "Отрезано в коде: \(BotPermissions.blocked(b).joined(separator: ", ")). Этих инструментов у тебя нет — не пытайся обойти.")
-        if b.capabilities.contains(.run) && !b.capabilities.contains(.write) && !b.commands.isEmpty {
-            lines.append("Команды можно запускать только такие: \(b.commands.joined(separator: ", ")).")
-        }
-        let handoff = b.handoff.flatMap { bot($0) }.map { "@\($0.id) (\($0.name))" } ?? "Lumen"
-        lines.append("Если просят то, что не по роли, — коротко откажись и предложи передать это \(handoff). Не делай чужую работу наполовину.")
-        lines.append("Push, публикацию и выкатку не делай: это только человек.")
-        if !profile.name.isEmpty { lines.append("Собеседника зовут \(profile.name), обращайся на \(profile.address == .ty ? "«ты»" : "«вы»").") }
-        lines.append("Отвечай по-русски, коротко и по делу: что сделал, что нашёл, что дальше.")
-        return lines.joined(separator: "\n")
+        let skills = SkillLibrary.promptBlock(skillLibrary.enabled(only: Set(b.skills)))
+        return b.rules(handoff: b.handoff.flatMap { bot($0) }, userName: profile.name, ty: profile.address == .ty, skills: skills, bots: bots)
     }
 
     /// Меню бота — как у разговоров

@@ -252,6 +252,20 @@ struct BotPassport: View {
                     Text("Этих инструментов в процессе бота нет вовсе — просьбой их не включить.")
                         .tw(11, lh: 15).foregroundStyle(p.mutedFg.opacity(0.8)).fixedSize(horizontal: false, vertical: true)
                 }
+                if !bot.learned.isEmpty {
+                    section("Чему научился") {
+                        ForEach(bot.learned, id: \.self) { l in
+                            IconLabel(text: l, icon: "lightbulb", size: 13).tw(12, lh: 16)
+                        }
+                    }
+                }
+                if !bot.skills.isEmpty {
+                    section("Навыки") {
+                        ForEach(bot.skills, id: \.self) { s in
+                            IconLabel(text: s, icon: "book-open", size: 13).tw(12, lh: 16)
+                        }
+                    }
+                }
                 section("Где работает") {
                     IconLabel(text: bot.folder.map { $0.replacingOccurrences(of: NSHomeDirectory(), with: "~") } ?? "Своя пустая папка", icon: "folder", size: 14)
                         .tw(12, lh: 16).lineLimit(2).truncationMode(.middle)
@@ -292,6 +306,8 @@ struct BotEditor: View {
     @State private var commandsText = ""
     @State private var startersText = ""
     @State private var loaded = false
+    @State private var phrase = ""
+    @State private var drafting = false
 
     private var existing: Bot? { app.bot(botID) }
 
@@ -321,6 +337,18 @@ struct BotEditor: View {
 
     private var form: some View {
         VStack(alignment: .leading, spacing: 28) {
+            if existing == nil {
+                field("Описать словами", aside: "Lumen предложит роль и минимум прав") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        GlowField(placeholder: "Например: бот, который тестирует сборки моих Mac-приложений", text: $phrase) { describe() }
+                        HStack(spacing: 10) {
+                            LButton(title: drafting ? "Настраиваю…" : "Настроить", icon: "sparkles", kind: .outline, small: true, busy: drafting) { describe() }
+                                .disabled(phrase.trimmingCharacters(in: .whitespaces).isEmpty || drafting || app.cli == nil)
+                            Text("Права после этого проверь ниже — включаешь ты.").tw(12, lh: 16).foregroundStyle(p.mutedFg)
+                        }
+                    }
+                }
+            }
             field("Название") { GlowField(placeholder: "Например, Тестировщик", text: $draft.name) }
             field("Имя для вызова", aside: "в чате: @\(idText.isEmpty ? "id" : idText)") {
                 GlowField(placeholder: "tester", text: $idText, mono: true)
@@ -396,6 +424,44 @@ struct BotEditor: View {
                     Segmented(value: $draft.effort, options: [Effort.low, .medium, .high].map { ($0, $0.name) }).frame(maxWidth: 300)
                 }
             }
+            if !app.skills.isEmpty {
+                field("Навыки", aside: "бот видит только отмеченные") {
+                    FlowWrap(spacing: 6) {
+                        ForEach(app.skills) { s in
+                            let on = draft.skills.contains(s.name)
+                            Button {
+                                if on { draft.skills.removeAll { $0 == s.name } } else { draft.skills.append(s.name) }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Icon(on ? "check" : "book-open", 12)
+                                    Text(s.name)
+                                }
+                                .tw(12, lh: 16).foregroundStyle(on ? BotColor.accent(draft.hue) : p.mutedFg)
+                                .padding(.horizontal, 10).padding(.vertical, 5)
+                                .background(on ? BotColor.faint(draft.hue) : .clear, in: Capsule())
+                                .overlay(Capsule().strokeBorder(on ? BotColor.soft(draft.hue) : p.border))
+                                .contentShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .help(s.description)
+                        }
+                    }
+                }
+            }
+            if let b = existing, !b.learned.isEmpty {
+                field("Чему научился", aside: "из прошлых задач — попадает в его правила") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(draft.learned, id: \.self) { l in
+                            HStack(alignment: .top, spacing: 8) {
+                                Icon("lightbulb", 13).foregroundStyle(BotColor.accent(draft.hue)).padding(.top, 2)
+                                Text(l).tw(13, lh: 18).fixedSize(horizontal: false, vertical: true)
+                                Spacer(minLength: 0)
+                                IconButton(icon: "x", help: "Забыть вывод") { draft.learned.removeAll { $0 == l } }
+                            }
+                        }
+                    }
+                }
+            }
             field("Подсказки", aside: "по одной в строке") {
                 Editor(text: $startersText, placeholder: "Протестируй последний коммит\nЧто сломалось в прошлый раз?", minHeight: 70)
             }
@@ -454,6 +520,7 @@ struct BotEditor: View {
         case .web: "поиск и чтение страниц"
         case .git: "status, diff, commit — без push"
         case .memory: "запоминать факты о тебе (читать память можно всегда)"
+        case .bots: "передать свою часть другому боту через @ — на один шаг, без цепочек"
         }
     }
 
@@ -485,6 +552,21 @@ struct BotEditor: View {
         idText = b.id
         commandsText = b.commands.joined(separator: ", ")
         startersText = b.starters.joined(separator: "\n")
+    }
+
+    private func describe() {
+        let text = phrase.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty, !drafting else { return }
+        drafting = true
+        Task {
+            if let b = await app.draftBot(text) {
+                draft = b
+                idText = b.id
+                commandsText = (b.commands.isEmpty ? Bot.defaultCommands : b.commands).joined(separator: ", ")
+                startersText = b.starters.joined(separator: "\n")
+            }
+            drafting = false
+        }
     }
 
     private func save() {

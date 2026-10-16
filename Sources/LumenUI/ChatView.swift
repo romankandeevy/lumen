@@ -281,6 +281,9 @@ struct MessageRow: View {
                     if let changes = message.changes, let chat {
                         ChangeCard(message: message, changes: changes, chat: chat)
                     }
+                    if let d = message.skillDraft, let chat {
+                        SkillProposalCard(app: chat.app, message: message, draft: d)
+                    }
                     if let chat {
                         ForEach(message.remembered, id: \.self) { id in RememberedCard(app: chat.app, id: id) }
                         if !message.recalled.isEmpty && !streaming {

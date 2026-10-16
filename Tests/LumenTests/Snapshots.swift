@@ -334,3 +334,52 @@ enum Snap {
     app.memoryMode = .graph
     try await Snap.save(RootView(app: app), "40-graph")
 }
+
+/// Навыки: список, редактор, предложенный навык под ответом агента; бот с навыками и выводами
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotSkills() async throws {
+    Snap.registerFonts()
+    let app = try Snap.app()
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .subscription, theme: .lumen)
+    let lib = app.skillLibrary
+    try lib.save(name: "release-notes", description: "Готовит заметки к релизу из git log: разделы «Новое» и «Исправлено». Используй, когда просят changelog, «что нового» или заметки к версии.",
+                 body: "## Шаги\n1. Возьми git log с прошлого тега.\n2. Раздели на «Новое» и «Исправлено».\n\n## Формат\n…", origin: .created)
+    try lib.save(name: "shelf-build", description: "Сборка Shelf после смены ветки: сначала swift package resolve, потом ./build.sh.", body: "1. swift package resolve\n2. ./build.sh", origin: .learned)
+    try lib.save(name: "pdf", description: "Работа с PDF: прочитать, заполнить формы, собрать. Используй, когда в задаче есть PDF.", body: "…", origin: .catalog)
+    for _ in 0..<7 { try app.store.logSkillUse("release-notes", conversationID: nil) }
+    try app.store.logSkillUse("shelf-build", conversationID: nil)
+    app.reloadSkills()
+    app.page = .skills
+    try await Snap.save(RootView(app: app), "50-skills")
+
+    app.page = .skillEditor("release-notes")
+    try await Snap.save(RootView(app: app), "51-skill-editor", size: CGSize(width: 1180, height: 1100))
+
+    // «Сам научился» под ответом агента
+    let c = Conversation(title: "Собрать Shelf", kind: .agent, folder: NSHomeDirectory() + "/Documents/prog/Мак-приложения/shelf",
+                         backend: .subscription, model: .opus, effort: .high)
+    try app.store.save(c)
+    try app.store.save(ChatMessage(conversationID: c.id, role: .user, text: "Собери Shelf и прогони тесты"))
+    var m = ChatMessage(conversationID: c.id, role: .assistant, text: "Собрал: сначала упало, после `swift package resolve` всё прошло, 24 теста зелёные.",
+                        steps: ["Запускает: ./build.sh", "Запускает: swift package resolve", "Запускает: ./build.sh", "Запускает: swift test"].map { AgentStep(kind: .run, text: $0) })
+    m.skillDraft = SkillDraft(name: "swift-build-after-branch", description: "Сборка Swift-проекта после смены ветки: если ./build.sh падает на зависимостях, сначала swift package resolve. Используй, когда сборка падает после git checkout.",
+                              body: "1. …")
+    try app.store.save(m)
+    app.reloadConversations()
+    app.openChat(c)
+    try await Snap.save(RootView(app: app), "52-skill-proposal")
+
+    var b = Bot(id: "tester", name: "Тестировщик", icon: "flask-conical", hue: 160, role: "Проверяет приложения и правки — и только",
+                capabilities: [.read, .run, .bots], commands: ["./build.sh", "swift test"])
+    b.skills = ["shelf-build"]
+    b.learned = ["Shelf после смены ветки собирать только после swift package resolve", "У Island проверять тень при раскрытии первым делом"]
+    app.saveBot(b)
+    app.saveBot(Bot(id: "coder", name: "Кодер prog", icon: "code-xml", hue: 235, role: "Пишет и чинит код", capabilities: [.read, .write, .run, .git]))
+    app.openBot("tester")
+    app.update { $0.contextOpen = true }
+    try await Snap.save(RootView(app: app), "53-bot-passport-learned")
+    app.update { $0.contextOpen = false }
+    app.page = .botEditor("tester")
+    try await Snap.save(RootView(app: app), "54-bot-editor-skills", size: CGSize(width: 1180, height: 2300))
+    app.page = .botEditor(nil)
+    try await Snap.save(RootView(app: app), "55-bot-new-describe")
+}

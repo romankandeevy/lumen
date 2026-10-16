@@ -168,6 +168,14 @@ final class ChatController {
         }
     }
 
+    /// Под ответом появился предложенный навык
+    func attachSkillDraft(_ d: SkillDraft?, to messageID: Int64, conversationID: String) {
+        guard var m = ((try? app.store.messages(in: conversationID)) ?? []).first(where: { $0.id == messageID }) else { return }
+        m.skillDraft = d
+        _ = try? app.store.save(m)
+        if let i = messages.firstIndex(where: { $0.id == messageID }) { messages[i].skillDraft = d }
+    }
+
     /// Бот изменён — его процесс гасим, следующий ход поднимет его с новыми правами (`--resume`)
     func restart(_ id: String) {
         guard running?.id != id else { return }
@@ -381,7 +389,8 @@ final class ChatController {
         }
         var memory: (command: String, env: [String: String])?
         if let bin = app.mcpBinary {
-            memory = (bin.path, ["LUMEN_DB": app.paths.database.path, "LUMEN_CONVERSATION_ID": c.id, "LUMEN_CONVERSATION_TITLE": c.title])
+            memory = (bin.path, ["LUMEN_DB": app.paths.database.path, "LUMEN_CONVERSATION_ID": c.id, "LUMEN_CONVERSATION_TITLE": c.title,
+                                 "LUMEN_SKILLS_DIR": app.paths.skills.path, "LUMEN_SKILLS": "*"])
         }
         let turn = CodexCLI.Turn(model: c.model.rawValue, effort: c.effort.rawValue, agent: c.kind == .agent,
                                  folder: folder, threadID: c.cliSessionID, memoryServer: memory)
@@ -459,6 +468,8 @@ final class ChatController {
                            sessionID: sid, resume: resume, cwd: app.botFolder(bot), appendSystemPrompt: app.botPrompt(bot),
                            allowedTools: perms.allowed, disallowedTools: perms.disallowed)
             if c.backend == .api, let key = app.keychain.read(Keychain.anthropicKey) { config.extraEnv["ANTHROPIC_API_KEY"] = key }
+            // позванный бот может работать минутами — MCP-вызову delegate даём до 15 минут
+            if bot.capabilities.contains(.bots) { config.extraEnv["MCP_TOOL_TIMEOUT"] = "900000" }
         } else if c.kind == .agent, let folder = c.folder {
             config = .agent(model: c.model.rawValue, effort: c.effort.rawValue, persona: app.agentPrompt(for: c),
                             folder: URL(fileURLWithPath: folder), sessionID: sid, resume: resume)
@@ -472,7 +483,7 @@ final class ChatController {
         if let mcp = try? app.writeMCPConfig(for: c, memoryReadOnly: bot.map { !$0.capabilities.contains(.memory) } ?? false) {
             config.mcpConfig = mcp.path
             // у бота разрешённое уже посчитано в BotPermissions
-            if bot == nil { config.allowedTools += ["mcp__lumen__remember", "mcp__lumen__recall"] }
+            if bot == nil { config.allowedTools += ["mcp__lumen__remember", "mcp__lumen__recall", "mcp__lumen__load_skill", "mcp__lumen__read_skill_file"] }
         }
         let s = try ClaudeSession(cli: cli, config: config)
         sessions[c.id] = s
@@ -488,7 +499,7 @@ final class ChatController {
             await finish(c, text: "", error: stop)
             return
         }
-        let tools = MemoryTools(store: app.store, conversationID: c.id, conversationTitle: c.title)
+        let tools = MemoryTools(store: app.store, conversationID: c.id, conversationTitle: c.title, skills: app.skillLibrary)
         var spent = APIChatEvent.Usage()
         var context = 0
         func log() {
@@ -499,7 +510,7 @@ final class ChatController {
         defer { log() }
         var request = AnthropicChatRequest(model: c.model, effort: c.effort, system: app.systemPrompt(for: c),
                                            messages: AnthropicChatRequest.history(history))
-        request.tools = MemoryTools.definitions.map {
+        request.tools = (MemoryTools.definitions + (tools.availableSkills.isEmpty ? [] : MemoryTools.skillDefinitions)).map {
             JSONBox(["name": $0.name, "description": $0.description, "input_schema": $0.schema, "strict": true])
         }
         var answer = ""
@@ -643,7 +654,15 @@ final class ChatController {
             m.contextTokens = context.0
             m.contextWindow = context.1 > 0 ? context.1 : nil
         }
-        if let saved = try? app.store.save(m), conversation?.id == c.id { messages.append(saved) }
+        let saved = try? app.store.save(m)
+        if let saved, conversation?.id == c.id { messages.append(saved) }
+        // обучение на опыте: у ботов — выводы, у ботов и агента после большой задачи — предложенный навык
+        if error == nil && !stopped && (c.kind != .chat || turnBot != nil) {
+            let bot = app.bot(turnBot ?? (c.kind == .bot ? c.botID : nil))
+            let task = ((try? app.store.messages(in: c.id)) ?? []).last(where: { $0.role == .user })?.text ?? ""
+            let id = saved?.id
+            Task { await app.learn(task: task, answer: visible, steps: steps, bot: bot, messageID: id, conversationID: c.id) }
+        }
         if !remembered.isEmpty {
             app.reloadMemories()
             app.flash()
@@ -750,13 +769,16 @@ extension AppModel {
 
     /// mcp.json для claude: lumen-mcp с базой и разговором
     func writeMCPConfig(for c: Conversation, memoryReadOnly: Bool = false) throws -> URL {
+        let b = c.kind == .bot ? bot(c.botID) : nil
         guard let bin = mcpBinary else { throw CocoaError(.fileNoSuchFile) }
         let dir = paths.run.appendingPathComponent(c.id, isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let config: [String: Any] = ["mcpServers": ["lumen": [
             "command": bin.path, "args": [],
             "env": ["LUMEN_DB": paths.database.path, "LUMEN_CONVERSATION_ID": c.id, "LUMEN_CONVERSATION_TITLE": c.title,
-                    "LUMEN_MEMORY_READONLY": memoryReadOnly ? "1" : "0"],
+                    "LUMEN_MEMORY_READONLY": memoryReadOnly ? "1" : "0",
+                    "LUMEN_SKILLS_DIR": paths.skills.path, "LUMEN_SKILLS": b.map { $0.skills.joined(separator: ",") } ?? "*",
+                    "LUMEN_BOT_ID": b?.id ?? "", "LUMEN_DEPTH": "0"],
         ]]]
         let url = dir.appendingPathComponent("mcp.json")
         try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted]).write(to: url)
@@ -793,9 +815,13 @@ extension AppModel {
             Этот блок Lumen показывает отдельной карточкой — в тексте ответа итог не повторяй.
             """)
         if let block = projectBlock(for: c) { lines.append(block) }
+        if let skills = SkillLibrary.promptBlock(skillLibrary.enabled()) { lines.append(skills) }
         lines.append(memoryRules)
         return lines.joined(separator: "\n")
     }
+
+    /// Библиотека навыков Lumen
+    var skillLibrary: SkillLibrary { SkillLibrary(root: paths.skills) }
 
     /// Системный промпт Lumen (SOUL v0): кто он, с кем говорит, закреплённые факты.
     /// Детерминированный — одинаковый от хода к ходу, поэтому кэшируется.
@@ -810,6 +836,7 @@ extension AppModel {
         }
         lines.append("Это чат: у тебя нет доступа к файлам и командам этого Мака.")
         if let block = projectBlock(for: c) { lines.append(block) }
+        if let skills = SkillLibrary.promptBlock(skillLibrary.enabled()) { lines.append(skills) }
         lines.append(memoryRules)
         return lines.joined(separator: "\n")
     }

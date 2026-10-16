@@ -1,0 +1,435 @@
+import AppKit
+import LumenCore
+import LumenProviders
+import SwiftUI
+
+// Навыки (`pages/tools-page.tsx`, вкладка навыков): свои и установленные, каталог Anthropic, установка по ссылке,
+// создание с Lumen. Модель видит список включённых навыков и сама берёт нужный.
+
+struct SkillsView: View {
+    @Bindable var app: AppModel
+
+    @Environment(\.palette) private var p
+    @State private var mode: Mode = .mine
+    @State private var link = ""
+    @State private var installing: String?
+    @State private var note: String?
+    @State private var catalog: [GitHubSkills.Entry] = []
+    @State private var catalogError: String?
+    @State private var loadingCatalog = false
+
+    enum Mode: Hashable { case mine, catalog }
+
+    var body: some View {
+        PageFrame(title: "Навыки",
+                  lead: "Проверенные инструкции для отдельных задач. Lumen, агент и боты видят список включённых навыков и сами берут нужный, когда задача подходит.") {
+            LButton(title: "Создать навык", icon: "plus", kind: .primary) {
+                app.skillDraft = nil
+                app.page = .skillEditor(nil)
+            }
+        } content: {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 12) {
+                    MiniSegmented(value: $mode, options: [(.mine, "Мои, \(app.skills.count)"), (.catalog, "Каталог Anthropic")])
+                    GlowField(placeholder: "Ссылка на навык на GitHub", text: $link, mono: true) { install(link) }
+                    LButton(title: "Поставить", icon: "download", kind: .outline, small: true, busy: installing == link && !link.isEmpty) { install(link) }
+                        .disabled(link.trimmingCharacters(in: .whitespaces).isEmpty || installing != nil)
+                }
+                if let note {
+                    IconLabel(text: note, icon: "circle-check", size: 14).tw(13, lh: 18).foregroundStyle(p.mutedFg)
+                }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if mode == .mine { mine } else { catalogList }
+                    }
+                    .padding(.bottom, 40)
+                }
+                .scrollIndicators(.never)
+            }
+        }
+        .onAppear { app.reloadSkills() }
+        .onChange(of: mode) { if mode == .catalog && catalog.isEmpty { loadCatalog() } }
+    }
+
+    @ViewBuilder private var mine: some View {
+        if app.skills.isEmpty {
+            VStack(spacing: 8) {
+                Text("Навыков пока нет").tw(14, .medium, lh: 20)
+                Text("Создай свой с Lumen, поставь из каталога Anthropic или по ссылке. Ещё боты и агент сами предлагают навык после большой задачи.")
+                    .tw(13, lh: 18).foregroundStyle(p.mutedFg).multilineTextAlignment(.center).frame(maxWidth: 460)
+            }
+            .frame(maxWidth: .infinity).padding(.vertical, 48)
+            .background(p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xl))
+            .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
+        }
+        ForEach(app.skills) { s in SkillRow(app: app, skill: s) }
+    }
+
+    @ViewBuilder private var catalogList: some View {
+        if loadingCatalog {
+            HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Открываю каталог на GitHub…").tw(13, lh: 18) }.padding(.vertical, 24)
+        }
+        if let catalogError {
+            VStack(alignment: .leading, spacing: 8) {
+                IconLabel(text: catalogError, icon: "triangle-alert", size: 14).tw(13, lh: 18).foregroundStyle(Palette.destructive)
+                LButton(title: "Ещё раз", icon: "refresh-cw", kind: .outline, small: true) { loadCatalog() }
+            }
+        }
+        ForEach(catalog) { e in
+            let have = app.skills.first { $0.info.source == e.location.source }
+            HStack(alignment: .top, spacing: 12) {
+                Icon("book-open", 16).foregroundStyle(p.glow).padding(.top, 2)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(e.name).tw(14, .medium, lh: 20)
+                    Text(e.description).tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(3)
+                }
+                Spacer(minLength: 12)
+                if have != nil {
+                    IconLabel(text: "Стоит", icon: "check", size: 14).tw(12, lh: 16).foregroundStyle(p.mutedFg)
+                } else {
+                    LButton(title: "Поставить", kind: .outline, small: true, busy: installing == e.location.source) {
+                        install(e.location.source, origin: .catalog)
+                    }
+                    .disabled(installing != nil)
+                }
+            }
+            .padding(14)
+            .background(p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xl))
+            .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
+        }
+        if !catalog.isEmpty {
+            Text("Источник: github.com/anthropics/skills. Уже поставленная версия не скачивается заново.")
+                .tw(11, lh: 15).foregroundStyle(p.mutedFg)
+        }
+    }
+
+    private func install(_ l: String, origin: SkillInfo.Origin = .github) {
+        let link = l.trimmingCharacters(in: .whitespaces)
+        guard !link.isEmpty, installing == nil else { return }
+        installing = link
+        note = nil
+        Task {
+            note = await app.installSkill(link, origin: origin)
+            installing = nil
+            if origin == .github { self.link = "" }
+        }
+    }
+
+    private func loadCatalog() {
+        loadingCatalog = true
+        catalogError = nil
+        Task {
+            do { catalog = try await GitHubSkills(session: app.urlSession).catalogEntries() } catch { catalogError = error.localizedDescription }
+            loadingCatalog = false
+        }
+    }
+}
+
+private struct SkillRow: View {
+    @Bindable var app: AppModel
+    let skill: Skill
+
+    @Environment(\.palette) private var p
+    @State private var hover = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Icon(skill.info.origin == .learned ? "lightbulb" : "book-open", 16)
+                .foregroundStyle(skill.info.enabled ? p.glow : p.mutedFg).padding(.top, 2)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(skill.name).tw(14, .medium, lh: 20)
+                Text(skill.description).tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(2)
+                HStack(spacing: 6) {
+                    chip(origin)
+                    let n = app.skillUses[skill.name] ?? 0
+                    chip(n == 0 ? "ещё не брали" : "брали \(n) " + Plural.form(n, "раз", "раза", "раз"))
+                    if !skill.files.isEmpty { chip("\(skill.files.count) " + Plural.form(skill.files.count, "файл", "файла", "файлов")) }
+                    if !skill.info.warnings.isEmpty {
+                        IconLabel(text: skill.info.warnings.joined(separator: ", "), icon: "triangle-alert", size: 11)
+                            .tw(11, lh: 14).foregroundStyle(Palette.destructive).lineLimit(1)
+                    }
+                }
+                .padding(.top, 2)
+            }
+            Spacer(minLength: 12)
+            LSwitch(isOn: Binding(get: { skill.info.enabled }, set: { app.setSkill(skill, enabled: $0) }))
+                .help(skill.info.enabled ? "Модель видит навык" : "Выключен — модель его не видит")
+        }
+        .padding(14)
+        .background(hover ? p.card.opacity(0.7) : p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xl))
+        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
+        .contentShape(Rectangle())
+        .onTapGesture { app.page = .skillEditor(skill.name) }
+        .onHover { hover = $0 }
+        .onRightClick { point in
+            app.menu = MenuState(items: [
+                MenuItem(title: "Открыть", key: "o") { app.page = .skillEditor(skill.name) },
+                MenuItem(title: skill.info.enabled ? "Выключить" : "Включить", key: "e") { app.setSkill(skill, enabled: !skill.info.enabled) },
+                MenuItem(title: "Показать в Finder", key: "f") { NSWorkspace.shared.activateFileViewerSelecting([skill.folder]) },
+                MenuItem(title: "Удалить", key: "d", destructive: true, separated: true) { app.removeSkill(skill) },
+            ], anchor: point)
+        }
+    }
+
+    private var origin: String {
+        switch skill.info.origin {
+        case .created: "свой"
+        case .learned: "сам научился"
+        case .github: "GitHub"
+        case .catalog: "каталог Anthropic"
+        }
+    }
+
+    private func chip(_ t: String) -> some View {
+        Text(t).tw(11, lh: 14).foregroundStyle(p.mutedFg)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(p.foreground.opacity(0.06), in: RoundedRectangle(cornerRadius: R.md))
+    }
+}
+
+// MARK: редактор навыка
+
+struct SkillEditor: View {
+    @Bindable var app: AppModel
+    let name: String?
+
+    @Environment(\.palette) private var p
+    @State private var request = ""
+    @State private var draft = SkillDraft(name: "", description: "", body: "")
+    @State private var writing = false
+    @State private var problems: [String] = []
+    @State private var loaded = false
+    @State private var saved: String?
+    @State private var context: String?
+
+    private var existing: Skill? { name.flatMap { n in app.skills.first { $0.name == n } } }
+    /// Чужой навык (каталог, GitHub) правим осторожно: следующее обновление его перезапишет
+    private var readOnlyNote: String? {
+        guard let s = existing, s.info.origin == .github || s.info.origin == .catalog else { return nil }
+        return "Навык поставлен из \(s.info.source ?? "GitHub"). Правки можно сохранить, но обновление из источника их заменит."
+    }
+
+    var body: some View {
+        PageFrame(title: existing.map { "Навык «\($0.name)»" } ?? "Новый навык",
+                  lead: "Хороший навык: описание точно говорит, когда его брать, а инструкции — шаги с причинами, формат результата и пример.") {
+            HStack(spacing: 8) {
+                LButton(title: "Отмена", kind: .ghost) { app.page = .skills }
+                LButton(title: "Сохранить", icon: "check", kind: .primary) { save() }.disabled(!draft.problems.isEmpty || writing)
+            }
+        } content: {
+            ScrollView {
+                HStack(alignment: .top, spacing: 40) {
+                    form.frame(maxWidth: 680, alignment: .leading)
+                    aside.frame(width: 260)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 40)
+            }
+            .scrollIndicators(.never)
+        }
+        .onAppear(perform: load)
+    }
+
+    private var form: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            if existing == nil {
+                VStack(alignment: .leading, spacing: 0) {
+                    GroupTitle(text: "Что должен уметь навык", aside: "Lumen напишет и проверит")
+                    SkillTextEditor(text: $request, placeholder: "Например: готовить заметки к релизу из git log — коротко, по-русски, по разделам «Новое», «Исправлено»", minHeight: 70, mono: false)
+                    HStack(spacing: 10) {
+                        LButton(title: writing ? "Пишу и перечитываю…" : "Написать с Lumen", icon: "sparkles", kind: .outline, small: true, busy: writing) { write() }
+                            .disabled(request.trimmingCharacters(in: .whitespaces).isEmpty || writing || app.cli == nil)
+                        if app.cli == nil {
+                            Text("нужен Claude Code — Настройки → Модели и оплата").tw(12, lh: 16).foregroundStyle(p.mutedFg)
+                        }
+                    }
+                    .padding(.top, 10)
+                }
+            }
+            if let readOnlyNote {
+                IconLabel(text: readOnlyNote, icon: "triangle-alert", size: 14).tw(12, lh: 16).foregroundStyle(p.mutedFg)
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                GroupTitle(text: "Имя", aside: "латиница, цифры, дефис")
+                GlowField(placeholder: "release-notes", text: $draft.name, mono: true).disabled(existing != nil)
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                GroupTitle(text: "Когда брать", aside: "\(draft.description.count) / 1024")
+                SkillTextEditor(text: $draft.description, placeholder: "Что делает и в каких ситуациях: «Используй, когда просят…, даже если не сказано прямо»", minHeight: 70, mono: false)
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                GroupTitle(text: "Инструкции", aside: "markdown · \(draft.body.split(separator: "\n", omittingEmptySubsequences: false).count) строк")
+                SkillTextEditor(text: $draft.body, placeholder: "## Шаги\n1. …\n\n## Формат результата\n…\n\n## Пример\n…", minHeight: 320, mono: true)
+            }
+            if !draft.problems.isEmpty && !(draft.name.isEmpty && draft.body.isEmpty) {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(draft.problems, id: \.self) { IconLabel(text: $0, icon: "triangle-alert", size: 13).tw(12, lh: 16).foregroundStyle(p.mutedFg) }
+                }
+            }
+            if let saved { IconLabel(text: saved, icon: "circle-check", size: 14).tw(13, lh: 18).foregroundStyle(Palette.ok) }
+        }
+    }
+
+    private var aside: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            if !draft.tests.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Попробовать").tw(12, .medium, lh: 16).foregroundStyle(p.mutedFg)
+                    ForEach(draft.tests, id: \.self) { t in
+                        Button { tryIt(t) } label: {
+                            HStack(alignment: .top, spacing: 8) {
+                                Icon("message-square", 13).padding(.top, 2)
+                                Text(t).tw(12, lh: 16).multilineTextAlignment(.leading)
+                            }
+                            .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+                            .background(p.card.opacity(0.5), in: RoundedRectangle(cornerRadius: R.lg))
+                            .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!draft.problems.isEmpty)
+                    }
+                    Text("Сохранит навык и задаст эту просьбу в новом чате — увидишь, берёт ли его Lumen и как отвечает.")
+                        .tw(11, lh: 15).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            if let s = existing {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Папка").tw(12, .medium, lh: 16).foregroundStyle(p.mutedFg)
+                    ForEach(["SKILL.md"] + s.files, id: \.self) { f in
+                        IconLabel(text: f, icon: "file-text", size: 12).font(.system(size: 11, design: .monospaced)).lineLimit(1)
+                    }
+                    LButton(title: "Показать в Finder", icon: "folder", kind: .ghost, small: true) { NSWorkspace.shared.activateFileViewerSelecting([s.folder]) }
+                }
+                LButton(title: "Удалить навык", icon: "trash", kind: .ghost, small: true) {
+                    app.removeSkill(s)
+                    app.page = .skills
+                }
+                .foregroundStyle(Palette.destructive)
+            }
+        }
+    }
+
+    private func load() {
+        guard !loaded else { return }
+        loaded = true
+        if let s = existing {
+            draft = SkillDraft(name: s.name, description: s.description, body: s.body)
+        } else if let d = app.skillDraft {
+            draft = d
+            app.skillDraft = nil
+        } else if let ctx = app.skillContext {
+            // из разговора: Lumen сразу соберёт навык из его шагов и поправок
+            request = "Собери навык из разговора «\(ctx.title)»: повторяемый приём, который в нём получился"
+            context = ctx.text
+            app.skillContext = nil
+            write()
+        }
+    }
+
+    private func write() {
+        writing = true
+        saved = nil
+        Task {
+            switch await app.draftSkill(request, context: context) {
+            case .success(let d): draft = d
+            case .failure(.invalid(_, let d)): draft = d
+            case .failure(.noAnswer): saved = nil; problems = ["Lumen не ответил — попробуй ещё раз"]
+            }
+            writing = false
+        }
+    }
+
+    @discardableResult
+    private func save() -> Bool {
+        do {
+            let origin: SkillInfo.Origin = existing?.info.origin ?? .created
+            _ = try app.saveSkill(draft, origin: origin)
+            saved = "Сохранён. Lumen, агент и боты с этим навыком увидят его в следующем ответе."
+            return true
+        } catch {
+            saved = nil
+            problems = [error.localizedDescription]
+            return false
+        }
+    }
+
+    private func tryIt(_ text: String) {
+        guard save() else { return }
+        app.tab = .chat
+        app.newChat()
+        app.chat.send(text)
+    }
+}
+
+/// Многострочное поле (инструкции навыка — моноширинным)
+private struct SkillTextEditor: View {
+    @Binding var text: String
+    let placeholder: String
+    var minHeight: CGFloat
+    var mono: Bool
+
+    @Environment(\.palette) private var p
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if text.isEmpty {
+                Text(placeholder).font(mono ? .system(size: 12, design: .monospaced) : .geist(14)).foregroundStyle(p.mutedFg)
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+            }
+            TextEditor(text: $text)
+                .font(mono ? .system(size: 12, design: .monospaced) : .geist(14))
+                .scrollContentBackground(.hidden)
+                .padding(.horizontal, 7).padding(.vertical, 8)
+        }
+        .frame(minHeight: minHeight)
+        .background(p.input.opacity(0.3), in: RoundedRectangle(cornerRadius: R.lg))
+        .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
+    }
+}
+
+/// «Сам научился»: под ответом агента или бота — предложенный навык
+struct SkillProposalCard: View {
+    let app: AppModel
+    let message: ChatMessage
+    let draft: SkillDraft
+
+    @Environment(\.palette) private var p
+    @State private var done: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Icon("lightbulb", 14).foregroundStyle(p.glow)
+                Text("Сам научился: предлагаю навык «\(draft.name)»").tw(13, .medium, lh: 18)
+            }
+            Text(draft.description).tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(3)
+            if let done {
+                Text(done).tw(12, lh: 16).foregroundStyle(p.mutedFg)
+            } else {
+                HStack(spacing: 8) {
+                    LButton(title: "Сохранить навык", icon: "check", kind: .outline, small: true) {
+                        if (try? app.saveSkill(draft, origin: .learned)) != nil {
+                            done = "Сохранён — в следующий раз возьму его сам."
+                            dismiss()
+                        }
+                    }
+                    LButton(title: "Посмотреть", kind: .ghost, small: true) {
+                        app.skillDraft = draft
+                        app.page = .skillEditor(nil)
+                        dismiss()
+                    }
+                    LButton(title: "Не нужно", kind: .ghost, small: true) { dismiss() }
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: 560, alignment: .leading)
+        .background(p.glow.opacity(0.05), in: RoundedRectangle(cornerRadius: R.xl))
+        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.glow.opacity(0.25)))
+    }
+
+    private func dismiss() {
+        if let id = message.id { app.chat.attachSkillDraft(nil, to: id, conversationID: message.conversationID) }
+    }
+}

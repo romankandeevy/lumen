@@ -20,9 +20,11 @@ public struct AppPaths: Sendable {
     public var database: URL { root.appendingPathComponent("lumen.sqlite") }
     public var run: URL { root.appendingPathComponent("run", isDirectory: true) }
     public var logs: URL { root.appendingPathComponent("logs", isDirectory: true) }
+    /// Навыки: папки с SKILL.md (§8.3)
+    public var skills: URL { root.appendingPathComponent("skills", isDirectory: true) }
 
     public func create() throws {
-        for dir in [root, run, logs] {
+        for dir in [root, run, logs, skills] {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         }
     }

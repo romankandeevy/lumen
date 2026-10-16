@@ -185,7 +185,38 @@ public final class Store: Sendable {
             try db.alter(table: "conversation") { t in t.add(column: "botID", .text).indexed() }
             try db.alter(table: "message") { t in t.add(column: "botID", .text) }
         }
+        m.registerMigration("v10-skills") { db in
+            try db.create(table: "skillUse") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("name", .text).notNull().indexed()
+                t.column("conversationID", .text)
+                t.column("at", .datetime).notNull()
+            }
+            // навыки бота и чему он научился; предложенный навык под ответом
+            try db.alter(table: "bot") { t in
+                t.add(column: "skills", .jsonText).notNull().defaults(to: "[]")
+                t.add(column: "learned", .jsonText).notNull().defaults(to: "[]")
+            }
+            try db.alter(table: "message") { t in t.add(column: "skillDraft", .jsonText) }
+        }
         return m
+    }
+
+    // MARK: навыки
+
+    public func logSkillUse(_ name: String, conversationID: String?) throws {
+        try db.write { db in
+            try db.execute(sql: "INSERT INTO skillUse(name, conversationID, at) VALUES (?, ?, ?)", arguments: [name, conversationID, Date()])
+        }
+    }
+
+    /// Сколько раз модель брала каждый навык
+    public func skillUseCounts() throws -> [String: Int] {
+        try db.read { db in
+            var out: [String: Int] = [:]
+            for row in try Row.fetchAll(db, sql: "SELECT name, COUNT(*) AS n FROM skillUse GROUP BY name") { out[row["name"]] = row["n"] }
+            return out
+        }
     }
 
     // MARK: боты

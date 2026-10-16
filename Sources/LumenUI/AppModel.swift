@@ -23,6 +23,8 @@ public final class AppModel {
         case chat, memory, project(String), settings(SettingsView.Section)
         /// Все боты, разговор с ботом, конструктор (nil — новый бот)
         case bots, bot(String), botEditor(String?)
+        /// Навыки и редактор навыка (nil — новый)
+        case skills, skillEditor(String?)
     }
 
     var page: Page = .chat
@@ -38,6 +40,13 @@ public final class AppModel {
     var projects: [Project] = []
     /// Боты (BotModel.swift)
     var bots: [Bot] = []
+    /// Навыки (SkillModel.swift) и сколько раз модель их брала
+    var skills: [Skill] = []
+    var skillUses: [String: Int] = [:]
+    /// Черновик навыка для редактора (из «сам научился» или «сделать навык из разговора»)
+    var skillDraft: SkillDraft?
+    /// «Сделать навык из разговора»: название и текст разговора для редактора навыка
+    var skillContext: (title: String, text: String)?
     /// Какие боты сейчас работают и где их позвали — для «Работают» на странице ботов
     var botRuns: [String: String] = [:]
     var renamingProjectID: String?
@@ -101,6 +110,8 @@ public final class AppModel {
         memories = (try? store.memories()) ?? []
         projects = (try? store.projects()) ?? []
         bots = (try? store.bots()) ?? []
+        skills = SkillLibrary(root: paths.skills).all()
+        skillUses = (try? store.skillUseCounts()) ?? [:]
         suggestionCache = try? store.value("suggestions", as: SuggestionCache.self)
         writeMemoryFiles()
         // выход из приложения: процессы claude не должны пережить Lumen
@@ -212,6 +223,10 @@ public final class AppModel {
             MenuItem(title: "Переместить в проект…", key: "m") { [weak self] in
                 // второе меню открывается на том же месте
                 DispatchQueue.main.async { self?.showMoveMenu(c, at: point) }
+            },
+            MenuItem(title: "Сделать навык из разговора", key: "s") { [weak self] in
+                self?.skillContext = (c.title, self?.transcript(of: c) ?? "")
+                self?.page = .skillEditor(nil)
             },
             MenuItem(title: "Удалить", key: "d", destructive: true, separated: true) { [weak self] in self?.deleteChat(c) },
         ], anchor: point)

@@ -131,6 +131,9 @@ public struct AgentStep: Codable, Sendable, Equatable, Hashable {
         case "Task", "Agent": return .init(kind: .think, text: "Отдаёт часть работы помощнику")
         case "remember", "mcp__lumen__remember": return .init(kind: .think, text: "Запоминает")
         case "recall", "mcp__lumen__recall": return .init(kind: .think, text: "Вспоминает")
+        case "load_skill", "mcp__lumen__load_skill": return .init(kind: .think, text: "Берёт навык \(input["name"] as? String ?? "")")
+        case "read_skill_file", "mcp__lumen__read_skill_file": return .init(kind: .read, text: "Читает навык: \(input["path"] as? String ?? "")")
+        case "mcp__lumen__delegate": return .init(kind: .other, text: "Зовёт @\(input["bot"] as? String ?? ""): \((input["task"] as? String ?? "").prefix(60))")
         default: return .init(kind: .other, text: tool.hasPrefix("mcp__") ? tool.components(separatedBy: "__").last ?? tool : tool)
         }
     }
@@ -332,6 +335,8 @@ public struct ChatMessage: Codable, Sendable, Equatable, Identifiable {
     public var next: NextStep?
     /// Ответил бот (позвали через @id или это его разговор)
     public var botID: String?
+    /// Предложенный после этой задачи навык («сам научился»); nil — не предлагался или уже решили
+    public var skillDraft: SkillDraft?
     public var createdAt: Date
 
     public init(id: Int64? = nil, conversationID: String, role: Role, text: String, apiContent: String? = nil,

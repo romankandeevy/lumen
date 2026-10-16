@@ -21,7 +21,9 @@ public struct RootView: View {
                 case .settings: SettingsView(app: app)
                 case .bots: BotsView(app: app)
                 case .bot: ChatView(app: app)
-                case .botEditor(let id): BotEditor(app: app, botID: id)
+                case .botEditor(let id): BotEditor(app: app, botID: id).id(id ?? "new")
+                case .skills: SkillsView(app: app)
+                case .skillEditor(let name): SkillEditor(app: app, name: name).id(name ?? "new")
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -67,6 +69,13 @@ public struct RootView: View {
 /// Вкладки, поиск и разделы, которые ещё не работают, не показываем.
 struct Sidebar: View {
     @Bindable var app: AppModel
+
+    private var skillsActive: Bool {
+        switch app.page {
+        case .skills, .skillEditor: true
+        default: false
+        }
+    }
 
     private var botsActive: Bool {
         switch app.page {
@@ -118,6 +127,9 @@ struct Sidebar: View {
             VStack(spacing: 2) {
                 NavRow(title: "Боты", icon: "bot", active: botsActive, trailing: app.bots.isEmpty ? nil : "\(app.bots.count)") {
                     app.page = .bots
+                }
+                NavRow(title: "Навыки", icon: "book-open", active: skillsActive, trailing: app.skills.isEmpty ? nil : "\(app.skills.count)") {
+                    app.page = .skills
                 }
                 NavRow(title: "Память", icon: "brain", active: app.page == .memory, trailing: "\(app.memoryCount)") {
                     app.page = .memory

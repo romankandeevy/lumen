@@ -1,0 +1,160 @@
+import Foundation
+import LumenCore
+import LumenProviders
+import LumenStorage
+
+// Навыки в приложении: список, каталог, установка, создание с Lumen; и самонастройка бота по одной фразе.
+
+extension AppModel {
+    func reloadSkills() {
+        skills = skillLibrary.all()
+        skillUses = (try? store.skillUseCounts()) ?? [:]
+    }
+
+    func setSkill(_ s: Skill, enabled: Bool) {
+        try? skillLibrary.setEnabled(s.name, enabled)
+        reloadSkills()
+        chat.memoryChanged() // список навыков в правилах чата поменялся — процессы перезапустятся
+    }
+
+    func removeSkill(_ s: Skill) {
+        try? skillLibrary.remove(s.name)
+        for var b in bots where b.skills.contains(s.name) {
+            b.skills.removeAll { $0 == s.name }
+            try? store.save(b)
+        }
+        reloadBots()
+        reloadSkills()
+        chat.memoryChanged()
+    }
+
+    func saveSkill(_ d: SkillDraft, origin: SkillInfo.Origin) throws -> Skill {
+        let s = try skillLibrary.save(name: d.name, description: d.description, body: d.body, origin: origin)
+        reloadSkills()
+        chat.memoryChanged()
+        return s
+    }
+
+    /// Поставить по ссылке или из каталога; ответ — что получилось, простыми словами
+    func installSkill(_ link: String, origin: SkillInfo.Origin = .github) async -> String {
+        guard let loc = GitHubSkills.Location(link: link), !loc.path.isEmpty || origin == .github else {
+            return "Не понял ссылку. Нужна ссылка на папку навыка на GitHub или на его SKILL.md."
+        }
+        do {
+            let r = try await GitHubSkills(session: urlSession).install(loc, into: skillLibrary, origin: origin)
+            reloadSkills()
+            chat.memoryChanged()
+            switch r {
+            case .alreadyInstalled(let n): return "«\(n)» уже стоит — та же версия, качать не стал."
+            case .updated(let n): return "«\(n)» обновлён."
+            case .installed(let n):
+                if let s = skillLibrary.skill(n), !s.info.warnings.isEmpty {
+                    return "«\(n)» поставлен, но выключен: проверка нашла подозрительное — \(s.info.warnings.joined(separator: ", ")). Посмотри и включи сам, если доверяешь."
+                }
+                return "«\(n)» поставлен и включён."
+            }
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    // MARK: создание с Lumen
+
+    /// Правила хорошего навыка (по skill-creator от Anthropic и спецификации agentskills.io)
+    static let skillRules = """
+    Как писать навык, чтобы он работал:
+    1. name — коротко, латиницей в нижнем регистре через дефис (до 64 знаков).
+    2. description — главное поле: модель решает по нему, брать ли навык. Скажи, ЧТО навык делает и КОГДА его брать: \
+    перечисли конкретные фразы и ситуации. Пиши чуть настойчиво («используй всегда, когда…, даже если не сказано прямо»). До 1024 знаков.
+    3. body — инструкции в markdown для модели: шаги в повелительном наклонении; у важных шагов — зачем (модель лучше следует, \
+    когда понимает причину, чем жирным НУЖНО); точный формат результата; один-два коротких примера «вход → результат»; \
+    что делать в трудных случаях. Без воды и общих слов. До 500 строк; если больше — оставь суть, подробности опиши как отдельный файл.
+    4. Навык общий, а не под один пример. Ничего опасного и неожиданного: без скачивания и запуска чужих скриптов, без чтения ключей и паролей.
+    5. tests — две реальные просьбы, на которых навык стоит попробовать.
+    Язык описания и инструкций — язык человека (обычно русский).
+    """
+
+    /// Черновик навыка: модель пишет, потом перечитывает свежим взглядом и улучшает, потом проверка по стандарту
+    func draftSkill(_ request: String, context: String? = nil) async -> Result<SkillDraft, SkillDraftError> {
+        let system = """
+        Ты пишешь навыки (SKILL.md, формат agentskills.io) для помощника Lumen. \(Self.skillRules)
+        Отвечай строго JSON без markdown вокруг: {"name": "…", "description": "…", "body": "…", "tests": ["…", "…"]}
+        """
+        var ask = "Нужен навык: \(request)"
+        if let context, !context.isEmpty { ask += "\n\nВот разговор, из которого его стоит собрать (шаги, поправки человека, формат результата):\n\(context.prefix(12000))" }
+        let taken = skillLibrary.all().map(\.name)
+        if !taken.isEmpty { ask += "\n\nЭти имена уже заняты: \(taken.joined(separator: ", "))." }
+        guard let first = await quickAsk(ask, system: system, model: .sonnet, effort: .medium), var draft = Self.draft(from: first) else {
+            return .failure(.noAnswer)
+        }
+        // второй проход: свежим взглядом по тем же правилам
+        let review = """
+        Вот черновик навыка. Перечитай его свежим взглядом по правилам и верни улучшенную версию тем же JSON. \
+        Особенно проверь: описание говорит, когда брать навык, с конкретными фразами; шаги понятны без догадок; \
+        есть формат результата и пример; нет лишнего.
+        \(Self.json(draft))
+        """
+        if let second = await quickAsk(review, system: system, model: .sonnet, effort: .medium), let better = Self.draft(from: second), better.problems.isEmpty {
+            draft = better
+        }
+        if taken.contains(draft.name) { draft.name += "-2" }
+        let problems = draft.problems
+        return problems.isEmpty ? .success(draft) : .failure(.invalid(problems, draft))
+    }
+
+    enum SkillDraftError: Error {
+        case noAnswer
+        case invalid([String], SkillDraft)
+    }
+
+    static func draft(from text: String) -> SkillDraft? {
+        guard let j = jsonObject(in: text), let name = j["name"] as? String else { return nil }
+        return SkillDraft(name: name.lowercased().trimmingCharacters(in: .whitespaces), description: j["description"] as? String ?? "",
+                          body: j["body"] as? String ?? "", tests: j["tests"] as? [String] ?? [])
+    }
+
+    static func json(_ d: SkillDraft) -> String {
+        let obj: [String: Any] = ["name": d.name, "description": d.description, "body": d.body, "tests": d.tests]
+        return String(decoding: (try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted])) ?? Data(), as: UTF8.self)
+    }
+
+    /// Текст разговора для «Сделать навык из этого разговора»
+    func transcript(of c: Conversation) -> String {
+        ((try? store.messages(in: c.id)) ?? []).map { m in
+            let who = m.role == .user ? "Человек" : "Помощник"
+            let steps = m.steps.isEmpty ? "" : "\n[шаги: " + m.steps.map(\.text).joined(separator: "; ") + "]"
+            return "\(who): \(m.text)\(steps)"
+        }.joined(separator: "\n\n")
+    }
+
+    // MARK: бот по одной фразе (§4.5)
+
+    /// Черновик бота: модель предлагает роль, минимальные права, команды и подсказки. Права подтверждает человек в конструкторе.
+    func draftBot(_ phrase: String) async -> Bot? {
+        let icons = Bot.icons.joined(separator: ", ")
+        let caps = BotCapability.allCases.map { "\($0.rawValue) — \($0.name)" }.joined(separator: "; ")
+        let skillList = skillLibrary.enabled().map { "\($0.name): \($0.description.prefix(120))" }.joined(separator: "\n")
+        let system = """
+        Ты настраиваешь бота для Lumen по описанию человека. Отвечай строго JSON без markdown:
+        {"name": "по-русски, 1–3 слова", "id": "латиница-через-дефис, 2–20 знаков", "icon": "одно из: \(icons)", "hue": 0–360,
+         "role": "роль одной строкой", "instructions": "как работать: что делать, как отчитываться, чего не делать — 3–6 предложений",
+         "capabilities": ["…"], "commands": ["…"], "starters": ["три готовые просьбы"], "skills": ["имена подходящих навыков из списка"]}
+        Возможности: \(caps). Давай МИНИМУМ, нужный для роли: права раздаёт человек, лишнее — риск. \
+        commands — только если есть run без write: команды сборки и тестов, которые нужны роли.
+        Навыки на выбор:
+        \(skillList.isEmpty ? "нет" : skillList)
+        """
+        guard let text = await quickAsk("Нужен бот: \(phrase)", system: system, model: .sonnet, effort: .medium),
+              let j = Self.jsonObject(in: text) else { return nil }
+        var id = (j["id"] as? String ?? "").lowercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
+        if !Bot.isValidID(id) { id = "bot-\(Int.random(in: 10...99))" }
+        while bot(id) != nil { id += "-2" }
+        let installed = Set(skillLibrary.enabled().map(\.name))
+        return Bot(id: id, name: j["name"] as? String ?? "Бот", icon: Bot.icons.contains(j["icon"] as? String ?? "") ? j["icon"] as! String : "bot",
+                   hue: (j["hue"] as? Double) ?? Double(j["hue"] as? Int ?? 200), role: j["role"] as? String ?? "",
+                   instructions: j["instructions"] as? String ?? "",
+                   capabilities: Set((j["capabilities"] as? [String] ?? []).compactMap(BotCapability.init(rawValue:))),
+                   commands: j["commands"] as? [String] ?? [], starters: j["starters"] as? [String] ?? [],
+                   skills: (j["skills"] as? [String] ?? []).filter { installed.contains($0) })
+    }
+}

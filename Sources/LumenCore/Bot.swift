@@ -25,13 +25,19 @@ public struct Bot: Codable, Sendable, Equatable, Identifiable, Hashable {
     public var starters: [String]
     /// Кому передавать то, что не по роли (@id)
     public var handoff: String?
+    /// Навыки бота (имена из библиотеки навыков)
+    public var skills: [String] = []
+    /// Чему бот научился на прошлых задачах — попадает в его правила (§4.4)
+    public var learned: [String] = []
     public var createdAt: Date
     public var updatedAt: Date
 
     public init(id: String, name: String, icon: String = "bot", hue: Double = 200, role: String = "", instructions: String = "",
                 capabilities: Set<BotCapability> = [.read], commands: [String] = [], folder: String? = nil,
                 model: ChatModel = .sonnet, effort: Effort = .medium, starters: [String] = [], handoff: String? = nil,
-                createdAt: Date = Date(), updatedAt: Date = Date()) {
+                skills: [String] = [], learned: [String] = [], createdAt: Date = Date(), updatedAt: Date = Date()) {
+        self.skills = skills
+        self.learned = learned
         self.id = id
         self.name = name
         self.icon = icon
@@ -64,9 +70,40 @@ public struct Bot: Codable, Sendable, Equatable, Identifiable, Hashable {
                                          "git status", "git diff", "git log", "ls", "cat"]
 }
 
+extension Bot {
+    /// Правила бота: роль, что ему доступно и что отрезано, чему научился, кому передавать чужое
+    public func rules(handoff: Bot?, userName: String, ty: Bool, skills: String?, bots: [Bot] = []) -> String {
+        var lines = ["Ты — бот «\(name)» (@\(id)) в Lumen, приложении на Маке. Твоя роль: \(role)."]
+        if !instructions.isEmpty { lines.append(instructions) }
+        let granted = BotCapability.allCases.filter { capabilities.contains($0) }.map(\.name)
+        lines.append("Тебе доступно: \(granted.isEmpty ? "только разговор" : granted.joined(separator: ", ")). "
+            + "Отрезано в коде: \(BotPermissions.blocked(self).joined(separator: ", ")). Этих инструментов у тебя нет — не пытайся обойти.")
+        if capabilities.contains(.run) && !capabilities.contains(.write) && !commands.isEmpty {
+            lines.append("Команды можно запускать только такие: \(commands.joined(separator: ", ")).")
+        }
+        if capabilities.contains(.bots) {
+            let others = bots.filter { $0.id != id }
+            if !others.isEmpty {
+                lines.append("Если часть задачи не по твоей роли, передай её инструментом delegate одному из ботов и дождись ответа:\n"
+                    + others.map { "- @\($0.id): \($0.role)" }.joined(separator: "\n"))
+            }
+        }
+        if !learned.isEmpty {
+            lines.append("Чему ты научился на прошлых задачах (учитывай):\n" + learned.map { "- \($0)" }.joined(separator: "\n"))
+        }
+        let to = handoff.map { "@\($0.id) (\($0.name))" } ?? "Lumen"
+        lines.append("Если просят то, что не по роли, — коротко откажись и предложи передать это \(to). Не делай чужую работу наполовину.")
+        lines.append("Push, публикацию и выкатку не делай: это только человек.")
+        if !userName.isEmpty { lines.append("Собеседника зовут \(userName), обращайся на \(ty ? "«ты»" : "«вы»").") }
+        if let skills { lines.append(skills) }
+        lines.append("Отвечай по-русски, коротко и по делу: что сделал, что нашёл, что дальше.")
+        return lines.joined(separator: "\n")
+    }
+}
+
 /// Что боту разрешено. Push на GitHub не разрешается никому: его делает человек.
 public enum BotCapability: String, Codable, Sendable, CaseIterable, Hashable {
-    case read, write, run, web, git, memory
+    case read, write, run, web, git, memory, bots
 
     public var name: String {
         switch self {
@@ -76,6 +113,7 @@ public enum BotCapability: String, Codable, Sendable, CaseIterable, Hashable {
         case .web: "Интернет"
         case .git: "Git: коммит"
         case .memory: "Писать в память"
+        case .bots: "Звать других ботов"
         }
     }
 
@@ -87,6 +125,7 @@ public enum BotCapability: String, Codable, Sendable, CaseIterable, Hashable {
         case .web: "globe"
         case .git: "git-commit-horizontal"
         case .memory: "brain"
+        case .bots: "at-sign"
         }
     }
 }
@@ -138,7 +177,8 @@ public struct BotPermissions: Sendable, Equatable {
             allowed += ["TodoWrite"]
         }
         self.tools = tools
-        self.allowed = allowed + ["mcp__lumen__recall"] + (can.contains(.memory) ? ["mcp__lumen__remember"] : [])
+        self.allowed = allowed + ["mcp__lumen__recall", "mcp__lumen__load_skill", "mcp__lumen__read_skill_file"]
+            + (can.contains(.memory) ? ["mcp__lumen__remember"] : []) + (can.contains(.bots) ? ["mcp__lumen__delegate"] : [])
         self.memoryReadOnly = !can.contains(.memory)
         var never = ["Bash(git push:*)", "Bash(git push)"]
         if !can.contains(.git) { never += ["Bash(git commit:*)", "Bash(git reset:*)", "Bash(git checkout:*)"] }

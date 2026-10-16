@@ -304,10 +304,11 @@ struct GlowField<Trailing: View>: View {
     var body: some View {
         HStack(spacing: 8) {
             Group {
+                // подсказка приглушённая — чтобы не путалась с введённым текстом
                 if secure {
-                    SecureField(placeholder, text: $text)
+                    SecureField(text: $text, prompt: Text(placeholder).foregroundStyle(p.mutedFg.opacity(0.7))) { EmptyView() }
                 } else {
-                    TextField(placeholder, text: $text)
+                    TextField(text: $text, prompt: Text(placeholder).foregroundStyle(p.mutedFg.opacity(0.7))) { EmptyView() }
                 }
             }
             .textFieldStyle(.plain)

@@ -184,8 +184,8 @@ import Testing
     #expect(app.conversations.first { $0.id == a.id }?.pinned == true)
     let fresh = try #require(app.conversations.first { $0.id == a.id })
     app.showChatMenu(fresh, at: .zero)
-    #expect(app.menu?.items.map(\.title) == ["Открепить", "Переименовать", "Переместить в проект…", "Удалить"])
-    #expect(app.menu?.items.map(\.key) == ["p", "r", "m", "d"])
+    #expect(app.menu?.items.map(\.title) == ["Открепить", "Переименовать", "Переместить в проект…", "Сделать навык из разговора", "Удалить"])
+    #expect(app.menu?.items.map(\.key) == ["p", "r", "m", "s", "d"])
     app.menu?.items[1].action() // «Переименовать» включает поле в строке
     #expect(app.renamingID == a.id)
 }

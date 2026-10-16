@@ -8,11 +8,32 @@ public struct MemoryTools: Sendable {
     public let conversationID: String
     public let conversationTitle: String
 
-    public init(store: Store, conversationID: String, conversationTitle: String) {
+    /// Навыки: библиотека и какие из неё доступны (nil — все включённые)
+    public var skills: SkillLibrary?
+    public var allowedSkills: Set<String>?
+
+    public init(store: Store, conversationID: String, conversationTitle: String, skills: SkillLibrary? = nil, allowedSkills: Set<String>? = nil) {
         self.store = store
         self.conversationID = conversationID
         self.conversationTitle = conversationTitle
+        self.skills = skills
+        self.allowedSkills = allowedSkills
     }
+
+    /// Доступные навыки этого разговора
+    public var availableSkills: [Skill] { skills?.enabled(only: allowedSkills) ?? [] }
+
+    nonisolated(unsafe) public static let skillDefinitions: [(name: String, description: String, schema: [String: Any])] = [
+        ("load_skill",
+         "Загрузить инструкции навыка по имени из списка навыков. Используй, когда задача подходит под описание навыка.",
+         ["type": "object", "additionalProperties": false, "required": ["name"],
+          "properties": ["name": ["type": "string", "description": "Имя навыка"]]]),
+        ("read_skill_file",
+         "Прочитать файл навыка (references/…, scripts/…), на который ссылаются его инструкции.",
+         ["type": "object", "additionalProperties": false, "required": ["name", "path"],
+          "properties": ["name": ["type": "string", "description": "Имя навыка"],
+                         "path": ["type": "string", "description": "Путь внутри папки навыка"]]]),
+    ]
 
     /// Описания в формате JSON Schema — общие для MCP (`inputSchema`) и API (`input_schema`)
     nonisolated(unsafe) public static let definitions: [(name: String, description: String, schema: [String: Any])] = [
@@ -53,6 +74,18 @@ public struct MemoryTools: Sendable {
             for f in found { if let id = f.id { try store.logMemoryUse(id, conversationID: conversationID, action: "recall") } }
             if found.isEmpty { return "В памяти ничего не нашлось по «\(query)»." }
             return found.map { "- \($0.text) (\($0.kind.name.lowercased()), \($0.source))" }.joined(separator: "\n")
+        case "load_skill":
+            let n = input["name"] as? String ?? ""
+            guard let s = availableSkills.first(where: { $0.name == n }) else { return "Нет такого навыка: \(n)." }
+            try? store.logSkillUse(n, conversationID: conversationID)
+            let files = s.files.isEmpty ? "" : "\n\nФайлы навыка (read_skill_file): " + s.files.joined(separator: ", ")
+            return s.body + files
+        case "read_skill_file":
+            let n = input["name"] as? String ?? ""
+            guard availableSkills.contains(where: { $0.name == n }), let text = skills?.read(n, path: input["path"] as? String ?? "") else {
+                return "Нет такого файла у навыка."
+            }
+            return String(text.prefix(60_000))
         default:
             return "Нет такого инструмента: \(name)"
         }

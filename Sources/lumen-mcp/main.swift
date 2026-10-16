@@ -1,4 +1,6 @@
 import Foundation
+import LumenCore
+import LumenProviders
 import LumenStorage
 
 // lumen-mcp — stdio MCP-сервер Lumen (§0, §7 техплана): память для claude.
@@ -12,10 +14,95 @@ guard let dbPath = env["LUMEN_DB"], let store = try? Store(path: URL(fileURLWith
     FileHandle.standardError.write(Data("lumen-mcp: нет LUMEN_DB или база не открылась\n".utf8))
     exit(1)
 }
-let tools = MemoryTools(store: store, conversationID: env["LUMEN_CONVERSATION_ID"] ?? "",
+var tools = MemoryTools(store: store, conversationID: env["LUMEN_CONVERSATION_ID"] ?? "",
                         conversationTitle: env["LUMEN_CONVERSATION_TITLE"] ?? "Разговор")
 let readOnly = env["LUMEN_MEMORY_READONLY"] == "1"
-let visible = MemoryTools.definitions.filter { !readOnly || $0.name != "remember" }
+// навыки: LUMEN_SKILLS_DIR — библиотека, LUMEN_SKILLS — «*» (все включённые) или имена через запятую
+if let dir = env["LUMEN_SKILLS_DIR"], !dir.isEmpty {
+    tools.skills = SkillLibrary(root: URL(fileURLWithPath: dir))
+    let only = env["LUMEN_SKILLS"] ?? "*"
+    tools.allowedSkills = only == "*" ? nil : Set(only.split(separator: ",").map(String.init))
+}
+var visible = MemoryTools.definitions.filter { !readOnly || $0.name != "remember" }
+if !tools.availableSkills.isEmpty { visible += MemoryTools.skillDefinitions }
+
+// delegate (§4.6): бот с правом «Звать других ботов» передаёт часть задачи другому боту.
+// Только один шаг: у позванного бота LUMEN_DEPTH=1, и delegate у него нет.
+let callerID = env["LUMEN_BOT_ID"] ?? ""
+let depth = Int(env["LUMEN_DEPTH"] ?? "0") ?? 0
+let caller = callerID.isEmpty ? nil : (try? store.bots())?.first { $0.id == callerID }
+let canDelegate = caller?.capabilities.contains(.bots) == true && depth < 1
+if canDelegate {
+    visible.append(("delegate", "Передать часть задачи другому боту Lumen и дождаться его ответа. Указывай задачу полностью: бот не видит этот разговор.",
+                    ["type": "object", "additionalProperties": false, "required": ["bot", "task"],
+                     "properties": ["bot": ["type": "string", "description": "id бота без @"],
+                                    "task": ["type": "string", "description": "Что сделать, с нужным контекстом"]]]))
+}
+
+/// Запустить позванного бота отдельным процессом claude с его правами и дождаться ответа
+func delegate(_ args: [String: Any]) -> String {
+    guard canDelegate, let caller else { return "Звать других ботов отсюда нельзя." }
+    let id = (args["bot"] as? String ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "@ "))
+    let task = (args["task"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    let bots = (try? store.bots()) ?? []
+    guard let target = bots.first(where: { $0.id == id }), target.id != caller.id else { return "Нет такого бота: @\(id)." }
+    guard !task.isEmpty else { return "Пустая задача." }
+    guard let cli = ClaudeCLI.locate() else { return "Claude Code не найден." }
+    let root = URL(fileURLWithPath: dbPath).deletingLastPathComponent()
+    let paths = AppPaths(root: root)
+    var folder = paths.run.appendingPathComponent("bots/\(target.id)", isDirectory: true)
+    if let f = target.folder, FileManager.default.fileExists(atPath: f) { folder = URL(fileURLWithPath: f) }
+    try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+
+    let conv = (try? store.conversations())?.first { $0.kind == .bot && $0.botID == target.id }
+    let library = SkillLibrary(root: paths.skills)
+    let perms = BotPermissions(target)
+    let profile = store.profile
+    let rules = target.rules(handoff: nil, userName: profile.name, ty: profile.address == .ty,
+                             skills: SkillLibrary.promptBlock(library.enabled(only: Set(target.skills))))
+    // MCP позванного бота: его память и навыки, глубина 1 — дальше звать нельзя
+    let runDir = paths.run.appendingPathComponent("delegate-\(UUID().uuidString.lowercased())", isDirectory: true)
+    try? FileManager.default.createDirectory(at: runDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: runDir) }
+    let mcp: [String: Any] = ["mcpServers": ["lumen": [
+        "command": CommandLine.arguments[0], "args": [],
+        "env": ["LUMEN_DB": dbPath, "LUMEN_CONVERSATION_ID": conv?.id ?? "", "LUMEN_CONVERSATION_TITLE": target.name,
+                "LUMEN_MEMORY_READONLY": target.capabilities.contains(.memory) ? "0" : "1",
+                "LUMEN_SKILLS_DIR": paths.skills.path, "LUMEN_SKILLS": target.skills.joined(separator: ","),
+                "LUMEN_BOT_ID": target.id, "LUMEN_DEPTH": "1"],
+    ]]]
+    let mcpURL = runDir.appendingPathComponent("mcp.json")
+    try? JSONSerialization.data(withJSONObject: mcp).write(to: mcpURL)
+    var config = ClaudeSession.Config(model: target.model.rawValue, effort: target.effort.rawValue, tools: perms.tools, userSettings: false,
+                                      cwd: folder, appendSystemPrompt: rules,
+                                      allowedTools: perms.allowed.filter { $0 != "mcp__lumen__delegate" }, disallowedTools: perms.disallowed)
+    config.mcpConfig = mcpURL.path
+    let asked = "Задача от @\(caller.id) (бот «\(caller.name)»):\n\(task)"
+
+    final class Box: @unchecked Sendable { var text = "" }
+    let box = Box()
+    let done = DispatchSemaphore(value: 0)
+    Task {
+        do {
+            let session = try ClaudeSession(cli: cli, config: config)
+            let r = try await session.ask(asked)
+            box.text = r.ok ? r.text : "Бот @\(target.id) не справился: \(r.text)"
+            session.close()
+        } catch {
+            box.text = "Бот @\(target.id) не запустился: \(error.localizedDescription)"
+        }
+        done.signal()
+    }
+    done.wait()
+    // в постоянный разговор позванного бота — задача и ответ
+    if let conv {
+        _ = try? store.save(ChatMessage(conversationID: conv.id, role: .user, text: asked))
+        var m = ChatMessage(conversationID: conv.id, role: .assistant, text: box.text, model: target.model)
+        m.botID = target.id
+        _ = try? store.save(m)
+    }
+    return "@\(target.id) ответил:\n\(box.text)"
+}
 
 func reply(_ id: Any, _ result: [String: Any]) {
     send(["jsonrpc": "2.0", "id": id, "result": result])
@@ -41,6 +128,10 @@ while let line = readLine(strippingNewline: true) {
     case "tools/call":
         let name = params["name"] as? String ?? ""
         let args = params["arguments"] as? [String: Any] ?? [:]
+        if name == "delegate" {
+            reply(id ?? 0, ["content": [["type": "text", "text": delegate(args)]]])
+            continue
+        }
         if readOnly && name == "remember" {
             reply(id ?? 0, ["content": [["type": "text", "text": "Этому боту запрещено писать в память."]], "isError": true])
             continue
