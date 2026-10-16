@@ -7,9 +7,18 @@ public struct Keychain: Sendable {
     public let service: String
 
     /// LUMEN_KEYCHAIN — другая «папка» в Связке ключей, чтобы тесты не трогали настоящий ключ
-    public init(service: String = ProcessInfo.processInfo.environment["LUMEN_KEYCHAIN"] ?? "com.roman.lumen") {
+    public init(service: String = Keychain.defaultService) {
         self.service = service
     }
+
+    /// Настоящая Связка ключей — только у самого Lumen.app. Тесты и всё прочее без LUMEN_KEYCHAIN идут в свою «папку»:
+    /// иначе они читают и переписывают настоящие ключи, и Lumen потом просит пароль.
+    public static var defaultService: String {
+        if let s = ProcessInfo.processInfo.environment["LUMEN_KEYCHAIN"], !s.isEmpty { return s }
+        return isApp ? "com.roman.lumen" : "com.roman.lumen.tests"
+    }
+
+    static var isApp: Bool { Bundle.main.bundleIdentifier == "com.roman.lumen" }
 
     public static let anthropicKey = "anthropic-api-key"
 
@@ -25,13 +34,14 @@ public struct Keychain: Sendable {
         Self.cache.withLock { $0[key] = value }
         // запись могла остаться от старой сборки — тогда macOS спрашивает доступ при каждом запуске.
         // Переписываем её от имени этой сборки (подпись постоянная): дальше вопросов не будет.
-        if !Self.adopted.withLock({ $0.contains(key) }) {
+        // только сам Lumen.app: переписанная тестами запись принадлежала бы тестам (так и случилось 16.10)
+        if Self.isApp, !Self.adopted.withLock({ $0.contains(key) }) {
             Self.adopted.withLock { _ = $0.insert(key) }
-            let done = UserDefaults.standard.stringArray(forKey: "lumen.keychainAdopted") ?? []
+            let done = UserDefaults.standard.stringArray(forKey: "lumen.keychainAdopted.v2") ?? []
             if !done.contains(key) {
                 SecItemDelete(base(account) as CFDictionary)
                 try? add(value, account)
-                UserDefaults.standard.set(done + [key], forKey: "lumen.keychainAdopted")
+                UserDefaults.standard.set(done + [key], forKey: "lumen.keychainAdopted.v2")
             }
         }
         return value
