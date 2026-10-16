@@ -219,6 +219,7 @@ private struct ConnectorRow: View {
             case .checking: chip("проверяю…", color: p.mutedFg)
             case .ok(let tools): chip("\(tools.count) " + Plural.form(tools.count, "инструмент", "инструмента", "инструментов"), color: p.glow)
             case .failed: chip("не отвечает", color: Palette.destructive)
+            case .needsLogin: chip("нужно войти", color: p.glow)
             case nil: EmptyView()
             }
         }
@@ -250,6 +251,15 @@ private struct ConnectorRow: View {
             case .failed(let why):
                 IconLabel(text: why, icon: "triangle-alert", size: 13).tw(12, lh: 16).foregroundStyle(Palette.destructive)
                     .fixedSize(horizontal: false, vertical: true)
+            case .needsLogin:
+                HStack(spacing: 10) {
+                    Text("Сайт просит войти. Откроется браузер — войди и разреши доступ, Lumen запомнит.")
+                        .tw(12, lh: 16).foregroundStyle(p.mutedFg)
+                    LButton(title: "Войти через браузер", icon: "globe", kind: .primary, small: true) {
+                        Task { await app.loginSaved(name) }
+                    }
+                    .fixedSize()
+                }
             case nil:
                 EmptyView()
             }
@@ -398,6 +408,10 @@ private struct ConnectorEditor: View {
     @State private var secrets: [String: String] = [:]
     @State private var probing = false
     @State private var probe: ConnectorStatus?
+    @State private var oauth = false
+    @State private var loggingIn = false
+    /// Под каким именем сохранится (для нового — свободное); токен входа хранится под ним
+    @State private var finalName = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -441,6 +455,16 @@ private struct ConnectorEditor: View {
             case .failed(let why):
                 IconLabel(text: why, icon: "triangle-alert", size: 13).tw(12, lh: 16).foregroundStyle(Palette.destructive)
                     .fixedSize(horizontal: false, vertical: true)
+            case .needsLogin:
+                HStack(spacing: 10) {
+                    Text(loggingIn ? "Жду вход в браузере…" : "Сайт просит войти. Откроется браузер — войди и разреши доступ.")
+                        .tw(12, lh: 16).foregroundStyle(p.mutedFg)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    LButton(title: "Войти через браузер", icon: "globe", kind: .primary, small: true, busy: loggingIn) { login() }
+                        .fixedSize()
+                        .disabled(loggingIn)
+                }
             case nil: EmptyView()
             }
             HStack(spacing: 8) {
@@ -470,6 +494,7 @@ private struct ConnectorEditor: View {
         if remote {
             s.url = url.trimmingCharacters(in: .whitespaces)
             s.headers = Self.pairs(headerText, sep: ":")
+            s.oauth = oauth
             s.command = ""; s.args = []; s.env = [:]
         } else {
             let words = ConnectorImport.shellWords(command)
@@ -489,6 +514,31 @@ private struct ConnectorEditor: View {
         command = s.command.isEmpty ? "" : s.summary
         envText = s.env.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "\n")
         headerText = s.headers.sorted { $0.key < $1.key }.map { "\($0.key): \($0.value)" }.joined(separator: "\n")
+        oauth = s.oauth
+        // из реестра или вставки — сразу проверить: сайт сам скажет, нужен ли вход
+        if edit.original == nil || app.connectorStatus[edit.name] == nil, valid { check() }
+    }
+
+    private var targetName: String {
+        let clean = MCPServer.cleanName(name)
+        return edit.original == clean ? clean : app.freeConnectorName(clean)
+    }
+
+    private func login() {
+        loggingIn = true
+        finalName = targetName
+        Task {
+            do {
+                let s = try await app.loginConnector(finalName, server: pending)
+                oauth = true
+                headerText = s.headers.sorted { $0.key < $1.key }.map { "\($0.key): \($0.value)" }.joined(separator: "\n")
+                loggingIn = false
+                check()
+            } catch {
+                loggingIn = false
+                probe = .failed((error as? MCPClient.Failure)?.message ?? error.localizedDescription)
+            }
+        }
     }
 
     private func check() {
@@ -501,6 +551,7 @@ private struct ConnectorEditor: View {
         Task {
             switch await MCPClient.probe(server, session: session) {
             case .success(let tools): probe = .ok(tools)
+            case .failure(let f) where f.needsAuth: probe = .needsLogin
             case .failure(let f): probe = .failed(f.message)
             }
             probing = false
@@ -509,8 +560,8 @@ private struct ConnectorEditor: View {
 
     private func save() {
         for (k, v) in secrets where !v.isEmpty { app.setSecret(k, v) }
-        let n = app.saveConnector(pending, name: edit.original == MCPServer.cleanName(name) ? MCPServer.cleanName(name)
-                                    : app.freeConnectorName(name), replacing: edit.original)
+        // вошли через браузер — имя то же, под которым лежит токен
+        let n = app.saveConnector(pending, name: oauth && !finalName.isEmpty ? finalName : targetName, replacing: edit.original)
         if case .ok = probe { app.connectorStatus[n] = probe } else { app.checkConnector(n) }
         close()
     }

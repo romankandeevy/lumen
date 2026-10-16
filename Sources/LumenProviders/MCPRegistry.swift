@@ -23,8 +23,15 @@ public enum MCPRegistry {
 
         /// Короткое имя для коннектора
         public var shortName: String {
-            let last = name.split(separator: "/").last.map(String.init) ?? name
-            return ConnectorImportName.short(last)
+            // com.notion/mcp → notion: если имя ничего не говорит, берём владельца
+            let parts = name.split(separator: "/").map(String.init)
+            let last = ConnectorImportName.short(parts.last ?? name)
+            if ["mcp", "server", "mcp-server"].contains(last) || last.isEmpty, parts.count > 1 {
+                let owner = parts[parts.count - 2].split(separator: ".").map(String.init)
+                    .filter { !["com", "io", "ai", "dev", "app", "org", "net", "github", "co"].contains($0) }
+                if let o = owner.last { return ConnectorImportName.short(o) }
+            }
+            return last
         }
     }
 

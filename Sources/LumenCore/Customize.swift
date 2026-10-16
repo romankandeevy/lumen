@@ -22,6 +22,8 @@ public struct MCPServer: Codable, Sendable, Equatable, Hashable {
     public var disabled: Bool
     /// Lumen: что это и откуда (из каталога — его описание)
     public var note: String
+    /// Lumen: вход через браузер (OAuth) — токен в Связке ключей, Lumen продлевает его сам
+    public var oauth: Bool = false
 
     public init(type: Kind = .stdio, command: String = "", args: [String] = [], env: [String: String] = [:],
                 url: String = "", headers: [String: String] = [:], disabled: Bool = false, note: String = "") {
@@ -42,7 +44,7 @@ public struct MCPServer: Codable, Sendable, Equatable, Hashable {
         isRemote ? url : ([command] + args).map { $0.contains(" ") ? "\"\($0)\"" : $0 }.joined(separator: " ")
     }
 
-    enum CodingKeys: String, CodingKey { case type, command, args, env, url, headers, disabled, note }
+    enum CodingKeys: String, CodingKey { case type, command, args, env, url, headers, disabled, note, oauth }
 
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
@@ -62,6 +64,7 @@ public struct MCPServer: Codable, Sendable, Equatable, Hashable {
         headers = try c.decodeIfPresent([String: String].self, forKey: .headers) ?? [:]
         disabled = try c.decodeIfPresent(Bool.self, forKey: .disabled) ?? false
         note = try c.decodeIfPresent(String.self, forKey: .note) ?? ""
+        oauth = try c.decodeIfPresent(Bool.self, forKey: .oauth) ?? false
     }
 
     public func encode(to e: Encoder) throws {
@@ -77,6 +80,7 @@ public struct MCPServer: Codable, Sendable, Equatable, Hashable {
         }
         if disabled { try c.encode(true, forKey: .disabled) }
         if !note.isEmpty { try c.encode(note, forKey: .note) }
+        if oauth { try c.encode(true, forKey: .oauth) }
     }
 
     /// Как это видит Claude Code: без полей Lumen

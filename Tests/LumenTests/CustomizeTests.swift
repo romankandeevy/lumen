@@ -284,3 +284,72 @@ private let live = ProcessInfo.processInfo.environment["LUMEN_LIVE"] == "1"
     let py: [String: Any] = ["name": "x/y", "packages": [["registryType": "pypi", "identifier": "y-mcp", "transport": ["type": "stdio"]]]]
     #expect(MCPRegistry.entry(py, uvx: false) == nil)
 }
+
+// MARK: вход через браузер (OAuth)
+
+final class FakeOAuthSite: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) static var tokenForms: [String] = []
+    override class func canInit(with request: URLRequest) -> Bool { request.url?.host?.hasSuffix(".test") == true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let u = request.url!
+        var code = 200
+        var headers = ["Content-Type": "application/json"]
+        var body: [String: Any] = [:]
+        switch (u.host!, u.path) {
+        case ("mcp.test", "/mcp"):
+            code = 401
+            headers["WWW-Authenticate"] = #"Bearer realm="OAuth", resource_metadata="https://mcp.test/.well-known/oauth-protected-resource/mcp""#
+        case ("mcp.test", "/.well-known/oauth-protected-resource/mcp"):
+            body = ["resource": "https://mcp.test", "authorization_servers": ["https://auth.test"], "scopes_supported": ["default"]]
+        case ("auth.test", "/.well-known/oauth-authorization-server"):
+            body = ["authorization_endpoint": "https://auth.test/authorize", "token_endpoint": "https://auth.test/token",
+                    "registration_endpoint": "https://auth.test/register"]
+        case ("auth.test", "/register"):
+            body = ["client_id": "cid-1"]
+        case ("auth.test", "/token"):
+            let form = String(decoding: request.httpBodyStream.map { s -> Data in
+                s.open(); defer { s.close() }
+                var d = Data(); var buf = [UInt8](repeating: 0, count: 4096)
+                while s.hasBytesAvailable { let n = s.read(&buf, maxLength: buf.count); if n <= 0 { break }; d.append(buf, count: n) }
+                return d
+            } ?? request.httpBody ?? Data(), as: UTF8.self)
+            Self.tokenForms.append(form)
+            body = form.contains("grant_type=refresh_token")
+                ? ["access_token": "at-2", "expires_in": 3600]
+                : ["access_token": "at-1", "refresh_token": "rt-1", "expires_in": 60]
+        default:
+            code = 404
+        }
+        let resp = HTTPURLResponse(url: u, statusCode: code, httpVersion: "HTTP/1.1", headerFields: headers)!
+        client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: (try? JSONSerialization.data(withJSONObject: body)) ?? Data())
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+@Test func oauthLoginDiscoversRegistersAndExchangesCode() async throws {
+    let config = URLSessionConfiguration.ephemeral
+    config.protocolClasses = [FakeOAuthSite.self]
+    let session = URLSession(configuration: config)
+    FakeOAuthSite.tokenForms = []
+    // «браузер»: человек вошёл — сайт отправляет на redirect_uri с кодом и тем же state
+    let t = try await MCPOAuth.login(serverURL: "https://mcp.test/mcp", session: session) { url in
+        let q = Dictionary(uniqueKeysWithValues: (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+        #expect(url.host == "auth.test" && q["client_id"] == "cid-1" && q["code_challenge_method"] == "S256" && q["resource"] == "https://mcp.test")
+        #expect(q["redirect_uri"]?.hasPrefix("http://127.0.0.1:") == true && q["scope"] == "default")
+        var back = URLComponents(string: q["redirect_uri"]!)!
+        back.queryItems = [.init(name: "code", value: "c-9"), .init(name: "state", value: q["state"])]
+        Task { _ = try? await URLSession.shared.data(from: back.url!) }
+    }
+    #expect(t.accessToken == "at-1" && t.refreshToken == "rt-1" && t.clientID == "cid-1" && t.stale)
+    #expect(FakeOAuthSite.tokenForms.first?.contains("code=c-9") == true && FakeOAuthSite.tokenForms.first?.contains("code_verifier=") == true)
+    let r = try await MCPOAuth.refresh(t, session: session)
+    #expect(r.accessToken == "at-2" && r.refreshToken == "rt-1" && !r.stale)
+}
+
+@Test func registryNamesFromOwnerWhenPackageNameIsGeneric() {
+    let e = MCPRegistry.entry(["name": "com.notion/mcp", "remotes": [["type": "streamable-http", "url": "https://mcp.notion.com/mcp"]]], uvx: false)!
+    #expect(e.shortName == "notion")
+}

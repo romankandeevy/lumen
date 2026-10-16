@@ -390,6 +390,8 @@ final class ChatController {
             await finish(c, text: "", error: "Claude Code не найден. Поставь его и войди в Настройках → Модели и оплата.")
             return
         }
+        // вход в сайты коннекторов продлевается до хода; продлили — процесс поднимется с новым токеном (--resume)
+        if await app.freshenOAuth(app.connectorsFor(c)) { restart(c.id) }
         if c.backend == .api, let stop = app.limitReached {
             await finish(c, text: "", error: stop)
             return
@@ -637,6 +639,7 @@ final class ChatController {
         // коннекторы из «Кастомизации»: Lumen сам держит их клиенты (MCPPool), модель видит «сервер__инструмент»
         let wanted = app.connectorsFor(c)
         if !wanted.isEmpty {
+            _ = await app.freshenOAuth(wanted)
             let problems = await app.mcpPool.prepare(wanted.map { ($0.name, $0.server.resolved(app.secretValues(for: [$0.server]))) })
             for p in problems { app.log("Коннектор не подключился: \(p)", conversation: c) }
             request.tools = (request.tools ?? []) + app.mcpPool.definitions(for: wanted.map(\.name))

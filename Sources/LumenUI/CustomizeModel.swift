@@ -13,6 +13,8 @@ enum ConnectorStatus: Equatable {
     case checking
     case ok([MCPClient.Tool])
     case failed(String)
+    /// Сайт просит войти — кнопка «Войти через браузер»
+    case needsLogin
 }
 
 extension AppModel {
@@ -70,6 +72,10 @@ extension AppModel {
     }
 
     func removeConnector(_ name: String) {
+        if connectors.mcpServers[name]?.oauth == true {
+            keychain.delete("oauth.\(name)")
+            keychain.delete("secret.\(Self.oauthSecret(name))")
+        }
         connectors.mcpServers[name] = nil
         connectorStatus[name] = nil
         // боты, которым он был разрешён, его теряют
@@ -106,12 +112,14 @@ extension AppModel {
     func checkConnector(_ name: String) {
         guard let s = connectors.mcpServers[name] else { return }
         connectorStatus[name] = .checking
-        let server = s.resolved(secretValues(for: [s]))
         let session = urlSession
         Task {
+            _ = await freshenOAuth([(name, s)])
+            let server = s.resolved(secretValues(for: [s]))
             let r = await MCPClient.probe(server, session: session)
             switch r {
             case .success(let tools): connectorStatus[name] = .ok(tools)
+            case .failure(let f) where f.needsAuth: connectorStatus[name] = .needsLogin
             case .failure(let f):
                 connectorStatus[name] = .failed(f.message)
                 log("Коннектор \(name) не прошёл проверку: \(f.message)")
@@ -124,6 +132,58 @@ extension AppModel {
         let on = connectors.enabled
         if c.kind == .bot { return on.filter { bot(c.botID)?.connectors.contains($0.name) == true } }
         return on
+    }
+
+    // MARK: вход через браузер (OAuth)
+
+    /// Имя секрета с токеном: OAUTH_NOTION
+    static func oauthSecret(_ name: String) -> String {
+        "OAUTH_" + name.uppercased().replacingOccurrences(of: "-", with: "_")
+    }
+
+    /// Войти в сайт коннектора через браузер. Возвращает коннектор с заголовком `Bearer ${OAUTH_…}`.
+    func loginConnector(_ name: String, server: MCPServer) async throws -> MCPServer {
+        let t = try await MCPOAuth.login(serverURL: server.url, session: urlSession)
+        storeTokens(t, for: name)
+        var s = server
+        s.oauth = true
+        s.headers["Authorization"] = "Bearer ${\(Self.oauthSecret(name))}"
+        return s
+    }
+
+    /// Войти у уже сохранённого коннектора и проверить
+    func loginSaved(_ name: String) async {
+        guard let s = connectors.mcpServers[name] else { return }
+        connectorStatus[name] = .checking
+        do {
+            let updated = try await loginConnector(name, server: s)
+            connectors.mcpServers[name] = updated
+            saveConnectors()
+            checkConnector(name)
+        } catch {
+            connectorStatus[name] = .failed((error as? MCPClient.Failure)?.message ?? error.localizedDescription)
+        }
+    }
+
+    func storeTokens(_ t: MCPOAuth.Tokens, for name: String) {
+        if let d = try? JSONEncoder().encode(t) { try? keychain.save(String(decoding: d, as: UTF8.self), for: "oauth.\(name)") }
+        setSecret(Self.oauthSecret(name), t.accessToken)
+    }
+
+    /// Продлить токены, которые скоро истекут. true — что-то продлили (живые процессы надо перезапустить).
+    func freshenOAuth(_ list: [(name: String, server: MCPServer)]) async -> Bool {
+        var changed = false
+        for (name, s) in list where s.oauth {
+            guard let raw = keychain.read("oauth.\(name)"), let t = try? JSONDecoder().decode(MCPOAuth.Tokens.self, from: Data(raw.utf8)),
+                  t.stale else { continue }
+            do {
+                storeTokens(try await MCPOAuth.refresh(t, session: urlSession), for: name)
+                changed = true
+            } catch {
+                log("Коннектор \(name): не продлился вход — \((error as? MCPClient.Failure)?.message ?? error.localizedDescription)")
+            }
+        }
+        return changed
     }
 
     // MARK: хуки

@@ -16,7 +16,9 @@ public final class MCPClient: @unchecked Sendable {
 
     public struct Failure: Error, LocalizedError {
         public let message: String
-        public init(_ m: String) { message = m }
+        /// Сайт просит войти (401/403) — поможет «Войти через браузер»
+        public var needsAuth = false
+        public init(_ m: String, needsAuth: Bool = false) { message = m; self.needsAuth = needsAuth }
         public var errorDescription: String? { message }
     }
 
@@ -248,7 +250,7 @@ public final class MCPClient: @unchecked Sendable {
         if let s = http?.value(forHTTPHeaderField: "Mcp-Session-Id") { sessionID = s }
         let status = http?.statusCode ?? 0
         if status == 401 || status == 403 {
-            throw Failure("Сайт не пустил (\(status)): нужен токен или вход. Claude Code входит через браузер сам, а здесь нужен токен в заголовке.")
+            throw Failure("Сайт просит войти (\(status)).", needsAuth: true)
         }
         guard let id else { return [:] }
         if status >= 400 { throw Failure("Сайт ответил ошибкой \(status)") }
@@ -278,7 +280,9 @@ public final class MCPClient: @unchecked Sendable {
         r.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         for (k, v) in server.headers { r.setValue(v, forHTTPHeaderField: k) }
         let (bytes, response) = try await session.bytes(for: r)
-        if let code = (response as? HTTPURLResponse)?.statusCode, code >= 400 { throw Failure("Сайт ответил ошибкой \(code)") }
+        if let code = (response as? HTTPURLResponse)?.statusCode, code >= 400 {
+            throw Failure(code == 401 || code == 403 ? "Сайт просит войти (\(code))." : "Сайт ответил ошибкой \(code)", needsAuth: code == 401 || code == 403)
+        }
         let ready = AsyncStream<URL>.makeStream()
         sseTask = Task { [weak self] in
             var event = ""
