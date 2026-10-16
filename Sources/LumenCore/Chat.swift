@@ -96,6 +96,24 @@ public enum Effort: String, Codable, Sendable, CaseIterable, Identifiable {
     public var level: Int { Effort.allCases.firstIndex(of: self) ?? 0 }
 }
 
+/// Откуда пришло сообщение в разговор бота: чат, где его позвали через @, или другой бот
+public struct Via: Codable, Sendable, Equatable, Hashable {
+    public var conversationID: String?
+    public var title: String
+
+    public init(conversationID: String? = nil, title: String) {
+        self.conversationID = conversationID
+        self.title = title
+    }
+
+    /// Скрытая пометка для модели: откуда задача и что было там перед ней. В переписке её не видно.
+    public static func modelText(task: String, from title: String, context: String) -> String {
+        var s = "<lumen-from chat=\"\(title.replacingOccurrences(of: "\"", with: "'"))\">"
+        if !context.isEmpty { s += "\n" + context }
+        return s + "\n</lumen-from>\n\n" + task
+    }
+}
+
 /// Режим работы агента — те же пять, что в Claude Code (`--permission-mode`)
 public enum AgentMode: String, Codable, Sendable, CaseIterable, Identifiable {
     case plan
@@ -382,6 +400,8 @@ public struct ChatMessage: Codable, Sendable, Equatable, Identifiable {
     public var skillDraft: SkillDraft?
     /// Вложения сообщения человека: картинки и файлы
     public var attachments: [Attachment] = []
+    /// Сообщение пришло боту из другого разговора (позвали через @): откуда — для пометки под ним
+    public var via: Via?
     public var createdAt: Date
 
     public init(id: Int64? = nil, conversationID: String, role: Role, text: String, apiContent: String? = nil,

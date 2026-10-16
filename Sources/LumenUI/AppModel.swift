@@ -123,6 +123,8 @@ public final class AppModel {
         }
         migrateSingleKey()
         conversations = (try? store.conversations()) ?? []
+        // после загрузки разговоров: иначе обходить нечего
+        fixDelegatedMessages()
         memories = (try? store.memories()) ?? []
         projects = (try? store.projects()) ?? []
         bots = (try? store.bots()) ?? []

@@ -184,7 +184,35 @@ private let live = ProcessInfo.processInfo.environment["LUMEN_LIVE"] == "1"
         let botChat = app.botConversation(for: b)
         let inBot = try app.store.messages(in: botChat.id)
         #expect(inBot.count == 2)
-        #expect(inBot.first?.text.contains("из другого разговора") == true)
+        // в разговоре бота — сообщение как написано и пометка, откуда; служебного текста не видно
+        #expect(inBot.first?.text == "какие файлы лежат в твоей папке? Ответь одним списком.")
+        #expect(inBot.first?.via?.conversationID == app.chat.conversation?.id)
         #expect(inBot.last?.botID == "tester")
+
+        // после ответа бота обычное сообщение Lumen в этом же чате идёт без ошибки (раньше: «завершился без ответа»)
+        app.chat.send("Спасибо. А ты сам, Lumen, ответь одним словом: привет")
+        while app.chat.busy { try await Task.sleep(for: .milliseconds(200)) }
+        let lumen = try #require(app.chat.messages.last)
+        #expect(lumen.error == nil, "\(lumen.error ?? "")")
+        #expect(lumen.botID == nil && !lumen.text.isEmpty)
     }
+}
+
+
+/// Старые простыни в разговоре бота превращаются в обычное сообщение с пометкой «из чата …»
+@MainActor @Test func oldDelegatedMessagesAreCleanedUp() throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-fixvia-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    app.saveBot(Bot(id: "designer", name: "Дизайнер"))
+    let chat = Conversation(title: "Знакомство", backend: .subscription, model: .sonnet, effort: .low)
+    try app.store.save(chat)
+    let b = app.botConversation(for: app.bot("designer")!)
+    _ = try app.store.save(ChatMessage(conversationID: b.id, role: .user, text: "Тебя позвали через @designer из другого разговора — «Знакомство». Это новая задача.\n\nЧто было:\nРоман: привет\n\nЗадача:\nпривет, дизайнер"))
+    // уборка — сама при запуске, как у Ромы (раньше шла до загрузки разговоров и ничего не делала)
+    let again = try AppModel(paths: AppPaths(root: home))
+    let m = try #require(try again.store.messages(in: b.id).first)
+    #expect(m.text == "привет, дизайнер")
+    #expect(m.via?.title == "Знакомство" && m.via?.conversationID == chat.id)
+    #expect(Via.modelText(task: "т", from: "Чат", context: "").hasPrefix("<lumen-from chat=\"Чат\">"))
 }

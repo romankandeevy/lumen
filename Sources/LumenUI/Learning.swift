@@ -8,6 +8,22 @@ import LumenStorage
 // Модель не переобучается: учится через память, выводы и навыки, которые ты подтверждаешь.
 
 extension AppModel {
+    /// Журнал Lumen: что пошло не так и почему — ~/Library/Application Support/Lumen/logs/lumen.log
+    var logFile: URL { paths.logs.appendingPathComponent("lumen.log") }
+
+    func log(_ text: String, conversation c: Conversation? = nil) {
+        let stamp = ISO8601DateFormatter().string(from: Date())
+        let head = c.map { " [\($0.kind.rawValue) «\($0.title)» \($0.model.rawValue) \($0.backend.rawValue)]" } ?? ""
+        let line = "\(stamp)\(head) \(text)\n\n"
+        if let h = try? FileHandle(forWritingTo: logFile) {
+            h.seekToEndOfFile()
+            h.write(Data(line.utf8))
+            try? h.close()
+        } else {
+            try? line.write(to: logFile, atomically: true, encoding: .utf8)
+        }
+    }
+
     /// Один короткий запрос к модели без инструментов и настроек пользователя; ответ — текст
     func quickAsk(_ prompt: String, system: String, model: ChatModel = .haiku, effort: Effort = .low) async -> String? {
         guard let cli else { return nil }

@@ -332,3 +332,24 @@ import Testing
     #expect(app.prefs.activeKeyID == first.id && kc.read(Keychain.anthropicKey)?.hasSuffix("AAAA") == true)
     for e in app.prefs.apiKeys { kc.delete(AppModel.keyAccount(e.id)) }
 }
+
+
+/// «Повторить»: ошибочный ответ и вопрос убираются, вопрос уходит снова
+@MainActor @Test func retryResendsQuestion() async throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-retry-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .subscription, theme: .lumen)
+    let c = Conversation(title: "t", backend: .subscription, model: .sonnet, effort: .low)
+    try app.store.save(c)
+    _ = try app.store.save(ChatMessage(conversationID: c.id, role: .user, text: "Вопрос"))
+    let bad = try app.store.save(ChatMessage(conversationID: c.id, role: .assistant, text: "", error: "Claude Code завершился без ответа."))
+    app.reloadConversations()
+    app.openChat(c)
+    app.chat.retry(bad)
+    while app.chat.running != nil { try await Task.sleep(for: .milliseconds(20)) }
+    let msgs = try app.store.messages(in: c.id)
+    // старые две строки ушли, вопрос отправлен заново (здесь нет claude — новая ошибка, но одна)
+    #expect(msgs.filter { $0.role == .user }.map(\.text) == ["Вопрос"])
+    #expect(msgs.count == 2 && msgs.last?.id != bad.id)
+}

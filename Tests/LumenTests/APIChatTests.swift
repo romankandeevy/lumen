@@ -91,7 +91,7 @@ final class StubAPI: URLProtocol, @unchecked Sendable {
     #expect(StubAPI.requests.count == 2)
     let first = StubAPI.requests[0]
     #expect(first["model"] as? String == ChatModel.sonnet.rawValue)
-    #expect((first["tools"] as? [[String: Any]])?.map { $0["name"] as? String } == ["remember", "recall"])
+    #expect((first["tools"] as? [[String: Any]])?.map { $0["name"] as? String } == ["remember", "recall", "list_skills", "create_skill", "find_skills", "install_skill"])
     #expect((first["system"] as? [[String: Any]])?.first?["text"] as? String != nil)
     let msgs2 = try #require(StubAPI.requests[1]["messages"] as? [[String: Any]])
     let last = try #require(msgs2.last?["content"] as? [[String: Any]])
@@ -110,6 +110,43 @@ final class StubAPI: URLProtocol, @unchecked Sendable {
     let roles = (StubAPI.requests[2]["messages"] as? [[String: Any]])?.map { $0["role"] as? String }
     #expect(roles == ["user", "assistant", "user", "assistant", "user"])
     #expect(app.chat.messages.last?.text == "В 9.")
+}
+
+/// По ключу API Lumen тоже создаёт навык сам: create_skill в цикле инструментов
+@Test func apiChatCreatesSkill() async throws {
+    setenv("LUMEN_KEYCHAIN", "com.roman.lumen.tests", 1)
+    defer { Keychain(service: "com.roman.lumen.tests").delete(Keychain.anthropicKey) }
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-apiskill-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    try app.keychain.save("sk-ant-test-" + String(repeating: "x", count: 30), for: Keychain.anthropicKey)
+    let config = URLSessionConfiguration.ephemeral
+    config.protocolClasses = [StubAPI.self]
+    app.urlSession = URLSession(configuration: config)
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .api, theme: .lumen)
+    let input = #"{\"name\":\"test-skill\",\"description\":\"Тестовый навык: используй, когда просят тест\",\"body\":\"Отвечай словом ок.\"}"#
+    StubAPI.requests = []
+    StubAPI.responses = [
+        StubAPI.sse([
+            #"{"type":"message_start","message":{"usage":{"input_tokens":50}}}"#,
+            #"{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tu1","name":"create_skill","input":{}}}"#,
+            "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"" + input + "\"}}",
+            #"{"type":"content_block_stop","index":0}"#,
+            #"{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":20}}"#,
+            #"{"type":"message_stop"}"#,
+        ]),
+        StubAPI.sse([
+            #"{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+            #"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Сделал навык."}}"#,
+            #"{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":3}}"#,
+            #"{"type":"message_stop"}"#,
+        ]),
+    ]
+    app.chat.send("Создай тестовый навык")
+    while app.chat.running != nil { try await Task.sleep(for: .milliseconds(20)) }
+    #expect(app.chat.messages.last?.text == "Сделал навык.")
+    #expect(app.skillLibrary.skill("test-skill") != nil)
+    #expect((StubAPI.requests.first?["tools"] as? [[String: Any]])?.contains { $0["name"] as? String == "create_skill" } == true)
 }
 
 @Test func monthlyLimitStopsAPI() async throws {

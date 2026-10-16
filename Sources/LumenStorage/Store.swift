@@ -205,6 +205,9 @@ public final class Store: Sendable {
         m.registerMigration("v12-attachments") { db in
             try db.alter(table: "message") { t in t.add(column: "attachments", .jsonText).notNull().defaults(to: "[]") }
         }
+        m.registerMigration("v13-via") { db in
+            try db.alter(table: "message") { t in t.add(column: "via", .jsonText) }
+        }
         return m
     }
 
@@ -317,6 +320,10 @@ public final class Store: Sendable {
 
     public func deleteConversation(_ id: String) throws {
         _ = try db.write { db in try Conversation.deleteOne(db, key: id) }
+    }
+
+    public func deleteMessage(_ id: Int64) throws {
+        _ = try db.write { db in try ChatMessage.deleteOne(db, key: id) }
     }
 
     public func messages(in conversationID: String) throws -> [ChatMessage] {

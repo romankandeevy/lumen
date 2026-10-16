@@ -222,7 +222,7 @@ private let live = ProcessInfo.processInfo.environment["LUMEN_LIVE"] == "1"
         // задача и ответ — в разговоре позванного
         let lister = app.botConversation(for: app.bot("lister")!)
         let inLister = try app.store.messages(in: lister.id)
-        #expect(inLister.first?.text.contains("Задача от @lead") == true)
+        #expect(inLister.first?.via?.title == "@lead" && inLister.first?.text.contains("<lumen-from") == false)
     }
 
     /// «Написать с Lumen»: навык по просьбе — правильный по стандарту, с описанием «когда брать» и примерами

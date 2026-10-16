@@ -1,3 +1,4 @@
+import AppKit
 import LumenCore
 import SwiftUI
 import UniformTypeIdentifiers
@@ -164,6 +165,14 @@ struct ChatView: View {
 
     private var transcript: some View {
         ScrollViewReader { proxy in
+            transcriptScroll(proxy)
+        }
+        // свой список на каждый разговор: ленивый список не путает строки при смене вкладки
+        .id(chat.conversation?.id ?? "new")
+    }
+
+    private func transcriptScroll(_ proxy: ScrollViewProxy) -> some View {
+        Group {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 28) {
                     ForEach(chat.messages) { m in
@@ -196,10 +205,11 @@ struct ChatView: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollIndicators(.never)
-            .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
+            // к концу — когда страница уже разложена (иначе после смены вкладки переписка оказывалась пустой)
+            .onAppear { DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) } }
             .onChange(of: chat.messages.count) { withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("bottom", anchor: .bottom) } }
             .onChange(of: chat.streaming?.text.count) { proxy.scrollTo("bottom", anchor: .bottom) }
-            .onChange(of: chat.conversation?.id) { proxy.scrollTo("bottom", anchor: .bottom) }
+            .onChange(of: chat.conversation?.id) { DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) } }
             .onChange(of: chat.pendingPermission?.request.id) { withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("bottom", anchor: .bottom) } }
         }
     }
@@ -291,6 +301,7 @@ struct MessageRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             }
+            if let via = message.via { ViaChip(via: via, app: chat?.app) }
             }
         } else {
             HStack(alignment: .top, spacing: 14) {
@@ -331,6 +342,16 @@ struct MessageRow: View {
                         IconLabel(text: error, icon: "triangle-alert", size: 16)
                             .font(.geist(14)).foregroundStyle(Palette.destructive)
                             .fixedSize(horizontal: false, vertical: true)
+                        if let chat, !streaming {
+                            HStack(spacing: 8) {
+                                LButton(title: "Повторить", icon: "rotate-ccw", kind: .outline, small: true) { chat.retry(message) }
+                                    .disabled(chat.busy)
+                                LButton(title: "Журнал", icon: "file-text", kind: .ghost, small: true) {
+                                    NSWorkspace.shared.open(chat.app.logFile)
+                                }
+                                .disabled(!FileManager.default.fileExists(atPath: chat.app.logFile.path))
+                            }
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -459,6 +480,88 @@ struct Composer: View {
         return app.bots.filter { q.isEmpty || $0.id.hasPrefix(q) || $0.name.lowercased().contains(q) }
     }
     private var inBot: Bool { chat.conversation?.kind == .bot }
+    private var currentBot: Bot? { inBot ? app.bot(chat.conversation?.botID) : nil }
+    @State private var botFolderOpen = false
+    @State private var botEffortOpen = false
+
+    /// Кому пишешь: знак и @имя в цвете бота
+    private func botChip(_ b: Bot) -> some View {
+        HStack(spacing: 6) {
+            BotAvatar(bot: b, size: 18)
+            Text("@\(b.id)").font(.geist(12, .medium)).foregroundStyle(BotColor.accent(b.hue))
+        }
+        .padding(.leading, 4).padding(.trailing, 8).frame(height: 26)
+        .background(BotColor.faint(b.hue), in: Capsule())
+        .overlay(Capsule().strokeBorder(BotColor.soft(b.hue)))
+        .help(b.role)
+    }
+
+    /// Папка бота — меняется прямо здесь (как у агента), сразу для его следующего ответа
+    private func botFolderPicker(_ b: Bot) -> some View {
+        let current = b.folder.map { URL(fileURLWithPath: $0) }
+        return PickerButton(open: $botFolderOpen) {
+            Icon("folder", 14).foregroundStyle(BotColor.accent(b.hue))
+            Text(current.map(AppModel.folderName) ?? "Своя папка").font(.geist(12))
+        } panel: {
+            PopoverPanel(title: "Где работает бот", width: 256) {
+                PopoverOption(name: "Своя папка", note: "пустая, чужих файлов не видит", active: current == nil) {
+                    Icon("folder", 16).foregroundStyle(p.mutedFg)
+                } action: { setBotFolder(b, nil) }
+                PopoverOption(name: "Мои файлы", note: "вся домашняя папка, ~", active: current.map(AppModel.isHome) ?? false) {
+                    Icon("laptop", 16).foregroundStyle(p.mutedFg)
+                } action: { setBotFolder(b, AppModel.home.path) }
+                ForEach(app.recentFolders.filter { !AppModel.isHome($0) }, id: \.self) { f in
+                    PopoverOption(name: f.lastPathComponent, note: f.deletingLastPathComponent().path.replacingOccurrences(of: NSHomeDirectory(), with: "~"),
+                                  active: f.standardizedFileURL.path == current?.standardizedFileURL.path) {
+                        Icon("folder", 16).foregroundStyle(p.mutedFg)
+                    } action: { setBotFolder(b, f.path) }
+                }
+                Button {
+                    botFolderOpen = false
+                    let panel = NSOpenPanel()
+                    panel.canChooseDirectories = true
+                    panel.canChooseFiles = false
+                    panel.prompt = "Выбрать"
+                    if panel.runModal() == .OK, let url = panel.url { setBotFolder(b, url.path) }
+                } label: {
+                    Text("Другая папка…").font(.geist(12)).foregroundStyle(p.mutedFg)
+                        .padding(.horizontal, 8).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .disabled(chat.busy)
+    }
+
+    private func botEffortPicker(_ b: Bot) -> some View {
+        PickerButton(open: $botEffortOpen) {
+            EffortBars(level: b.effort.level)
+            Text(b.effort.name).font(.geist(12))
+        } panel: {
+            PopoverPanel(title: "Сколько думать") {
+                ForEach(Effort.allCases) { e in
+                    PopoverOption(name: e.name, note: e.note, active: e == b.effort) { EffortBars(level: e.level) } action: {
+                        var nb = b
+                        nb.effort = e
+                        app.saveBot(nb)
+                        chat.refresh(app.botConversation(for: nb))
+                        botEffortOpen = false
+                    }
+                }
+            }
+        }
+        .disabled(chat.busy)
+    }
+
+    private func setBotFolder(_ b: Bot, _ path: String?) {
+        var nb = b
+        nb.folder = path
+        app.saveBot(nb)
+        if let path { app.rememberFolder(URL(fileURLWithPath: path)) }
+        chat.refresh(app.botConversation(for: nb))
+        botFolderOpen = false
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -482,7 +585,7 @@ struct Composer: View {
                 .overlay(alignment: .bottom) { p.border.frame(height: 1) }
             }
             if !attachments.isEmpty { AttachmentStrip(items: $attachments) }
-            TextField(big ? "Опиши задачу: что сделать, починить или проверить" : (agent ? "Что сделать в проекте?" : (inBot ? "Задача для бота" : "Просто напиши")),
+            TextField(big ? "Опиши задачу: что сделать, починить или проверить" : (agent ? "Что сделать в проекте?" : (currentBot.map { "Задача для «\($0.name)»" } ?? "Просто напиши")),
                       text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.geist(big ? 15 : 14))
@@ -498,6 +601,7 @@ struct Composer: View {
                     attachments += app.chooseAttachments()
                 }
                 if agent { folderPicker; modePicker }
+                if let b = currentBot { botChip(b); botFolderPicker(b); botEffortPicker(b) }
                 if chat.busyElsewhere, let other = chat.running {
                     Button { app.openChat(other) } label: {
                         HStack(spacing: 6) {
@@ -522,7 +626,14 @@ struct Composer: View {
         .padding(big ? 16 : 12)
         .background(p.card.opacity(0.6), in: RoundedRectangle(cornerRadius: R.xxl))
         // без свечения в фокусе (Рома, 16.10): ровная рамка
-        .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(focused ? p.foreground.opacity(0.14) : p.border))
+        .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(
+            currentBot.map { focused ? BotColor.accent($0.hue).opacity(0.45) : BotColor.soft($0.hue) } ?? (focused ? p.foreground.opacity(0.14) : p.border)))
+        .background {
+            // у бота — его цвет: лёгкое свечение за полем
+            if let b = currentBot {
+                RoundedRectangle(cornerRadius: R.xxl).fill(BotColor.faint(b.hue)).blur(radius: 18).padding(-6).allowsHitTesting(false)
+            }
+        }
         .onPasteCommand(of: [.fileURL, .png, .tiff, .jpeg]) { providers in app.attach(providers) { attachments.append($0) } }
         .frame(maxWidth: big ? .infinity : Self.width)
         .padding(.horizontal, big ? 0 : 20).padding(.bottom, big ? 0 : 20).padding(.top, big ? 0 : 4)
@@ -672,8 +783,8 @@ struct Composer: View {
                     .foregroundStyle(.black)
                     .frame(width: big ? 32 : 28, height: big ? 32 : 28)
                     // как в макете: кнопка всегда светится (bg-glow, тень 16px glow-soft)
-                    .background(p.glow, in: Circle())
-                    .shadow(color: p.glowSoft, radius: 8)
+                    .background(currentBot.map { BotColor.accent($0.hue) } ?? p.glow, in: Circle())
+                    .shadow(color: currentBot.map { BotColor.soft($0.hue) } ?? p.glowSoft, radius: 8)
             }
             .buttonStyle(.plain)
             .disabled(!ready || chat.busyElsewhere)
@@ -763,5 +874,30 @@ struct RenamableTitle: View {
                 }
                 .help("Дважды щёлкни, чтобы переименовать")
         }
+    }
+}
+
+
+/// Под сообщением в разговоре бота: откуда его позвали (щелчок — открыть тот чат)
+private struct ViaChip: View {
+    let via: Via
+    let app: AppModel?
+
+    @Environment(\.palette) private var p
+
+    var body: some View {
+        Button {
+            if let id = via.conversationID, let c = app?.conversations.first(where: { $0.id == id }) { app?.openChat(c) }
+        } label: {
+            HStack(spacing: 4) {
+                Icon("at-sign", 11)
+                Text(via.title.hasPrefix("@") ? "позвал \(via.title)" : "из чата «\(via.title)»").lineLimit(1)
+            }
+            .tw(11, lh: 14).foregroundStyle(p.mutedFg)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(via.conversationID == nil)
+        .help(via.conversationID == nil ? "" : "Открыть тот чат")
     }
 }

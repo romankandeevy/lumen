@@ -82,6 +82,11 @@ final class ChatController {
         }
     }
 
+    /// Обновить открытый разговор (бот поменял папку или «сколько думать»)
+    func refresh(_ c: Conversation) {
+        if conversation?.id == c.id { conversation = c }
+    }
+
     func renamed(_ id: String, _ title: String) {
         if conversation?.id == id { conversation?.title = title }
         if running?.id == id { running?.title = title }
@@ -100,6 +105,17 @@ final class ChatController {
         newProjectID = projectID
         conversation = nil
         messages = []
+    }
+
+    /// «Повторить»: ошибочный ответ и вопрос к нему убираются, вопрос отправляется заново (с теми же вложениями)
+    func retry(_ failed: ChatMessage) {
+        guard running == nil, let i = messages.firstIndex(where: { $0.id == failed.id }),
+              let u = messages[..<i].last(where: { $0.role == .user }) else { return }
+        for m in [failed, u] {
+            if let id = m.id { try? app.store.deleteMessage(id) }
+        }
+        messages.removeAll { $0.id == failed.id || $0.id == u.id }
+        send(u.text, attachments: u.attachments)
     }
 
     /// Режим агента: у начатой задачи меняется сразу, на ходу; у новой — запоминается для следующей
@@ -201,7 +217,7 @@ final class ChatController {
             } else if c.model.isGPT {
                 await self.runCodex(c, text: text, attachments: attachments)
             } else if c.usesCLI {
-                await self.runCLI(c, text: text, attachments: attachments, hadTurnsBefore: history.contains { $0.role == .assistant && $0.error == nil })
+                await self.runCLI(c, text: text, attachments: attachments, hadTurnsBefore: history.contains { $0.role == .assistant && $0.error == nil && ($0.botID == nil || c.kind == .bot) })
             } else {
                 await self.runAPI(c, history: history)
             }
@@ -239,19 +255,15 @@ final class ChatController {
         let b = app.botConversation(for: bot)
         let earlier = (try? app.store.messages(in: b.id)) ?? []
         let hadTurns = earlier.contains { $0.role == .assistant && $0.error == nil }
-        // бот должен понимать, где он: это новый разговор, а не продолжение его собственного (Рома, 16.10)
+        // в разговоре бота — твоё сообщение как есть и пометка «из чата …»; что было в том чате, бот получает скрыто
         let context = ((try? app.store.messages(in: c.id)) ?? []).dropLast().suffix(6).map { m -> String in
             let who = m.role == .user ? (app.profile.name.isEmpty ? "Человек" : app.profile.name) : (m.botID.map { "@\($0)" } ?? "Lumen")
             return "\(who): \(m.text.prefix(600))"
         }.joined(separator: "\n")
-        var taskText = """
-        Тебя позвали через @\(bot.id) из другого разговора — «\(c.title)». Это новая задача оттуда: отвечай на неё, \
-        а свою прошлую переписку в этом чате не продолжай и не ссылайся на неё, если о ней не спрашивают. \
-        Твой ответ увидят в том разговоре.
-        """
-        if !context.isEmpty { taskText += "\n\nЧто было в том разговоре перед этим:\n\(context)" }
-        taskText += "\n\nЗадача:\n\(task)"
-        _ = try? app.store.save(ChatMessage(conversationID: b.id, role: .user, text: taskText))
+        let taskText = Via.modelText(task: task, from: c.title, context: context)
+        var asked = ChatMessage(conversationID: b.id, role: .user, text: task)
+        asked.via = Via(conversationID: c.id, title: c.title)
+        _ = try? app.store.save(asked)
         app.botRuns[bot.id] = c.title
         defer { app.botRuns[bot.id] = nil }
         let git = Git(folder: URL(fileURLWithPath: b.folder ?? app.botFolder(bot).path))
@@ -365,7 +377,7 @@ final class ChatController {
         sessions.removeAll()
     }
 
-    private func runCLI(_ c: Conversation, text: String, attachments: [Attachment] = [], hadTurnsBefore: Bool) async {
+    private func runCLI(_ c: Conversation, text: String, attachments: [Attachment] = [], hadTurnsBefore: Bool, retried: Bool = false) async {
         guard let cli = app.cli else {
             await finish(c, text: "", error: "Claude Code не найден. Поставь его и войди в Настройках → Модели и оплата.")
             return
@@ -413,7 +425,15 @@ final class ChatController {
             }
             guard let result else {
                 sessions[c.id] = nil
-                await finish(c, text: answer, error: Self.cliError(session.errorOutput), changes: changes)
+                let raw = session.errorOutput
+                // продолжать было нечего (сессии claude для этого чата нет) — начать её заново, один раз
+                if !retried, hadTurnsBefore, raw.localizedCaseInsensitiveContains("no conversation found") {
+                    app.log("Сессия \(c.cliSessionID ?? "-") не нашлась — начинаю заново", conversation: c)
+                    await runCLI(c, text: text, attachments: attachments, hadTurnsBefore: false, retried: true)
+                    return
+                }
+                app.log("claude завершился без итога. stderr:\n\(raw)", conversation: c)
+                await finish(c, text: answer, error: Self.cliError(raw), changes: changes)
                 return
             }
             // расход: по подписке claude даёт оценку «сколько стоило бы по API»; агент по ключу платит ключом
@@ -427,7 +447,8 @@ final class ChatController {
             } else if result.ok {
                 await finish(c, text: answer.isEmpty ? result.text : answer, changes: changes, context: ctx)
             } else {
-                await finish(c, text: answer, error: Self.cliError(result.text), changes: changes, context: ctx)
+                app.log("claude ответил ошибкой: \(result.text)\nstderr:\n\(session.errorOutput)", conversation: c)
+                await finish(c, text: answer, error: Self.cliError(result.text.isEmpty ? session.errorOutput : result.text), changes: changes, context: ctx)
             }
         } catch {
             await finish(c, text: "", error: error.localizedDescription)
@@ -596,7 +617,7 @@ final class ChatController {
         defer { log() }
         var request = AnthropicChatRequest(model: c.model, effort: c.effort, system: app.systemPrompt(for: c),
                                            messages: AnthropicChatRequest.history(history))
-        request.tools = (MemoryTools.definitions + (tools.availableSkills.isEmpty ? [] : MemoryTools.skillDefinitions)).map {
+        request.tools = (MemoryTools.definitions + (tools.availableSkills.isEmpty ? [] : MemoryTools.skillDefinitions) + SkillAdmin.definitions).map {
             JSONBox(["name": $0.name, "description": $0.description, "input_schema": $0.schema, "strict": true])
         }
         var answer = ""
@@ -642,7 +663,11 @@ final class ChatController {
                 for call in calls {
                     let name = call["name"] as? String ?? ""
                     appendStep(AgentStep.from(tool: name, input: [:]), c)
-                    let out = (try? tools.call(name, call["input"] as? [String: Any] ?? [:])) ?? "Ошибка памяти"
+                    let input = call["input"] as? [String: Any] ?? [:]
+                    // навыки (создать, найти, поставить) — общий код с lumen-mcp; остальное — память и чтение навыков
+                    let out = SkillAdmin.names.contains(name)
+                        ? await SkillAdmin.call(name, SkillAdmin.Args(input), library: app.skillLibrary, session: app.urlSession)
+                        : ((try? tools.call(name, input)) ?? "Ошибка памяти")
                     results.append(["type": "tool_result", "tool_use_id": call["id"] as? String ?? "", "content": out])
                 }
                 turn.append(["role": "user", "content": results])
@@ -723,6 +748,7 @@ final class ChatController {
                         changes: ChangeSet? = nil, context: (Int, Int)? = nil) async {
         // ответ допечатывается до конца; «Стоп» и ошибки — сразу
         await drainReveal(instant: stopped || error != nil)
+        if let error { app.log("Ошибка в разговоре: \(error)", conversation: c) }
         // шаги показываем у агента; в чате вызовы памяти видны плашками «Запомнил» и «Опирался на»
         // у агента и ботов шаги видны; в чате вызовы памяти видны плашками «Запомнил» и «Опирался на»
         let steps = c.kind != .chat || turnBot != nil ? (turnMessage?.steps ?? []) : []
@@ -835,10 +861,21 @@ final class ChatController {
         if s.localizedCaseInsensitiveContains("rate limit") || s.contains("429") {
             return "Лимит подписки на сейчас исчерпан. Подожди сброса или переключи новый чат на API в Настройках."
         }
-        if s.isEmpty || s.hasPrefix("[claude-code:unrecognized_model]") {
-            return "Claude Code завершился без ответа. Отправь ещё раз."
+        if s.localizedCaseInsensitiveContains("no conversation found") {
+            return "Claude Code не нашёл прошлый разговор. Нажми «Повторить» — начну заново."
         }
-        return s
+        if s.localizedCaseInsensitiveContains("not logged in") || s.localizedCaseInsensitiveContains("/login") {
+            return "Claude Code просит войти заново: Настройки → Модели и оплата → «Войти через браузер»."
+        }
+        if s.localizedCaseInsensitiveContains("overloaded") || s.contains("529") {
+            return "Серверы Anthropic перегружены. Нажми «Повторить» через минуту."
+        }
+        if s.isEmpty || s.hasPrefix("[claude-code:unrecognized_model]") {
+            return "Claude Code завершился без ответа. Нажми «Повторить»; подробности — в журнале."
+        }
+        // последняя содержательная строка — без простыни
+        let line = s.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.last { !$0.isEmpty } ?? s
+        return "Claude Code: " + String(line.prefix(300))
     }
 }
 

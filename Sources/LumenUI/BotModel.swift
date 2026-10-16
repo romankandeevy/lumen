@@ -11,6 +11,32 @@ extension AppModel {
         return bots.first { $0.id == id }
     }
 
+    /// Старые сообщения в разговорах ботов были простынёй «Тебя позвали через @… Задача: …» —
+    /// переделать в обычное сообщение с пометкой «из чата …» (один раз, при запуске)
+    func fixDelegatedMessages() {
+        for c in conversations where c.kind == .bot {
+            for var m in (try? store.messages(in: c.id)) ?? [] where m.role == .user && m.via == nil {
+                let t = m.text
+                var title: String?
+                var task: String?
+                if t.hasPrefix("Тебя позвали через @"), let r = t.range(of: "\n\nЗадача:\n") {
+                    task = String(t[r.upperBound...])
+                    if let a = t.range(of: "разговора — «"), let b = t[a.upperBound...].range(of: "»") { title = String(t[a.upperBound..<b.lowerBound]) }
+                } else if t.hasPrefix("Задача из чата «"), let b = t.range(of: "»:\n") {
+                    title = String(t[t.index(t.startIndex, offsetBy: 16)..<b.lowerBound])
+                    task = String(t[b.upperBound...])
+                } else if t.hasPrefix("Задача от @"), let nl = t.firstIndex(of: "\n") {
+                    title = String(t.dropFirst(11).prefix { $0 != " " }).isEmpty ? nil : "@" + String(t.dropFirst(11).prefix { $0 != " " })
+                    task = String(t[t.index(after: nl)...])
+                }
+                guard let task, let title else { continue }
+                m.text = task
+                m.via = Via(conversationID: conversations.first { $0.title == title && $0.kind != .bot }?.id, title: title)
+                _ = try? store.save(m)
+            }
+        }
+    }
+
     func reloadBots() {
         bots = (try? store.bots()) ?? []
     }

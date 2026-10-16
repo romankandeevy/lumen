@@ -24,6 +24,9 @@ extension AppModel {
         if let c = conversations.first(where: { $0.kind == .agent }) {
             shots.insert(("agent", { [self] in openChat(c) }), at: 3)
         }
+        if let b = bots.first {
+            shots.append(("bot-chat", { [self] in searchOpen = false; openBot(b.id) }))
+        }
         for s in SettingsView.Section.visible(self) {
             shots.append(("settings-\(s)", { [self] in searchOpen = false; page = .settings(s) }))
         }
