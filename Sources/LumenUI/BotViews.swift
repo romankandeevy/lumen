@@ -270,6 +270,13 @@ struct BotPassport: View {
                         }
                     }
                 }
+                if !bot.connectors.isEmpty {
+                    section("Коннекторы") {
+                        ForEach(bot.connectors, id: \.self) { s in
+                            IconLabel(text: s, icon: app.connectors.mcpServers[s]?.isRemote == true ? "globe" : "terminal", size: 13).tw(12, lh: 16)
+                        }
+                    }
+                }
                 section("Где работает") {
                     IconLabel(text: bot.folder.map { $0.replacingOccurrences(of: NSHomeDirectory(), with: "~") } ?? "Своя пустая папка", icon: "folder", size: 14)
                         .tw(12, lh: 16).lineLimit(2).truncationMode(.middle)
@@ -475,6 +482,32 @@ struct BotEditor: View {
                             }
                             .buttonStyle(.plain)
                             .help(s.description)
+                        }
+                    }
+                }
+            }
+            if !app.connectors.mcpServers.isEmpty {
+                field("Коннекторы", aside: "сайты и программы из «Кастомизации» — бот видит только отмеченные") {
+                    FlowWrap(spacing: 6) {
+                        ForEach(app.connectors.mcpServers.keys.sorted(), id: \.self) { name in
+                            let s = app.connectors.mcpServers[name]!
+                            let on = draft.connectors.contains(name)
+                            Button {
+                                if on { draft.connectors.removeAll { $0 == name } } else { draft.connectors.append(name) }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Icon(on ? "check" : (s.isRemote ? "globe" : "terminal"), 12)
+                                    Text(name)
+                                    if s.disabled { Text("выключен").foregroundStyle(p.mutedFg.opacity(0.7)) }
+                                }
+                                .tw(12, lh: 16).foregroundStyle(on ? BotColor.accent(draft.hue) : p.mutedFg)
+                                .padding(.horizontal, 10).padding(.vertical, 5)
+                                .background(on ? BotColor.faint(draft.hue) : .clear, in: Capsule())
+                                .overlay(Capsule().strokeBorder(on ? BotColor.soft(draft.hue) : p.border))
+                                .contentShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .help(s.note.isEmpty ? s.summary : s.note)
                         }
                     }
                 }

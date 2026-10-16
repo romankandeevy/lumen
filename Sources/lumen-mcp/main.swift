@@ -87,13 +87,17 @@ func delegate(_ args: [String: Any]) -> String {
     let runDir = paths.run.appendingPathComponent("delegate-\(UUID().uuidString.lowercased())", isDirectory: true)
     try? FileManager.default.createDirectory(at: runDir, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: runDir) }
-    let mcp: [String: Any] = ["mcpServers": ["lumen": [
+    var servers: [String: Any] = ["lumen": [
         "command": CommandLine.arguments[0], "args": [],
         "env": ["LUMEN_DB": dbPath, "LUMEN_CONVERSATION_ID": conv?.id ?? "", "LUMEN_CONVERSATION_TITLE": target.name,
                 "LUMEN_MEMORY_READONLY": target.can.contains(.memory) ? "0" : "1",
                 "LUMEN_SKILLS_DIR": paths.skills.path, "LUMEN_SKILLS": target.skills.joined(separator: ","),
                 "LUMEN_BOT_ID": target.id, "LUMEN_DEPTH": "1"],
-    ]]]
+    ]]
+    // коннекторы, разрешённые позванному боту (секреты `${…}` claude возьмёт из окружения)
+    let file = MCPFile.load(paths.mcp)
+    for (name, s) in file.enabled where target.connectors.contains(name) { servers[name] = s.claudeJSON }
+    let mcp: [String: Any] = ["mcpServers": servers]
     let mcpURL = runDir.appendingPathComponent("mcp.json")
     try? JSONSerialization.data(withJSONObject: mcp).write(to: mcpURL)
     var config = ClaudeSession.Config(model: target.model.rawValue, effort: target.effort.rawValue, tools: perms.tools, userSettings: false,

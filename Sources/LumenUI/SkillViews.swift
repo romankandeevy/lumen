@@ -17,13 +17,37 @@ struct SkillsView: View {
     enum Mode: Hashable { case mine, catalog }
 
     var body: some View {
-        PageFrame(title: "Навыки",
-                  lead: "Проверенные инструкции для отдельных задач. Lumen, агент и боты видят список включённых навыков и сами берут нужный, когда задача подходит.") {
-            LButton(title: "Создать навык", icon: "plus", kind: .primary) {
-                app.skillDraft = nil
-                app.page = .skillEditor(nil)
+        PageFrame(title: "Кастомизация",
+                  lead: "Навыки, коннекторы и хуки — как в Claude Code, в одной папке. Lumen, агент и боты берут их сами.") {
+            HStack(spacing: 8) {
+                LButton(title: "Папка", icon: "folder-open", kind: .outline) { app.revealCustomize() }
+                    .help("customize/: skills, mcp.json, hooks.json — в формате Claude Code")
+                if app.customizeTab == .skills {
+                    LButton(title: "Создать навык", icon: "plus", kind: .primary) {
+                        app.skillDraft = nil
+                        app.page = .skillEditor(nil)
+                    }
+                }
             }
         } content: {
+            VStack(alignment: .leading, spacing: 16) {
+                Segmented(value: $app.customizeTab, options: [
+                    (.skills, "Навыки · \(app.skills.count)"),
+                    (.connectors, "Коннекторы · \(app.connectors.mcpServers.count)"),
+                    (.hooks, "Хуки · \(app.hooks.count)"),
+                ])
+                .frame(maxWidth: 480)
+                switch app.customizeTab {
+                case .skills: skillsTab
+                case .connectors: ConnectorsTab(app: app)
+                case .hooks: HooksTab(app: app)
+                }
+            }
+        }
+        .onAppear { app.reloadSkills(); app.reloadCustomize() }
+    }
+
+    @ViewBuilder private var skillsTab: some View {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 12) {
                     MiniSegmented(value: $app.skillsMode, options: [(.mine, "Мои, \(app.skills.count)"), (.catalog, "Каталог skills.sh")])
@@ -42,8 +66,6 @@ struct SkillsView: View {
                 }
                 .scrollIndicators(.never)
             }
-        }
-        .onAppear { app.reloadSkills() }
     }
 
     @ViewBuilder private var mine: some View {

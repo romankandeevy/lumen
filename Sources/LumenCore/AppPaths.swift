@@ -20,13 +20,26 @@ public struct AppPaths: Sendable {
     public var database: URL { root.appendingPathComponent("lumen.sqlite") }
     public var run: URL { root.appendingPathComponent("run", isDirectory: true) }
     public var logs: URL { root.appendingPathComponent("logs", isDirectory: true) }
+    /// Кастомизация — всё в одном месте, в формате Claude Code: навыки, коннекторы MCP, хуки
+    public var customize: URL { root.appendingPathComponent("customize", isDirectory: true) }
     /// Навыки: папки с SKILL.md (§8.3)
-    public var skills: URL { root.appendingPathComponent("skills", isDirectory: true) }
+    public var skills: URL { customize.appendingPathComponent("skills", isDirectory: true) }
+    /// Коннекторы: `{"mcpServers": {…}}`
+    public var mcp: URL { customize.appendingPathComponent("mcp.json") }
+    /// Хуки: `{"hooks": {…}}`
+    public var hooks: URL { customize.appendingPathComponent("hooks.json") }
     /// Копии вложений (картинки и файлы из сообщений)
     public var attachments: URL { root.appendingPathComponent("attachments", isDirectory: true) }
 
     public func create() throws {
-        for dir in [root, run, logs, skills, attachments] {
+        // до 1.1 навыки лежали в Lumen/skills — переезжают в customize/skills
+        let old = root.appendingPathComponent("skills", isDirectory: true)
+        let fm = FileManager.default
+        if fm.fileExists(atPath: old.path), !fm.fileExists(atPath: skills.path) {
+            try fm.createDirectory(at: customize, withIntermediateDirectories: true)
+            try fm.moveItem(at: old, to: skills)
+        }
+        for dir in [root, run, logs, customize, skills, attachments] {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         }
     }

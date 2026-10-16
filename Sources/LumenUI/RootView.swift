@@ -80,6 +80,9 @@ struct Sidebar: View {
     @Bindable var app: AppModel
     @Environment(\.windowWidth) private var windowWidth
 
+    /// Навыки + коннекторы + хуки
+    private var customizeCount: Int { app.skills.count + app.connectors.mcpServers.count + app.hooks.count }
+
     private var skillsActive: Bool {
         switch app.page {
         case .skills, .skillEditor: true
@@ -131,7 +134,8 @@ struct Sidebar: View {
             .scrollIndicators(.never)
 
             VStack(spacing: 2) {
-                NavRow(title: "Навыки", icon: "book-open", active: skillsActive, trailing: app.skills.isEmpty ? nil : "\(app.skills.count)") {
+                NavRow(title: "Кастомизация", icon: "wrench", active: skillsActive,
+                       trailing: customizeCount == 0 ? nil : "\(customizeCount)") {
                     app.page = .skills
                 }
                 NavRow(title: "Память", icon: "brain", active: app.page == .memory, trailing: "\(app.memoryCount)") {

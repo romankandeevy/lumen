@@ -371,6 +371,14 @@ final class ChatController {
         if conversation?.id == id { startNew() }
     }
 
+    /// Поменялись коннекторы или хуки — гасим процессы без хода, следующий ход поднимет их с новыми (`--resume`)
+    func restartIdle() {
+        for id in Array(sessions.keys) where running?.id != id {
+            sessions[id]?.close()
+            sessions[id] = nil
+        }
+    }
+
     /// Выход из приложения: погасить все процессы claude
     func closeAll() {
         for s in sessions.values { s.close() }
@@ -590,8 +598,14 @@ final class ChatController {
             if bot == nil {
                 config.allowedTools += ["mcp__lumen__remember", "mcp__lumen__recall", "mcp__lumen__load_skill", "mcp__lumen__read_skill_file",
                                         "mcp__lumen__list_skills", "mcp__lumen__create_skill", "mcp__lumen__find_skills", "mcp__lumen__install_skill"]
+                // включённые коннекторы — без вопросов: их подключил сам человек
+                config.allowedTools += app.connectorsFor(c).map { "mcp__\($0.name)" }
             }
         }
+        // секреты коннекторов — в окружение claude, в файлах их нет
+        config.extraEnv.merge(app.secretValues(for: app.connectorsFor(c).map(\.server))) { a, _ in a }
+        // хуки из «Кастомизации»
+        config.settings = app.hooksSettingsFile()?.path
         let s = try ClaudeSession(cli: cli, config: config)
         sessions[c.id] = s
         return s
@@ -619,6 +633,13 @@ final class ChatController {
                                            messages: AnthropicChatRequest.history(history))
         request.tools = (MemoryTools.definitions + (tools.availableSkills.isEmpty ? [] : MemoryTools.skillDefinitions) + SkillAdmin.definitions).map {
             JSONBox(["name": $0.name, "description": $0.description, "input_schema": $0.schema, "strict": true])
+        }
+        // коннекторы из «Кастомизации»: Lumen сам держит их клиенты (MCPPool), модель видит «сервер__инструмент»
+        let wanted = app.connectorsFor(c)
+        if !wanted.isEmpty {
+            let problems = await app.mcpPool.prepare(wanted.map { ($0.name, $0.server.resolved(app.secretValues(for: [$0.server]))) })
+            for p in problems { app.log("Коннектор не подключился: \(p)", conversation: c) }
+            request.tools = (request.tools ?? []) + app.mcpPool.definitions(for: wanted.map(\.name))
         }
         var answer = ""
         // ход целиком (с вызовами инструментов) — чтобы в истории он повторился как был
@@ -665,9 +686,14 @@ final class ChatController {
                     appendStep(AgentStep.from(tool: name, input: [:]), c)
                     let input = call["input"] as? [String: Any] ?? [:]
                     // навыки (создать, найти, поставить) — общий код с lumen-mcp; остальное — память и чтение навыков
-                    let out = SkillAdmin.names.contains(name)
-                        ? await SkillAdmin.call(name, SkillAdmin.Args(input), library: app.skillLibrary, session: app.urlSession)
-                        : ((try? tools.call(name, input)) ?? "Ошибка памяти")
+                    let out: String
+                    if app.mcpPool.handles(name) {
+                        out = await app.mcpPool.call(name, JSONBox(input))
+                    } else if SkillAdmin.names.contains(name) {
+                        out = await SkillAdmin.call(name, SkillAdmin.Args(input), library: app.skillLibrary, session: app.urlSession)
+                    } else {
+                        out = (try? tools.call(name, input)) ?? "Ошибка памяти"
+                    }
                     results.append(["type": "tool_result", "tool_use_id": call["id"] as? String ?? "", "content": out])
                 }
                 turn.append(["role": "user", "content": results])
@@ -903,13 +929,16 @@ extension AppModel {
         guard let bin = mcpBinary else { throw CocoaError(.fileNoSuchFile) }
         let dir = paths.run.appendingPathComponent(c.id, isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let config: [String: Any] = ["mcpServers": ["lumen": [
+        var servers: [String: Any] = ["lumen": [
             "command": bin.path, "args": [],
             "env": ["LUMEN_DB": paths.database.path, "LUMEN_CONVERSATION_ID": c.id, "LUMEN_CONVERSATION_TITLE": c.title,
                     "LUMEN_MEMORY_READONLY": memoryReadOnly ? "1" : "0",
                     "LUMEN_SKILLS_DIR": paths.skills.path, "LUMEN_SKILLS": b.map { $0.skills.joined(separator: ",") } ?? "*",
                     "LUMEN_BOT_ID": b?.id ?? "", "LUMEN_DEPTH": "0"],
-        ]]]
+        ]]
+        // коннекторы из «Кастомизации»: секреты остаются `${…}`, claude подставит их из окружения процесса
+        for (name, s) in connectorsFor(c) { servers[name] = s.claudeJSON }
+        let config: [String: Any] = ["mcpServers": servers]
         let url = dir.appendingPathComponent("mcp.json")
         try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted]).write(to: url)
         return url
@@ -957,8 +986,17 @@ extension AppModel {
         Ты умеешь достраивать себя навыками (SKILL.md, формат agentskills.io): list_skills — какие есть; create_skill — создать новый; \
         find_skills и install_skill — найти и поставить готовый из каталога skills.sh. Когда просят научиться чему-то, сделать навык \
         или приём повторяется — сделай навык сам, не отказывайся. Ботов человек создаёт во вкладке «Боты» — подскажи, если спрашивают. \
-        Коннекторов к внешним сервисам пока нет — так и скажи, если просят.
+        Коннекторы (серверы MCP: сайты и программы — браузер, GitHub, документация, базы) подключает сам человек: \
+        «Кастомизация» → «Коннекторы» — там готовые, поиск по реестру MCP и поле, куда можно вставить JSON из README или \
+        команду «claude mcp add …». Сам не подключай и не выдумывай установку — подскажи, что вставить. Хуки (команды на события: \
+        звук после ответа, запрет опасных команд) — там же, во вкладке «Хуки». \(connectorLine)
         """
+    }
+
+    /// Какие коннекторы подключены сейчас — чтобы Lumen не говорил «нет», когда есть
+    private var connectorLine: String {
+        let on = connectors.enabled.map(\.name)
+        return on.isEmpty ? "Сейчас коннекторов нет." : "Сейчас подключены: " + on.joined(separator: ", ") + " — их инструменты у тебя есть."
     }
 
     /// Библиотека навыков Lumen

@@ -29,14 +29,18 @@ public struct Bot: Codable, Sendable, Equatable, Identifiable, Hashable {
     public var skills: [String] = []
     /// Чему бот научился на прошлых задачах — попадает в его правила (§4.4)
     public var learned: [String] = []
+    /// Коннекторы MCP, которые разрешил человек (имена из «Кастомизации»). Без выбора — ни одного.
+    public var connectors: [String] = []
     public var createdAt: Date
     public var updatedAt: Date
 
     public init(id: String, name: String, icon: String = "bot", hue: Double = 200, role: String = "", instructions: String = "",
                 capabilities: Set<BotCapability> = [.read], commands: [String] = [], folder: String? = nil,
                 model: ChatModel = .sonnet, effort: Effort = .medium, starters: [String] = [], handoff: String? = nil,
-                skills: [String] = [], learned: [String] = [], createdAt: Date = Date(), updatedAt: Date = Date()) {
+                skills: [String] = [], learned: [String] = [], connectors: [String] = [],
+                createdAt: Date = Date(), updatedAt: Date = Date()) {
         self.skills = skills
+        self.connectors = connectors
         self.learned = learned
         self.id = id
         self.name = name
@@ -188,6 +192,7 @@ public struct BotPermissions: Sendable, Equatable {
         self.tools = tools
         self.allowed = allowed + ["mcp__lumen__recall", "mcp__lumen__load_skill", "mcp__lumen__read_skill_file"]
             + (can.contains(.memory) ? ["mcp__lumen__remember"] : []) + (can.contains(.bots) ? ["mcp__lumen__delegate"] : [])
+            + bot.connectors.map { "mcp__\($0)" }
         self.memoryReadOnly = !can.contains(.memory)
         var never = ["Bash(git push:*)", "Bash(git push)"]
         if !can.contains(.git) { never += ["Bash(git commit:*)", "Bash(git reset:*)", "Bash(git checkout:*)"] }

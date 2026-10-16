@@ -205,4 +205,46 @@ final class StubAPI: URLProtocol, @unchecked Sendable {
     StubAPI.networkError = .notConnectedToInternet
     #expect(try await ask().contains("Нет связи"))
 }
+
+/// Чат по ключу: инструменты коннектора видны модели как «сервер__инструмент», вызов идёт в настоящий MCP-сервер
+@Test func apiChatCallsConnectorTool() async throws {
+    setenv("LUMEN_KEYCHAIN", "com.roman.lumen.tests", 1)
+    defer { Keychain(service: "com.roman.lumen.tests").delete(Keychain.anthropicKey) }
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-apimcp-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home.appendingPathComponent("home")))
+    try app.keychain.save("sk-ant-test-" + String(repeating: "x", count: 30), for: Keychain.anthropicKey)
+    let config = URLSessionConfiguration.ephemeral
+    config.protocolClasses = [StubAPI.self]
+    app.urlSession = URLSession(configuration: config)
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .api, theme: .lumen)
+    let server = try tinyMCPServer(in: home, word: "морж-9")
+    app.saveConnector(server, name: "tiny")
+    defer { app.mcpPool.closeAll() }
+    StubAPI.requests = []
+    StubAPI.responses = [
+        StubAPI.sse([
+            #"{"type":"message_start","message":{"usage":{"input_tokens":50}}}"#,
+            #"{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tu1","name":"tiny__secret_word","input":{}}}"#,
+            #"{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{}"}}"#,
+            #"{"type":"content_block_stop","index":0}"#,
+            #"{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":20}}"#,
+            #"{"type":"message_stop"}"#,
+        ]),
+        StubAPI.sse([
+            #"{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+            #"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Слово: морж-9"}}"#,
+            #"{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":3}}"#,
+            #"{"type":"message_stop"}"#,
+        ]),
+    ]
+    app.chat.send("Какое секретное слово?")
+    while app.chat.running != nil { try await Task.sleep(for: .milliseconds(20)) }
+    #expect((StubAPI.requests.first?["tools"] as? [[String: Any]])?.contains { $0["name"] as? String == "tiny__secret_word" } == true)
+    // второй запрос несёт ответ коннектора
+    let second = try #require(StubAPI.requests.dropFirst().first)
+    let last = (second["messages"] as? [[String: Any]])?.last?["content"] as? [[String: Any]]
+    #expect(last?.first?["content"] as? String == "морж-9")
+}
 }

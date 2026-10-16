@@ -22,8 +22,10 @@ public final class ClaudeSession: @unchecked Sendable {
         /// Что разрешено без вопросов и что запрещено даже при обходе (`--allowedTools` / `--disallowedTools`)
         public var allowedTools: [String]
         public var disallowedTools: [String]
-        /// Файл с MCP-серверами (lumen-mcp — память)
+        /// Файл с MCP-серверами (lumen-mcp — память, плюс коннекторы из «Кастомизации»)
         public var mcpConfig: String?
+        /// Файл настроек с хуками из «Кастомизации» (`--settings`; работает и при `--setting-sources ""`)
+        public var settings: String?
         /// `--permission-mode`; с вопросами (не dontAsk/bypass) разрешения спрашиваются у Lumen через stdio
         public var permissionMode = "dontAsk"
         public var asksHost: Bool { permissionMode != "dontAsk" && permissionMode != "bypassPermissions" }
@@ -73,6 +75,7 @@ public final class ClaudeSession: @unchecked Sendable {
             if let tools { a += ["--tools", tools.joined(separator: ",")] }
             if !userSettings { a += ["--setting-sources", "", "--strict-mcp-config"] }
             if let mcpConfig { a += ["--mcp-config", mcpConfig] }
+            if let settings { a += ["--settings", settings] }
             a += resume ? ["--resume", sessionID] : ["--session-id", sessionID]
             return a
         }

@@ -1,0 +1,286 @@
+import Foundation
+import Testing
+@testable import LumenCore
+@testable import LumenProviders
+@testable import LumenStorage
+@testable import LumenUI
+
+// Кастомизация: навыки, коннекторы MCP и хуки в одной папке, в формате Claude Code.
+// Живая проверка (LUMEN_LIVE=1): Lumen через claude зовёт инструмент коннектора, хук срабатывает.
+
+// MARK: вставка коннектора
+
+@Test func pasteUnderstandsReadmeJSONClaudeAddURLAndCommand() {
+    // JSON из README Claude Desktop, с хвостовой запятой
+    let json = """
+    {
+      "mcpServers": {
+        "github": {
+          "command": "npx",
+          "args": ["-y", "@modelcontextprotocol/server-github"],
+          "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "<TOKEN>" },
+        },
+        "Context 7": { "type": "http", "url": "https://mcp.context7.com/mcp" }
+      }
+    }
+    """
+    let a = ConnectorImport.parse(json)
+    #expect(a.count == 2)
+    #expect(a[0].name == "context-7" && a[0].server.type == .http && a[0].server.url == "https://mcp.context7.com/mcp")
+    #expect(a[1].name == "github" && a[1].server.command == "npx" && a[1].server.args == ["-y", "@modelcontextprotocol/server-github"])
+    #expect(a[1].server.env["GITHUB_PERSONAL_ACCESS_TOKEN"] == "<TOKEN>")
+
+    // кусок без внешних скобок
+    let piece = ConnectorImport.parse(#""fetch": {"command": "uvx", "args": ["mcp-server-fetch"]}"#)
+    #expect(piece.first?.name == "fetch" && piece.first?.server.command == "uvx")
+
+    // claude mcp add: сайт с заголовком
+    let http = ConnectorImport.parse(#"claude mcp add --transport http sentry https://mcp.sentry.dev/mcp -H "Authorization: Bearer abc""#)
+    #expect(http.first?.name == "sentry" && http.first?.server.type == .http)
+    #expect(http.first?.server.headers["Authorization"] == "Bearer abc")
+
+    // claude mcp add: программа с переменной и аргументами после --
+    let stdio = ConnectorImport.parse("claude mcp add airtable -e AIRTABLE_API_KEY=key123 -- npx -y airtable-mcp-server")
+    #expect(stdio.first?.name == "airtable" && stdio.first?.server.command == "npx")
+    #expect(stdio.first?.server.args == ["-y", "airtable-mcp-server"] && stdio.first?.server.env["AIRTABLE_API_KEY"] == "key123")
+
+    // просто адрес и просто команда
+    #expect(ConnectorImport.parse("https://mcp.linear.app/sse").first?.server.type == .sse)
+    #expect(ConnectorImport.parse("https://mcp.notion.com/mcp").first?.name == "notion")
+    let cmd = ConnectorImport.parse("npx -y @playwright/mcp@latest")
+    #expect(cmd.first?.name == "playwright" && cmd.first?.server.args == ["-y", "@playwright/mcp@latest"])
+    #expect(ConnectorImport.parse("TOKEN=1 npx -y mcp-server-foo").first?.server.env["TOKEN"] == "1")
+    #expect(ConnectorImport.parse("что-то непонятное с пробелами").first?.server.command == "что-то")
+    #expect(ConnectorImport.parse("   ").isEmpty)
+}
+
+@Test func connectorFileIsClaudeFormatAndSecretsArePlaceholders() throws {
+    var f = MCPFile()
+    f.mcpServers["github"] = MCPServer(type: .http, url: "https://api.githubcopilot.com/mcp/", headers: ["Authorization": "Bearer ${GITHUB_TOKEN}"])
+    f.mcpServers["mem"] = MCPServer(command: "npx", args: ["-y", "x"], disabled: true, note: "граф")
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("mcp-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: url) }
+    try f.save(url)
+    let text = try String(contentsOf: url, encoding: .utf8)
+    #expect(text.contains("\"mcpServers\"") && text.contains("\"type\" : \"http\""))
+    #expect(MCPFile.load(url) == f)
+    // выключенный в claude не уходит, поля Lumen — тоже
+    #expect(f.enabled.map(\.name) == ["github"])
+    #expect(f.mcpServers["mem"]!.claudeJSON["note"] == nil && f.mcpServers["mem"]!.claudeJSON["disabled"] == nil)
+    #expect(f.mcpServers["github"]!.placeholders == ["GITHUB_TOKEN"])
+    #expect(f.mcpServers["github"]!.resolved(["GITHUB_TOKEN": "t1"]).headers["Authorization"] == "Bearer t1")
+}
+
+@MainActor @Test func savingConnectorMovesTokensToKeychainAndBotsSeeOnlyTheirs() throws {
+    setenv("LUMEN_KEYCHAIN", "com.roman.lumen.tests", 1)
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-cz-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    defer { app.keychain.delete("secret.API_KEY"); app.keychain.delete("secret.SITE_AUTHORIZATION") }
+
+    let name = app.saveConnector(MCPServer(command: "npx", args: ["-y", "pkg"], env: ["API_KEY": "sk-123", "MODE": "fast"]), name: "tool")
+    app.saveConnector(MCPServer(type: .http, url: "https://example.com/mcp", headers: ["Authorization": "Bearer abc"]), name: "site")
+    let saved = MCPFile.load(app.paths.mcp)
+    #expect(saved.mcpServers[name]?.env == ["API_KEY": "${API_KEY}", "MODE": "fast"])
+    #expect(saved.mcpServers["site"]?.headers["Authorization"] == "Bearer ${SITE_AUTHORIZATION}")
+    #expect(app.secret("API_KEY") == "sk-123" && app.secret("SITE_AUTHORIZATION") == "abc")
+    #expect(!(try String(contentsOf: app.paths.mcp, encoding: .utf8)).contains("sk-123"))
+    #expect(app.freeConnectorName("tool") == "tool-2" && app.freeConnectorName("lumen") == "lumen-2")
+
+    // Lumen видит все включённые, бот — только разрешённые
+    let chat = Conversation(title: "т", backend: .subscription, model: .haiku, effort: .low)
+    #expect(app.connectorsFor(chat).map(\.name) == ["site", "tool"])
+    app.saveBot(Bot(id: "helper", name: "Помощник", connectors: ["site"]))
+    let bc = app.botConversation(for: app.bot("helper")!)
+    #expect(app.connectorsFor(bc).map(\.name) == ["site"])
+    #expect(BotPermissions(app.bot("helper")!).allowed.contains("mcp__site"))
+
+    // в mcp.json для claude: lumen + коннекторы, секретов нет
+    pointToMCP()
+    let mcp = try app.writeMCPConfig(for: chat)
+    let cfg = try String(contentsOf: mcp, encoding: .utf8)
+    #expect(cfg.contains("\"lumen\"") && cfg.contains("\"site\"") && cfg.contains("${SITE_AUTHORIZATION}") && !cfg.contains("abc"))
+    #expect(app.secretValues(for: app.connectorsFor(chat).map(\.server)) == ["API_KEY": "sk-123", "SITE_AUTHORIZATION": "abc"])
+
+    // выключили — пропал из Lumen; удалили — пропал и у бота
+    app.setConnector("tool", enabled: false)
+    #expect(app.connectorsFor(chat).map(\.name) == ["site"])
+    app.removeConnector("site")
+    #expect(app.bot("helper")!.connectors.isEmpty)
+}
+
+// MARK: хуки
+
+@Test func hooksRoundTripInClaudeFormat() throws {
+    let rules = [
+        HookRule(event: .preToolUse, matcher: "Bash", command: "exit 0", timeout: 10, name: "Проверка"),
+        HookRule(event: .preToolUse, matcher: "Bash", command: "echo 2"),
+        HookRule(event: .stop, matcher: "игнор", command: "afplay x.aiff", enabled: false),
+    ]
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("hooks-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: url) }
+    try HooksFile.save(rules, to: url)
+    let back = HooksFile.load(url)
+    #expect(back.count == 3)
+    #expect(back[0].name == "Проверка" && back[0].timeout == 10 && back[0].matcher == "Bash")
+    #expect(back[2].event == .stop && !back[2].enabled && back[2].matcher == "")
+    // для claude: одна группа на фильтр, выключенных нет, полей Lumen нет
+    let c = HooksFile.json(rules, forClaude: true)["hooks"] as! [String: Any]
+    let pre = c["PreToolUse"] as! [[String: Any]]
+    #expect(pre.count == 1 && (pre[0]["hooks"] as! [[String: Any]]).count == 2)
+    #expect(c["Stop"] == nil)
+    #expect((pre[0]["hooks"] as! [[String: Any]])[0]["name"] == nil)
+    // файл настроек Claude Code читается так же
+    let claude: [String: Any] = ["hooks": ["Stop": [["matcher": "", "hooks": [["type": "command", "command": "say hi"]]]]], "theme": "dark"]
+    #expect(HooksFile.parse(claude).first?.command == "say hi")
+}
+
+@MainActor @Test func hookTestRunsCommandWithEventOnStdin() async throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-hk-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    let r = await app.testHook(HookRule(event: .preToolUse, matcher: "Bash", command: "python3 -c 'import json,sys; print(json.load(sys.stdin)[\"tool_name\"])'"))
+    #expect(r.code == 0 && r.output == "Bash")
+    // готовый «не удалять всё подряд» останавливает пример с rm -rf
+    let guardHook = HookTemplate.all.first { $0.rule.event == .preToolUse }!.rule
+    let blocked = await app.testHook(guardHook)
+    #expect(blocked.code == 2)
+    // есть хуки — есть файл для --settings, и он в формате Claude Code
+    #expect(app.hooksSettingsFile() == nil)
+    app.hooks = [HookRule(event: .stop, command: "true")]
+    app.saveHooks()
+    let f = try #require(app.hooksSettingsFile())
+    #expect(try String(contentsOf: f, encoding: .utf8).contains("\"Stop\""))
+    #expect(FileManager.default.fileExists(atPath: app.paths.hooks.path))
+    var cfg = ClaudeSession.Config(model: "m")
+    cfg.settings = f.path
+    #expect(cfg.arguments.contains("--settings"))
+}
+
+// MARK: одна папка
+
+@Test func oldSkillsFolderMovesIntoCustomize() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-mv-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let old = root.appendingPathComponent("skills/hello", isDirectory: true)
+    try FileManager.default.createDirectory(at: old, withIntermediateDirectories: true)
+    try "---\nname: hello\ndescription: d\n---\n".write(to: old.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+    let paths = AppPaths(root: root)
+    try paths.create()
+    #expect(paths.skills.path.hasSuffix("customize/skills"))
+    #expect(FileManager.default.fileExists(atPath: paths.skills.appendingPathComponent("hello/SKILL.md").path))
+    #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("skills").path))
+}
+
+// MARK: свой клиент MCP
+
+/// Крошечный MCP-сервер на Python: один инструмент secret_word
+func tinyMCPServer(in dir: URL, word: String = "пингвин-42") throws -> MCPServer {
+    let script = dir.appendingPathComponent("tiny_mcp.py")
+    try """
+    import json, sys
+    for line in sys.stdin:
+        m = json.loads(line)
+        mid = m.get("id")
+        if mid is None: continue
+        meth = m.get("method")
+        if meth == "initialize":
+            r = {"protocolVersion": m["params"].get("protocolVersion", "2025-06-18"), "capabilities": {"tools": {}}, "serverInfo": {"name": "tiny", "version": "1"}}
+        elif meth == "tools/list":
+            r = {"tools": [{"name": "secret_word", "description": "Возвращает секретное слово дня", "inputSchema": {"type": "object", "properties": {}}}]}
+        elif meth == "tools/call":
+            r = {"content": [{"type": "text", "text": "\(word)"}]}
+        else:
+            r = {}
+        sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": mid, "result": r}, ensure_ascii=False) + "\\n")
+        sys.stdout.flush()
+    """.write(to: script, atomically: true, encoding: .utf8)
+    return MCPServer(command: "python3", args: ["-u", script.path])
+}
+
+@Test func clientTalksToStdioServerAndPoolNamesTools() async throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-mcpc-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let server = try tinyMCPServer(in: dir)
+
+    let tools = try await MCPClient.probe(server).get()
+    #expect(tools.map(\.name) == ["secret_word"])
+
+    let pool = MCPPool()
+    defer { pool.closeAll() }
+    let errors = await pool.prepare([("tiny", server)])
+    #expect(errors.isEmpty)
+    let defs = pool.definitions(for: ["tiny"])
+    #expect((defs.first?.value as? [String: Any])?["name"] as? String == "tiny__secret_word")
+    #expect(pool.handles("tiny__secret_word"))
+    #expect(await pool.call("tiny__secret_word", JSONBox([String: Any]())) == "пингвин-42")
+
+    // не запускается — понятная ошибка, без зависания
+    let bad = await MCPClient.probe(MCPServer(command: "no-such-binary-lumen"), timeout: 20)
+    guard case .failure(let f) = bad else { Issue.record("должна быть ошибка"); return }
+    #expect(!f.message.isEmpty)
+}
+
+// MARK: живая
+
+private let live = ProcessInfo.processInfo.environment["LUMEN_LIVE"] == "1"
+
+@Suite(.serialized) struct LiveCustomizeSuite {
+    /// Чат по подписке: claude видит коннектор и зовёт его без вопросов; хук «ответ готов» срабатывает
+    @MainActor @Test(.enabled(if: live)) func liveChatUsesConnectorAndRunsHook() async throws {
+        pointToMCP()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-livecz-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let app = try AppModel(paths: AppPaths(root: root.appendingPathComponent("home")))
+        await app.refreshClaude()
+        app.finishOnboarding(name: "Тест", address: .ty, backend: .subscription, theme: .lumen)
+        app.saveConnector(try tinyMCPServer(in: root, word: "кашалот-7"), name: "tiny")
+        let mark = root.appendingPathComponent("stop-fired")
+        app.hooks = [HookRule(event: .stop, command: "touch '\(mark.path)'", name: "метка")]
+        app.saveHooks()
+
+        app.chat.set(model: .haiku, effort: .low)
+        app.chat.send("Вызови инструмент secret_word и напиши мне слово, которое он вернул. Только слово.")
+        while app.chat.busy { try await Task.sleep(for: .milliseconds(200)) }
+        let reply = try #require(app.chat.messages.last)
+        #expect(reply.error == nil, "\(reply.error ?? "")")
+        #expect(reply.text.contains("кашалот-7"), "\(reply.text)")
+        try await Task.sleep(for: .seconds(1))
+        #expect(FileManager.default.fileExists(atPath: mark.path))
+    }
+
+    /// Готовые коннекторы на деле запускаются и отдают инструменты (кроме GitHub — нужен токен)
+    @Test(.enabled(if: live)) func livePresetsStartAndListTools() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-presets-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        for preset in ConnectorPreset.popular where preset.asks.isEmpty {
+            var s = preset.server
+            s.args = s.args.map { $0 == "{folder}" ? dir.path : $0 }
+            let r = await MCPClient.probe(s, timeout: 180)
+            switch r {
+            case .success(let tools): #expect(!tools.isEmpty, "\(preset.name): пусто")
+            case .failure(let f): Issue.record("\(preset.name): \(f.message)")
+            }
+        }
+    }
+}
+
+@Test func registryEntriesBecomeConnectors() {
+    let npm: [String: Any] = ["name": "io.github.acme/weather", "description": "Погода",
+        "packages": [["registryType": "npm", "identifier": "@acme/weather-mcp", "version": "1.2.0", "transport": ["type": "stdio"],
+                      "environmentVariables": [["name": "WEATHER_KEY", "isRequired": true, "isSecret": true, "description": "ключ"]]]]]
+    let e = MCPRegistry.entry(npm, uvx: false)!
+    #expect(e.server.command == "npx" && e.server.args == ["-y", "@acme/weather-mcp@1.2.0"])
+    #expect(e.server.env["WEATHER_KEY"] == "${WEATHER_KEY}" && e.asks.first?.key == "WEATHER_KEY")
+    #expect(e.shortName == "weather")
+    let remote: [String: Any] = ["name": "ai.example/docs", "remotes": [["type": "streamable-http", "url": "https://docs.example.ai/mcp",
+        "headers": [["name": "Authorization", "value": "Bearer {api_key}", "isRequired": true, "isSecret": true]]]]]
+    let r = MCPRegistry.entry(remote, uvx: false)!
+    #expect(r.server.type == .http && r.server.headers["Authorization"] == "Bearer ${DOCS_AUTHORIZATION}")
+    // PyPI без uv не предлагаем
+    let py: [String: Any] = ["name": "x/y", "packages": [["registryType": "pypi", "identifier": "y-mcp", "transport": ["type": "stdio"]]]]
+    #expect(MCPRegistry.entry(py, uvx: false) == nil)
+}

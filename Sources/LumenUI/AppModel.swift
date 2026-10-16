@@ -26,7 +26,7 @@ public final class AppModel {
         case chat, memory, project(String), settings(SettingsView.Section)
         /// Все боты, разговор с ботом, конструктор (nil — новый бот)
         case bots, bot(String), botEditor(String?)
-        /// Навыки и редактор навыка (nil — новый)
+        /// Кастомизация (навыки, коннекторы, хуки) и редактор навыка (nil — новый)
         case skills, skillEditor(String?)
     }
 
@@ -48,6 +48,13 @@ public final class AppModel {
     /// Навыки (SkillModel.swift) и сколько раз модель их брала
     var skills: [Skill] = []
     var skillUses: [String: Int] = [:]
+    /// Кастомизация (CustomizeModel.swift): вкладка, коннекторы MCP, хуки, что показала проверка коннектора
+    var customizeTab: CustomizeTab = .skills
+    var connectors = MCPFile()
+    var hooks: [HookRule] = []
+    var connectorStatus: [String: ConnectorStatus] = [:]
+    /// Живые коннекторы для чата по ключу API
+    @ObservationIgnored lazy var mcpPool = MCPPool(session: urlSession)
     /// Черновик навыка для редактора (из «сам научился» или «сделать навык из разговора»)
     var skillDraft: SkillDraft?
     /// «Сделать навык из разговора»: название и текст разговора для редактора навыка
@@ -129,6 +136,8 @@ public final class AppModel {
         projects = (try? store.projects()) ?? []
         bots = (try? store.bots()) ?? []
         skills = SkillLibrary(root: paths.skills).all()
+        connectors = MCPFile.load(paths.mcp)
+        hooks = HooksFile.load(paths.hooks)
         skillUses = (try? store.skillUseCounts()) ?? [:]
         suggestionCache = try? store.value("suggestions", as: SuggestionCache.self)
         writeMemoryFiles()

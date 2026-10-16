@@ -15,8 +15,10 @@ extension AppModel {
             ("chat-new", { [self] in tab = .chat; newChat() }),
             ("agent-new", { [self] in tab = .agent; newAgentTask() }),
             ("bots", { [self] in page = .bots }),
-            ("skills", { [self] in skillsMode = .mine; page = .skills }),
-            ("skills-catalog", { [self] in skillsMode = .catalog; page = .skills }),
+            ("skills", { [self] in customizeTab = .skills; skillsMode = .mine; page = .skills }),
+            ("skills-catalog", { [self] in customizeTab = .skills; skillsMode = .catalog; page = .skills }),
+            ("customize-connectors", { [self] in customizeTab = .connectors; page = .skills }),
+            ("customize-hooks", { [self] in customizeTab = .hooks; page = .skills }),
             ("memory", { [self] in memoryMode = .facts; page = .memory }),
             ("memory-graph", { [self] in memoryMode = .graph; page = .memory }),
             ("search", { [self] in page = .chat; searchOpen = true }),
@@ -40,6 +42,7 @@ extension AppModel {
             try? rep.representation(using: .png, properties: [:])?.write(to: out.appendingPathComponent("\(name).png"))
         }
         searchOpen = false
+        customizeTab = .skills
         // вернуть окно как было: «Чат» с новым разговором, а не открытой задачей агента
         switchTab(.chat)
         newChat()
