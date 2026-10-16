@@ -1,5 +1,6 @@
 import LumenCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Чат (`pages/chat-page.tsx`): шапка, переписка, поле ввода — размеры из макета.
 /// Чего нет, потому что ещё не работает: «+», голос, песочница и правая панель контекста.
@@ -8,6 +9,7 @@ struct ChatView: View {
 
     @Environment(\.palette) private var p
     @State private var draft = ""
+    @State private var attachments: [Attachment] = []
 
     private var chat: ChatController { app.chat }
     private var backend: Backend { chat.conversation?.backend ?? app.prefs.backend }
@@ -35,14 +37,14 @@ struct ChatView: View {
             if chat.messages.isEmpty && !chat.busy {
                 Group {
                     // новая задача агента — вариант A: поле по центру, своё нижнее поле не нужно
-                    if let bot { botEmpty(bot) } else if agent { AgentHome(app: app, draft: $draft, backend: backend) } else { empty }
+                    if let bot { botEmpty(bot) } else if agent { AgentHome(app: app, draft: $draft, attachments: $attachments, backend: backend) } else { empty }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 transcript
             }
             if !(agent && chat.messages.isEmpty && !chat.busy) {
-                Composer(app: app, draft: $draft, backend: backend, agent: agent)
+                Composer(app: app, draft: $draft, attachments: $attachments, backend: backend, agent: agent)
             }
         }
         .foregroundStyle(p.foreground)
@@ -251,6 +253,11 @@ struct MessageRow: View {
             .font(.geist(12)).foregroundStyle(p.mutedFg)
             .frame(maxWidth: .infinity)
         } else if message.role == .user {
+            VStack(alignment: .trailing, spacing: 8) {
+            if !message.attachments.isEmpty {
+                MessageAttachments(items: message.attachments).frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            if !message.text.isEmpty {
             HStack(spacing: 0) {
                 Spacer(minLength: 0)
                 Text(message.text)
@@ -261,6 +268,8 @@ struct MessageRow: View {
                                                                         bottomTrailingRadius: R.md, topTrailingRadius: R.xxl))
                     .containerRelativeFrame(.horizontal, alignment: .trailing) { w, _ in w * 0.8 }
                     .fixedSize(horizontal: false, vertical: true)
+            }
+            }
             }
         } else {
             HStack(alignment: .top, spacing: 14) {
@@ -394,7 +403,10 @@ struct RichText: View {
 struct Composer: View {
     @Bindable var app: AppModel
     @Binding var draft: String
+    @Binding var attachments: [Attachment]
     let backend: Backend
+    /// Ширина поля — своя, не зависит от «Ширины переписки» (Рома, 16.10)
+    static let width: CGFloat = 640
     var agent = false
     /// Большое поле по центру экрана новой задачи (вариант A): выше, крупнее текст, папка — кнопкой
     var big = false
@@ -405,6 +417,7 @@ struct Composer: View {
     @State private var effortOpen = false
     @State private var folderOpen = false
     @State private var modeOpen = false
+    @State private var dropping = false
 
     private var chat: ChatController { app.chat }
     private var model: ChatModel { chat.conversation?.model ?? (agent ? app.defaultAgentModel : app.prefs.model) }
@@ -417,7 +430,7 @@ struct Composer: View {
     }
     /// Агенту без папки отправлять нечего
     private var ready: Bool { !agent || chat.conversation != nil || app.agentFolder != nil }
-    private var canSend: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var canSend: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty }
 
     /// Набирают «@…» в начале — какие боты подходят (в разговоре самого бота не нужно)
     private var mentionHits: [Bot] {
@@ -448,6 +461,7 @@ struct Composer: View {
                 .padding(.bottom, 4)
                 .overlay(alignment: .bottom) { p.border.frame(height: 1) }
             }
+            if !attachments.isEmpty { AttachmentStrip(items: $attachments) }
             TextField(big ? "Опиши задачу: что сделать, починить или проверить" : (agent ? "Что сделать в проекте?" : (inBot ? "Задача для бота" : "Просто напиши")),
                       text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
@@ -459,6 +473,10 @@ struct Composer: View {
                 .onSubmit(send)
                 .frame(minHeight: big ? 96 : 48, alignment: .topLeading)
             HStack(spacing: 2) {
+                // как в Claude: «+» в левом нижнем углу — картинки и файлы
+                IconButton(icon: "plus", help: "Прикрепить картинки и файлы · или перетащи их в поле, или вставь картинку ⌘V") {
+                    attachments += app.chooseAttachments()
+                }
                 if agent { folderPicker; modePicker }
                 if chat.busyElsewhere, let other = chat.running {
                     Button { app.openChat(other) } label: {
@@ -485,7 +503,14 @@ struct Composer: View {
         .background(p.card.opacity(0.6), in: RoundedRectangle(cornerRadius: R.xxl))
         // без свечения в фокусе (Рома, 16.10): ровная рамка
         .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(focused ? p.foreground.opacity(0.14) : p.border))
-        .frame(maxWidth: big ? .infinity : app.prefs.chatWidth.points)
+        // перетащили файлы — рамка светится
+        .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(p.glow.opacity(dropping ? 0.6 : 0), lineWidth: 1.5))
+        .onDrop(of: [.fileURL, .image], isTargeted: $dropping) { providers in
+            take(providers)
+            return true
+        }
+        .onPasteCommand(of: [.fileURL, .png, .tiff, .jpeg]) { providers in take(providers) }
+        .frame(maxWidth: big ? .infinity : Self.width)
         .padding(.horizontal, big ? 0 : 20).padding(.bottom, big ? 0 : 20).padding(.top, big ? 0 : 4)
         .frame(maxWidth: .infinity)
         // from-background to-transparent над полем
@@ -496,10 +521,31 @@ struct Composer: View {
         .onAppear { focused = true }
     }
 
+    /// Файлы из перетаскивания или буфера: сначала ссылки на файлы, иначе — сама картинка
+    private func take(_ providers: [NSItemProvider]) {
+        for item in providers {
+            if item.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                _ = item.loadObject(ofClass: URL.self) { url, _ in
+                    guard let url else { return }
+                    Task { @MainActor in if let a = app.importAttachment(url) { attachments.append(a) } }
+                }
+            } else if item.canLoadObject(ofClass: NSImage.self) {
+                _ = item.loadObject(ofClass: NSImage.self) { image, _ in
+                    guard let image = image as? NSImage else { return }
+                    let data = image.tiffRepresentation
+                    Task { @MainActor in
+                        if let data, let img = NSImage(data: data), let a = app.importImage(img, name: "Картинка") { attachments.append(a) }
+                    }
+                }
+            }
+        }
+    }
+
     private func send() {
         guard chat.running == nil, canSend, ready else { return }
-        chat.send(draft)
+        chat.send(draft, attachments: attachments)
         draft = ""
+        attachments = []
     }
 
     /// `FolderPicker`: папка проекта; у начатой сессии папка уже не меняется
@@ -571,7 +617,7 @@ struct Composer: View {
             Text(mode.name).font(.geist(12))
         } panel: {
             PopoverPanel(title: "Режим · Shift+Tab — следующий", width: 300) {
-                ForEach(AgentMode.allCases) { m in
+                ForEach(app.prefs.visibleModes) { m in
                     PopoverOption(name: m.name, note: m.note, active: m == mode) {
                         Icon(m.icon, 16).foregroundStyle(m == .bypassPermissions ? Palette.destructive : p.mutedFg)
                     } action: {
@@ -583,8 +629,8 @@ struct Composer: View {
         }
         .background {
             Button("") {
-                let all = AgentMode.allCases
-                chat.set(mode: all[((all.firstIndex(of: mode) ?? 0) + 1) % all.count])
+                let all = app.prefs.visibleModes
+                chat.set(mode: all[((all.firstIndex(of: mode) ?? -1) + 1) % all.count])
             }
             .keyboardShortcut(.tab, modifiers: .shift).opacity(0)
         }

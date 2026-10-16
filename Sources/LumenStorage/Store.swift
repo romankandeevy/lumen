@@ -202,6 +202,9 @@ public final class Store: Sendable {
         m.registerMigration("v11-modes") { db in
             try db.alter(table: "conversation") { t in t.add(column: "mode", .text) }
         }
+        m.registerMigration("v12-attachments") { db in
+            try db.alter(table: "message") { t in t.add(column: "attachments", .jsonText).notNull().defaults(to: "[]") }
+        }
         return m
     }
 

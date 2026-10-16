@@ -96,6 +96,32 @@ struct SettingsView: View {
                 }
             }
             .padding(.top, 24)
+            GroupTitle(text: "Режимы агента в поле ввода", aside: "Shift+Tab — следующий из показанных").padding(.top, 32)
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(AgentMode.allCases) { m in
+                    let shown = !app.prefs.hiddenModes.contains(m)
+                    HStack(spacing: 12) {
+                        Icon(m.icon, 16).foregroundStyle(shown ? p.glow : p.mutedFg)
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(m.name).font(.geist(14))
+                            Text(m.note).font(.geist(12)).foregroundStyle(p.mutedFg)
+                        }
+                        Spacer()
+                        LSwitch(isOn: Binding(get: { shown }, set: { on in
+                            app.update { prefs in
+                                if on { prefs.hiddenModes.removeAll { $0 == m } } else { prefs.hiddenModes.append(m) }
+                                // выбранный режим скрыли — встаёт первый из показанных
+                                if !prefs.visibleModes.contains(prefs.agentMode) { prefs.agentMode = prefs.visibleModes[0] }
+                            }
+                        }))
+                        // последний показанный не выключить: без режима поле не работает
+                        .disabled(shown && app.prefs.visibleModes.count == 1)
+                    }
+                    .padding(.vertical, 10)
+                    .overlay(alignment: .bottom) { p.border.frame(height: 1) }
+                }
+            }
+            .frame(maxWidth: 560)
         }
     }
 

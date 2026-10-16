@@ -122,13 +122,18 @@ public final class ClaudeSession: @unchecked Sendable {
     /// Отправить сообщение пользователя — начинается ход. Поток кончается вместе с ходом
     /// (событие `.finished`) или если процесс умер.
     public func send(_ text: String) throws -> AsyncStream<ClaudeEvent> {
+        try send(content: [["type": "text", "text": text]])
+    }
+
+    /// Сообщение с вложениями: блоки картинок, документов и текста
+    public func send(content: [[String: Any]]) throws -> AsyncStream<ClaudeEvent> {
         let (stream, cont) = AsyncStream.makeStream(of: ClaudeEvent.self)
         lock.lock()
         turn?.finish()
         turn = cont
         lock.unlock()
         let msg: [String: Any] = ["type": "user",
-                                  "message": ["role": "user", "content": [["type": "text", "text": text]]]]
+                                  "message": ["role": "user", "content": content]]
         var data = try JSONSerialization.data(withJSONObject: msg)
         data.append(0x0A)
         try input.fileHandleForWriting.write(contentsOf: data)

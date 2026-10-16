@@ -380,6 +380,8 @@ public struct ChatMessage: Codable, Sendable, Equatable, Identifiable {
     public var botID: String?
     /// Предложенный после этой задачи навык («сам научился»); nil — не предлагался или уже решили
     public var skillDraft: SkillDraft?
+    /// Вложения сообщения человека: картинки и файлы
+    public var attachments: [Attachment] = []
     public var createdAt: Date
 
     public init(id: Int64? = nil, conversationID: String, role: Role, text: String, apiContent: String? = nil,

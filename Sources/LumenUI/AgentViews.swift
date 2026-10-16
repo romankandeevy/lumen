@@ -8,6 +8,7 @@ import SwiftUI
 struct AgentHome: View {
     @Bindable var app: AppModel
     @Binding var draft: String
+    @Binding var attachments: [Attachment]
     let backend: Backend
 
     @Environment(\.palette) private var p
@@ -37,7 +38,7 @@ struct AgentHome: View {
                 }
                 .padding(.bottom, 24)
 
-                Composer(app: app, draft: $draft, backend: backend, agent: true, big: true)
+                Composer(app: app, draft: $draft, attachments: $attachments, backend: backend, agent: true, big: true)
 
                 // ветка и незакоммиченное — настоящее, из git
                 HStack(spacing: 12) {
@@ -73,7 +74,7 @@ struct AgentHome: View {
                     .padding(.top, 40)
                 }
             }
-            .frame(maxWidth: 704)
+            .frame(maxWidth: Composer.width)
             .padding(.horizontal, 24)
             .padding(.vertical, 40)
             .frame(maxWidth: .infinity)

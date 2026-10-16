@@ -268,7 +268,7 @@ enum Snap {
     app.botRuns = [:]
     // подсказка ботов при наборе «@»
     app.newChat()
-    try await Snap.save(VStack { Spacer(); Composer(app: app, draft: .constant("@"), backend: .subscription) }
+    try await Snap.save(VStack { Spacer(); Composer(app: app, draft: .constant("@"), attachments: .constant([]), backend: .subscription) }
         .environment(\.palette, Palette.of(.lumen)).background(Palette.of(.lumen).background), "35-mention-popup",
         size: CGSize(width: 900, height: 360))
 
@@ -412,4 +412,42 @@ enum Snap {
     app.chat.pendingPermission = nil
     app.update { $0.sidebarWidth = 900 } // шире половины — упрётся в половину окна
     try await Snap.save(RootView(app: app), "63-wide-sidebar")
+}
+
+/// Вложения: в поле ввода и в переписке; настройки режимов
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotAttachments() async throws {
+    Snap.registerFonts()
+    let app = try Snap.app()
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .subscription, theme: .lumen)
+    let src = app.paths.root.appendingPathComponent("src")
+    try FileManager.default.createDirectory(at: src, withIntermediateDirectories: true)
+    try makeImage(1200, 800, color: .systemOrange, to: src.appendingPathComponent("макет.png"))
+    try makeImage(800, 800, color: .systemTeal, to: src.appendingPathComponent("иконка.png"))
+    try "# Заметки\nПервый релиз Lumen".write(to: src.appendingPathComponent("заметки.md"), atomically: true, encoding: .utf8)
+    try Data(repeating: 1, count: 240_000).write(to: src.appendingPathComponent("отчёт.pdf"))
+    let img = try #require(app.importAttachment(src.appendingPathComponent("макет.png")))
+    let img2 = try #require(app.importAttachment(src.appendingPathComponent("иконка.png")))
+    let md = try #require(app.importAttachment(src.appendingPathComponent("заметки.md")))
+    let pdf = try #require(app.importAttachment(src.appendingPathComponent("отчёт.pdf")))
+
+    let c = Conversation(title: "Разбор макета", backend: .subscription, model: .sonnet, effort: .medium)
+    try app.store.save(c)
+    var u = ChatMessage(conversationID: c.id, role: .user, text: "Посмотри макет и заметки — что поправить перед релизом?")
+    u.attachments = [img, md, pdf]
+    _ = try app.store.save(u)
+    _ = try app.store.save(ChatMessage(conversationID: c.id, role: .assistant, text: "Макет аккуратный. Поправил бы три вещи: отступ у шапки, контраст подписи и порядок кнопок."))
+    var u2 = ChatMessage(conversationID: c.id, role: .user, text: "А так?")
+    u2.attachments = [img, img2]
+    _ = try app.store.save(u2)
+    app.reloadConversations()
+    app.openChat(c)
+    try await Snap.save(RootView(app: app), "70-message-attachments")
+
+    try await Snap.save(VStack { Spacer(); Composer(app: app, draft: .constant("Что не так с этим экраном?"), attachments: .constant([img, md, pdf]), backend: .subscription) }
+        .environment(\.palette, Palette.of(.lumen)).background(Palette.of(.lumen).background), "71-composer-attachments",
+        size: CGSize(width: 900, height: 320))
+
+    app.update { $0.hiddenModes = [.bypassPermissions] }
+    app.page = .settings(.look)
+    try await Snap.save(RootView(app: app), "72-settings-modes", size: CGSize(width: 1180, height: 1300))
 }

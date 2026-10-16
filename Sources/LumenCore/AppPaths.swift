@@ -22,9 +22,11 @@ public struct AppPaths: Sendable {
     public var logs: URL { root.appendingPathComponent("logs", isDirectory: true) }
     /// Навыки: папки с SKILL.md (§8.3)
     public var skills: URL { root.appendingPathComponent("skills", isDirectory: true) }
+    /// Копии вложений (картинки и файлы из сообщений)
+    public var attachments: URL { root.appendingPathComponent("attachments", isDirectory: true) }
 
     public func create() throws {
-        for dir in [root, run, logs, skills] {
+        for dir in [root, run, logs, skills, attachments] {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         }
     }

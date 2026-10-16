@@ -48,6 +48,8 @@ public struct CodexCLI: Sendable {
         public var memoryServer: (command: String, env: [String: String])?
         /// Не сохранять сессию (короткие служебные запросы: название разговора)
         public var ephemeral = false
+        /// Картинки к ходу (`-i`)
+        public var images: [String] = []
 
         public init(model: String, effort: String, agent: Bool, folder: URL, threadID: String? = nil,
                     memoryServer: (command: String, env: [String: String])? = nil) {
@@ -60,7 +62,8 @@ public struct CodexCLI: Sendable {
         }
 
         public var arguments: [String] {
-            var a = ["exec", "--json", "--skip-git-repo-check", "--color", "never"] + (ephemeral ? ["--ephemeral"] : []) + [
+            var a = ["exec", "--json", "--skip-git-repo-check", "--color", "never"] + (ephemeral ? ["--ephemeral"] : [])
+                + images.flatMap { ["-i", $0] } + [
                      "-m", model, "-c", "model_reasoning_effort=\"\(effort)\"",
                      // агент: пишет только в своей папке, без сети — push невозможен
                      "-s", agent ? "workspace-write" : "read-only",

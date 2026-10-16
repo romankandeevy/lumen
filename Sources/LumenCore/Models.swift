@@ -69,6 +69,14 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var agentEffort: Effort?
     /// Режим новой задачи агента
     public var agentMode: AgentMode = .auto
+    /// Режимы, которые не показывать в поле агента (Настройки → Внешний вид)
+    public var hiddenModes: [AgentMode] = []
+
+    /// Режимы в поле: все, кроме скрытых; хотя бы один остаётся всегда
+    public var visibleModes: [AgentMode] {
+        let v = AgentMode.allCases.filter { !hiddenModes.contains($0) }
+        return v.isEmpty ? [.auto] : v
+    }
     /// Получать бета-версии (1.0.1, 1.0.2…), а не только стабильные
     public var betaUpdates = false
 
@@ -104,6 +112,7 @@ public struct Preferences: Codable, Sendable, Equatable {
         agentModel = try? c.decodeIfPresent(ChatModel.self, forKey: .agentModel)
         agentEffort = try? c.decodeIfPresent(Effort.self, forKey: .agentEffort)
         agentMode = (try? c.decodeIfPresent(AgentMode.self, forKey: .agentMode)) ?? .auto
+        hiddenModes = (try? c.decodeIfPresent([AgentMode].self, forKey: .hiddenModes)) ?? []
     }
 }
 

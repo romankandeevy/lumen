@@ -25,6 +25,9 @@ public struct AnthropicChatRequest: Sendable {
         let plain: [[String: any Sendable]] = msgs.compactMap { m -> [String: any Sendable]? in
             switch m.role {
             case .user:
+                if !m.attachments.isEmpty {
+                    return ["role": "user", "content": JSONBox(Attachment.userContent(text: m.text, attachments: m.attachments, agent: false))]
+                }
                 return ["role": "user", "content": m.text]
             case .assistant:
                 if let raw = m.apiContent, let blocks = try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [Any], !blocks.isEmpty {

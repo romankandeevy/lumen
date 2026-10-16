@@ -152,20 +152,20 @@ final class ChatController {
 
     // MARK: ход
 
-    func send(_ raw: String) {
+    func send(_ raw: String, attachments: [Attachment] = []) {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, running == nil else { return }
+        guard !text.isEmpty || !attachments.isEmpty, running == nil else { return }
         var c: Conversation
         if let existing = conversation {
             c = existing
         } else if app.tab == .agent {
             guard let folder = app.agentFolder else { return }
-            c = Conversation(title: Self.title(from: text), kind: .agent, folder: folder.path, backend: app.prefs.backend,
+            c = Conversation(title: Self.title(from: text.isEmpty ? attachments.first?.name ?? "Вложение" : text), kind: .agent, folder: folder.path, backend: app.prefs.backend,
                              model: app.defaultAgentModel, effort: app.prefs.agentEffort ?? .high)
             c.mode = app.prefs.agentMode
             app.rememberFolder(folder)
         } else {
-            c = Conversation(title: Self.title(from: text), backend: app.prefs.backend, model: app.prefs.model, effort: app.prefs.effort)
+            c = Conversation(title: Self.title(from: text.isEmpty ? attachments.first?.name ?? "Вложение" : text), backend: app.prefs.backend, model: app.prefs.model, effort: app.prefs.effort)
         }
         if conversation == nil { c.projectID = newProjectID }
         // ChatGPT идёт по подписке ChatGPT, не по ключу Anthropic
@@ -174,7 +174,9 @@ final class ChatController {
         if c.usesCLI && c.cliSessionID == nil { c.cliSessionID = UUID().uuidString.lowercased() }
         do {
             try app.store.save(c)
-            let user = try app.store.save(ChatMessage(conversationID: c.id, role: .user, text: text))
+            var u = ChatMessage(conversationID: c.id, role: .user, text: text)
+            u.attachments = attachments
+            let user = try app.store.save(u)
             conversation = c
             messages.append(user)
         } catch {
@@ -197,9 +199,9 @@ final class ChatController {
             if let (bot, task) = delegate {
                 await self.runDelegation(c, bot: bot, task: task)
             } else if c.model.isGPT {
-                await self.runCodex(c, text: text)
+                await self.runCodex(c, text: text, attachments: attachments)
             } else if c.usesCLI {
-                await self.runCLI(c, text: text, hadTurnsBefore: history.contains { $0.role == .assistant && $0.error == nil })
+                await self.runCLI(c, text: text, attachments: attachments, hadTurnsBefore: history.contains { $0.role == .assistant && $0.error == nil })
             } else {
                 await self.runAPI(c, history: history)
             }
@@ -352,7 +354,7 @@ final class ChatController {
         sessions.removeAll()
     }
 
-    private func runCLI(_ c: Conversation, text: String, hadTurnsBefore: Bool) async {
+    private func runCLI(_ c: Conversation, text: String, attachments: [Attachment] = [], hadTurnsBefore: Bool) async {
         guard let cli = app.cli else {
             await finish(c, text: "", error: "Claude Code не найден. Поставь его и войди в Настройках → Модели и оплата.")
             return
@@ -369,7 +371,9 @@ final class ChatController {
             let session = try cliSession(for: c, cli: cli, resume: hadTurnsBefore)
             var answer = ""
             var result: ClaudeEvent.TurnResult?
-            for await ev in try session.send(text) {
+            let turn = attachments.isEmpty ? try session.send(text)
+                : try session.send(content: Attachment.userContent(text: text, attachments: attachments, agent: c.kind != .chat))
+            for await ev in turn {
                 switch ev {
                 case .textDelta(let t):
                     answer += t
@@ -421,7 +425,7 @@ final class ChatController {
 
     /// Ход через ChatGPT (codex). Разговор продолжается по thread_id, который хранится в `cliSessionID`.
     /// Свои правила Lumen передаёт в начале первого хода: системного промпта у `codex exec` нет.
-    private func runCodex(_ c: Conversation, text: String) async {
+    private func runCodex(_ c: Conversation, text: String, attachments: [Attachment] = []) async {
         guard let codex = app.codexCLI, app.codex == .signedIn else {
             await finish(c, text: "", error: "ChatGPT не подключён. Войди в Настройках → Модели и оплата → ChatGPT.")
             return
@@ -440,6 +444,8 @@ final class ChatController {
         if let git, await git.isRepo { before = try? await git.snapshot() }
 
         var prompt = text
+        let inline = Attachment.inlineText(attachments)
+        if !inline.isEmpty { prompt = inline + "\n\n" + prompt }
         if c.cliSessionID == nil {
             let rules = c.kind == .agent ? app.agentPrompt(for: c) : app.systemPrompt(for: c)
             prompt = "<lumen-instructions>\n\(rules)\n</lumen-instructions>\n\n" + text
@@ -450,8 +456,9 @@ final class ChatController {
                                  "LUMEN_SKILLS_DIR": app.paths.skills.path, "LUMEN_SKILLS": "*"])
         }
         // у ChatGPT нет вопросов на ходу: «План» — только чтение, остальные режимы — правка в своей папке
-        let turn = CodexCLI.Turn(model: c.model.rawValue, effort: c.effort.rawValue, agent: c.kind == .agent && c.mode != .plan,
+        var turn = CodexCLI.Turn(model: c.model.rawValue, effort: c.effort.rawValue, agent: c.kind == .agent && c.mode != .plan,
                                  folder: folder, threadID: c.cliSessionID, memoryServer: memory)
+        turn.images = attachments.filter { $0.kind == .image }.map(\.path)
         do {
             let run = try codex.run(turn, prompt: prompt)
             codexRuns[c.id] = run
