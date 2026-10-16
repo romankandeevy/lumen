@@ -656,6 +656,12 @@ final class ChatController {
         }
         let saved = try? app.store.save(m)
         if let saved, conversation?.id == c.id { messages.append(saved) }
+        // первый ответ — название разговора от модели
+        if error == nil && !stopped && !visible.isEmpty, c.kind != .bot,
+           let all = try? app.store.messages(in: c.id), all.filter({ $0.role == .assistant }).count == 1,
+           let q = all.first(where: { $0.role == .user })?.text {
+            Task { await app.nameConversation(c, question: q, answer: visible) }
+        }
         // обучение на опыте: у ботов — выводы, у ботов и агента после большой задачи — предложенный навык
         if error == nil && !stopped && (c.kind != .chat || turnBot != nil) {
             let bot = app.bot(turnBot ?? (c.kind == .bot ? c.botID : nil))

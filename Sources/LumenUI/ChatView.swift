@@ -77,7 +77,7 @@ struct ChatView: View {
                 if bot != nil {
                 } else if agent {
                     HStack(spacing: 6) {
-                        Text(folder.map { "Агент в папке \($0.lastPathComponent)" } ?? "Папка не выбрана")
+                        Text(folder.map { AppModel.isHome($0) ? "Агент во всех моих файлах" : "Агент в папке \($0.lastPathComponent)" } ?? "Агент во всех моих файлах")
                         Text("·").foregroundStyle(p.foreground.opacity(0.2))
                         Icon("laptop", 12)
                         Text("на этом Маке" + (backend == .api ? ", по ключу API" : ""))
@@ -502,10 +502,16 @@ struct Composer: View {
         let current = chat.conversation?.folder.map { URL(fileURLWithPath: $0) } ?? app.agentFolder
         return PickerButton(open: $folderOpen, bordered: big) {
             Icon(big ? "folder-open" : "folder", big ? 16 : 14).foregroundStyle(p.glow)
-            Text(current?.lastPathComponent ?? "Выбрать папку").font(.geist(big ? 14 : 12))
+            Text(current.map(AppModel.folderName) ?? "Мои файлы").font(.geist(big ? 14 : 12))
         } panel: {
-            PopoverPanel(title: "Папка проекта", width: 256) {
-                ForEach(app.recentFolders, id: \.self) { f in
+            PopoverPanel(title: "Где работать", width: 256) {
+                PopoverOption(name: "Мои файлы", note: "вся домашняя папка, ~", active: current.map(AppModel.isHome) ?? true) {
+                    Icon("laptop", 16).foregroundStyle(p.mutedFg)
+                } action: {
+                    app.agentFolder = AppModel.home
+                    folderOpen = false
+                }
+                ForEach(app.recentFolders.filter { !AppModel.isHome($0) }, id: \.self) { f in
                     PopoverOption(name: f.lastPathComponent, note: f.deletingLastPathComponent().path.replacingOccurrences(of: NSHomeDirectory(), with: "~"),
                                   active: f.standardizedFileURL.path == current?.standardizedFileURL.path) {
                         Icon("folder", 16).foregroundStyle(p.mutedFg)

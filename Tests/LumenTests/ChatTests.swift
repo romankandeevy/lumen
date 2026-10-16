@@ -225,3 +225,47 @@ import Testing
     #expect(app.projects.isEmpty)
     #expect(app.conversations.first { $0.id == other.id }?.projectID == nil)
 }
+
+
+/// Вкладки помнят своё: новый пустой чат остаётся новым после похода в «Агента»
+@MainActor @Test func tabsRememberWhatWasOpen() throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-tabs-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .subscription, theme: .lumen)
+    let old = Conversation(title: "Старый", backend: .subscription, model: .sonnet, effort: .medium)
+    try app.store.save(old)
+    let task = Conversation(title: "Задача", kind: .agent, folder: "/tmp", backend: .subscription, model: .sonnet, effort: .high)
+    try app.store.save(task)
+    app.reloadConversations()
+
+    app.openChat(old)
+    app.newChat()                      // ушёл в новый чат
+    #expect(app.chat.conversation == nil)
+    app.switchTab(.agent)              // первый раз — последняя задача
+    #expect(app.chat.conversation?.id == task.id)
+    app.switchTab(.chat)               // вернулся — снова новый чат, а не «Старый»
+    #expect(app.chat.conversation == nil)
+    app.openChat(old)
+    app.switchTab(.agent)
+    app.newAgentTask()
+    app.switchTab(.chat)
+    #expect(app.chat.conversation?.id == old.id)
+    app.switchTab(.agent)              // и у агента — новая задача
+    #expect(app.chat.conversation == nil && app.tab == .agent)
+}
+
+/// Без выбранной папки агент работает во «Моих файлах» (домашняя папка) — задача отправляется сразу
+@MainActor @Test func agentWorksWithoutChosenFolder() throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-nofolder-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .subscription, theme: .lumen)
+    #expect(app.agentFolder.map(AppModel.isHome) == true)
+    #expect(AppModel.folderName(AppModel.home) == "Мои файлы")
+    app.newAgentTask()
+    app.chat.send("привет")
+    #expect(app.chat.conversation?.kind == .agent)
+    #expect(app.chat.conversation?.folder == AppModel.home.path)
+    app.chat.stop()
+}

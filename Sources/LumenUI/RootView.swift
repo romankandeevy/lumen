@@ -58,6 +58,11 @@ public struct RootView: View {
         .task { if app.claude == .checking { await app.refreshClaude() } }
         .task { if app.codex == .checking { await app.refreshCodex() } }
         .task { await app.selfShotIfAsked() }
+        .task {
+            // после проверки claude — назвать старые разговоры по-человечески (один раз)
+            while app.claude == .checking { try? await Task.sleep(for: .milliseconds(300)) }
+            if ProcessInfo.processInfo.environment["LUMEN_SELFSHOT"] == nil { await app.nameOldConversations() }
+        }
         .environment(\.palette, p)
         .environment(\.lessMotion, app.prefs.reducedMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
         .preferredColorScheme(.dark)
@@ -231,15 +236,7 @@ struct TabSwitch: View {
     private func tab(_ t: AppModel.Tab, _ name: String, _ icon: String) -> some View {
         let active = app.tab == t
         return Button {
-            guard app.tab != t else { return }
-            app.tab = t
-            // открыть последний разговор этой вкладки или пустой
-            if let last = app.conversations.first(where: { $0.kind == (t == .agent ? .agent : .chat) }) {
-                app.openChat(last)
-            } else {
-                app.chat.startNew()
-                app.page = .chat
-            }
+            app.switchTab(t)
         } label: {
             HStack(spacing: 6) {
                 Icon(icon, 14).foregroundStyle(active ? p.glow : p.mutedFg)
@@ -311,7 +308,7 @@ struct ChatRow: View {
                             Text(c.title).font(.geist(14)).lineLimit(1)
                                 .foregroundStyle(active || hover ? p.foreground : p.foreground.opacity(0.8))
                         }
-                        Text(URL(fileURLWithPath: c.folder ?? "").lastPathComponent).font(.geist(11)).foregroundStyle(p.mutedFg).lineLimit(1)
+                        Text(AppModel.folderName(URL(fileURLWithPath: c.folder ?? ""))).font(.geist(11)).foregroundStyle(p.mutedFg).lineLimit(1)
                     }
                     Spacer(minLength: 4)
                     Text(when).font(.geist(11)).foregroundStyle(p.mutedFg).opacity(hover ? 0 : 1)

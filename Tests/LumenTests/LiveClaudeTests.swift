@@ -300,3 +300,23 @@ func liveAgentOnRealProjectCopy() async throws {
     let refs = try await Shell.run(URL(fileURLWithPath: "/usr/bin/env"), ["git", "--git-dir", root.appendingPathComponent("remote.git").path, "rev-list", "--all", "--count"])
     #expect(refs.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "0", "push прошёл, а не должен был")
 }
+
+/// Название разговора придумывает модель после первого ответа, а не первая фраза
+@MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["LUMEN_LIVE"] == "1"))
+func liveConversationGetsModelTitle() async throws {
+    pointToMCP()
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-title-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    await app.refreshClaude()
+    app.finishOnboarding(name: "Тест", address: .ty, backend: .subscription, theme: .lumen)
+    app.newChat()
+    app.chat.set(model: .haiku, effort: .low)
+    app.chat.send("привет, подскажи, как быстро сварить гречку на ужин")
+    while app.chat.busy { try await Task.sleep(for: .milliseconds(200)) }
+    // название приходит фоном
+    for _ in 0..<60 where app.conversations.first?.title.hasPrefix("привет") == true { try await Task.sleep(for: .milliseconds(250)) }
+    let title = try #require(app.conversations.first?.title)
+    #expect(!title.hasPrefix("привет"), "осталось «\(title)»")
+    #expect(title.localizedCaseInsensitiveContains("греч"), "название «\(title)»")
+}

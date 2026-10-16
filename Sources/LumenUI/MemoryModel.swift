@@ -95,7 +95,7 @@ extension AppModel {
         for f in folders {
             let name = URL(fileURLWithPath: f).lastPathComponent
             // папки ботов и временные — не проекты
-            if !f.hasPrefix(paths.root.path), !names.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) { names.append(name) }
+            if !f.hasPrefix(paths.root.path), !AppModel.isHome(URL(fileURLWithPath: f)), !names.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) { names.append(name) }
         }
         return MemoryGraph(facts: memories, me: profile.name, projects: names)
     }

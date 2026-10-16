@@ -28,7 +28,8 @@ struct AgentHome: View {
                 HStack(spacing: 10) {
                     Orb(state: app.orb, size: 28)
                     if let folder {
-                        (Text("Что сделаем в ") + Text(folder.lastPathComponent).foregroundColor(p.glow) + Text("?"))
+                        (AppModel.isHome(folder) ? Text("Что сделаем на Маке?")
+                            : Text("Что сделаем в ") + Text(folder.lastPathComponent).foregroundColor(p.glow) + Text("?"))
                             .tw(24, .semibold, lh: 32).tracking(-0.48)
                     } else {
                         Text("Выбери папку проекта").tw(24, .semibold, lh: 32).tracking(-0.48)

@@ -118,8 +118,9 @@ public final class AppModel {
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.chat.closeAll() }
         }
+        // без выбранной папки агент работает во всех моих файлах (домашняя папка); папку можно выбрать потом
         agentFolder = prefs.recentFolders.lazy.map { URL(fileURLWithPath: $0) }
-            .first { FileManager.default.fileExists(atPath: $0.path) }
+            .first { FileManager.default.fileExists(atPath: $0.path) } ?? Self.home
         updater = Updater.make()
         updater?.beta = { [weak self] in self?.prefs.betaUpdates ?? false }
     }
@@ -155,6 +156,37 @@ public final class AppModel {
         if panel.runModal() == .OK, let url = panel.url {
             agentFolder = url
             rememberFolder(url)
+        }
+    }
+
+    /// Домашняя папка — «Мои файлы»: где работает агент, если папку не выбирали
+    static let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+
+    static func isHome(_ u: URL) -> Bool { u.standardizedFileURL.path == home.standardizedFileURL.path }
+
+    /// Как папку называть в окне
+    static func folderName(_ u: URL) -> String { isHome(u) ? "Мои файлы" : u.lastPathComponent }
+
+    /// Что было открыто на каждой вкладке: id разговора или nil — новый, ещё пустой
+    @ObservationIgnored private var tabMemory: [Tab: String?] = [:]
+
+    /// Переключить Чат ↔ Агент: вкладка возвращает то, что на ней было открыто (и новый пустой разговор тоже)
+    func switchTab(_ t: Tab) {
+        guard tab != t else { return }
+        let kind: ConversationKind = tab == .agent ? .agent : .chat
+        // updateValue, а не `= nil`: nil в словаре удалил бы запись, а нам нужно запомнить «новый разговор»
+        tabMemory.updateValue(chat.conversation.flatMap { $0.kind == kind ? $0.id : nil }, forKey: tab)
+        tab = t
+        let want = t == .agent ? ConversationKind.agent : .chat
+        let remembered = tabMemory[t]
+        if let remembered {
+            // nil внутри — был новый разговор
+            if let id = remembered, let c = conversations.first(where: { $0.id == id }) { openChat(c) } else { chat.startNew(); page = .chat }
+        } else if let last = conversations.first(where: { $0.kind == want }) {
+            openChat(last)
+        } else {
+            chat.startNew()
+            page = .chat
         }
     }
 

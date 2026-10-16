@@ -46,6 +46,8 @@ public struct CodexCLI: Sendable {
         public var threadID: String?
         /// MCP-сервер памяти Lumen: путь и переменные окружения
         public var memoryServer: (command: String, env: [String: String])?
+        /// Не сохранять сессию (короткие служебные запросы: название разговора)
+        public var ephemeral = false
 
         public init(model: String, effort: String, agent: Bool, folder: URL, threadID: String? = nil,
                     memoryServer: (command: String, env: [String: String])? = nil) {
@@ -58,7 +60,7 @@ public struct CodexCLI: Sendable {
         }
 
         public var arguments: [String] {
-            var a = ["exec", "--json", "--skip-git-repo-check", "--color", "never",
+            var a = ["exec", "--json", "--skip-git-repo-check", "--color", "never"] + (ephemeral ? ["--ephemeral"] : []) + [
                      "-m", model, "-c", "model_reasoning_effort=\"\(effort)\"",
                      // агент: пишет только в своей папке, без сети — push невозможен
                      "-s", agent ? "workspace-write" : "read-only",
@@ -81,6 +83,19 @@ public struct CodexCLI: Sendable {
 
     public func run(_ turn: Turn, prompt: String) throws -> CodexRun {
         try CodexRun(binary: binary, turn: turn, prompt: prompt)
+    }
+
+    /// Один короткий ответ без сохранения сессии
+    public func ask(_ prompt: String, model: String, folder: URL) async -> String? {
+        var t = Turn(model: model, effort: "low", agent: false, folder: folder)
+        t.ephemeral = true
+        guard let run = try? run(t, prompt: prompt) else { return nil }
+        var text = ""
+        for await ev in run.events {
+            if case .textDelta(let s) = ev { text += s }
+            if case .finished(let r) = ev, !r.ok { return nil }
+        }
+        return text.isEmpty ? nil : text
     }
 }
 

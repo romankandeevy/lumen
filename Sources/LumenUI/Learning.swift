@@ -22,6 +22,43 @@ extension AppModel {
         return r.text
     }
 
+    /// Название разговора после первого ответа — придумывает та же сторона, где идёт разговор:
+    /// Claude (Haiku) или ChatGPT (быстрая модель). Переименованный руками разговор не трогаем.
+    func nameConversation(_ c: Conversation, question: String, answer: String) async {
+        guard c.kind != .bot, c.title == ChatController.title(from: question) else { return }
+        let prompt = """
+        Придумай короткое название для разговора по его началу: 2–5 слов, по-русски (если разговор не на русском — на его языке),         без кавычек, точки и слова «разговор». Ответь только названием.
+        Человек: \(question.prefix(1500))
+        Ответ: \(answer.prefix(1500))
+        """
+        var text: String?
+        if c.model.isGPT, codex == .signedIn, let codexCLI {
+            let dir = paths.run.appendingPathComponent("titles", isDirectory: true)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            text = await codexCLI.ask(prompt, model: ChatModel.gptLuna.rawValue, folder: dir)
+        } else {
+            text = await quickAsk(prompt, system: "Ты придумываешь короткие точные названия разговоров. Отвечай только названием.")
+        }
+        guard var title = text?.split(whereSeparator: \.isNewline).first.map(String.init)?
+            .trimmingCharacters(in: CharacterSet(charactersIn: " «»\"'.:*#")) , !title.isEmpty else { return }
+        if title.count > 48 { title = String(title.prefix(46)).trimmingCharacters(in: .whitespaces) + "…" }
+        // за время запроса могли переименовать руками
+        guard let now = conversations.first(where: { $0.id == c.id }), now.title == c.title else { return }
+        renameChat(now, title)
+    }
+
+    /// Старые разговоры, названные первой фразой, — переименовать один раз (до 20, по одному)
+    func nameOldConversations() async {
+        guard (try? store.value("namedOld", as: Bool.self)) != true, cli != nil else { return }
+        try? store.set("namedOld", true)
+        for c in conversations.prefix(20) where c.kind != .bot {
+            guard let all = try? store.messages(in: c.id), let q = all.first(where: { $0.role == .user })?.text,
+                  let a = all.first(where: { $0.role == .assistant && $0.error == nil && !$0.text.isEmpty })?.text,
+                  c.title == ChatController.title(from: q) else { continue }
+            await nameConversation(c, question: q, answer: a)
+        }
+    }
+
     /// Разобрать законченную задачу: выводы для бота и, может быть, навык
     func learn(task: String, answer: String, steps: [AgentStep], bot: Bot?, messageID: Int64?, conversationID: String) async {
         let worthSkill = steps.count >= 4

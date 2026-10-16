@@ -18,11 +18,6 @@ struct ProjectsSection: View {
                 SmallPlus(help: "Новый проект") { app.createProject(folder: kind == .agent ? app.agentFolder : nil) }
             }
             .padding(.leading, 10).padding(.trailing, 4).padding(.bottom, 4)
-            if app.projects.isEmpty {
-                Text(kind == .agent ? "Свои инструкции, файлы и папка для задач" : "Свои инструкции и файлы для чатов")
-                    .tw(12, lh: 16).foregroundStyle(p.mutedFg.opacity(0.7))
-                    .padding(.horizontal, 10).padding(.bottom, 4)
-            }
             ForEach(app.projects) { pr in
                 ProjectRow(app: app, project: pr, open: open.contains(pr.id),
                            count: app.conversations(in: pr.id).filter { $0.kind == kind }.count) {

@@ -113,12 +113,16 @@ private func fakeCodex(in dir: URL) throws -> URL {
     app.chat.send("И ещё")
     while app.chat.running != nil { try await Task.sleep(for: .milliseconds(20)) }
     let log = try String(contentsOf: bin.appendingPathComponent("calls.log"), encoding: .utf8)
-    let calls = log.components(separatedBy: "\n").filter { $0.hasPrefix("ARGS exec") }
+    // служебный запрос названия (--ephemeral) — отдельно от ходов разговора
+    let calls = log.components(separatedBy: "\n").filter { $0.hasPrefix("ARGS exec") && !$0.contains("--ephemeral") }
     #expect(calls.count == 2)
     #expect(calls[0].contains("-m gpt-6.1-sol") && calls[0].contains("read-only") && !calls[0].contains("resume"))
     #expect(calls[1].contains("resume th-42"))
     #expect(log.contains("STDIN <lumen-instructions>"))
     #expect(log.contains("STDIN И ещё"))
+    // название придумал ChatGPT (быстрая модель, без сохранения сессии), а не первая фраза
+    #expect(log.contains("--ephemeral") && log.contains("-m gpt-6-luna"))
+    #expect(app.conversations.first?.title == "Привет от ChatGPT")
 
     // «Стоп» гасит процесс сразу
     app.chat.send("Подумай долго")
