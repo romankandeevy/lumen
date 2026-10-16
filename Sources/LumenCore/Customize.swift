@@ -197,6 +197,8 @@ public enum ConnectorImport {
             command = c
             rest = Array(all.dropFirst())
         }
+        // команда — латиницей, без мусора: «???» или фраза по-русски — не команда
+        guard command.range(of: #"^[A-Za-z0-9._/~+-]+$"#, options: .regularExpression) != nil else { return [] }
         return [(nameFromCommand(command, rest), MCPServer(command: command, args: rest, env: env))]
     }
 
@@ -322,7 +324,7 @@ public enum ConnectorImport {
 
 // MARK: хуки
 
-public enum HookEvent: String, Codable, Sendable, CaseIterable, Identifiable {
+public enum HookEvent: String, Codable, Sendable, CaseIterable, Identifiable, Hashable {
     case preToolUse = "PreToolUse"
     case postToolUse = "PostToolUse"
     case userPromptSubmit = "UserPromptSubmit"
@@ -512,4 +514,77 @@ public struct ConnectorPreset: Sendable, Identifiable {
         ConnectorPreset(name: "sequential-thinking", title: "Пошаговое мышление", note: "Помогает модели раскладывать сложные задачи по шагам",
                         icon: "list-checks", server: MCPServer(command: "npx", args: ["-y", "@modelcontextprotocol/server-sequential-thinking"])),
     ]
+}
+
+// MARK: предложения Lumen из разговора
+
+/// Хук в виде, который можно сохранить и передать (HookRule — для окна)
+public struct HookSpec: Codable, Sendable, Equatable, Hashable {
+    public var event: HookEvent
+    public var matcher: String
+    public var command: String
+    public var name: String
+
+    public init(event: HookEvent, matcher: String = "", command: String, name: String = "") {
+        self.event = event
+        self.matcher = matcher
+        self.command = command
+        self.name = name
+    }
+
+    public var rule: HookRule { HookRule(event: event, matcher: event.hasMatcher ? matcher : "", command: command, name: name) }
+}
+
+/// Lumen предлагает коннектор или хук — карточкой под ответом; ставит человек одним нажатием.
+/// Сам Lumen ничего не подключает: коннектор запускает программы на Маке, хук — команды.
+public struct CustomizeProposal: Codable, Sendable, Equatable, Hashable, Identifiable {
+    public enum Kind: String, Codable, Sendable { case connector, hook }
+    public enum State: String, Codable, Sendable { case pending, accepted, declined }
+
+    public var id: String
+    public var kind: Kind
+    public var name: String
+    public var why: String
+    public var server: MCPServer?
+    /// Свой сервер, который написал Lumen: код ляжет в customize/servers/<имя>/
+    public var script: String?
+    public var scriptFile: String?
+    public var hook: HookSpec?
+    public var state: State
+
+    public init(kind: Kind, name: String, why: String, server: MCPServer? = nil, script: String? = nil, scriptFile: String? = nil,
+                hook: HookSpec? = nil) {
+        id = UUID().uuidString.lowercased()
+        self.kind = kind
+        self.name = name
+        self.why = why
+        self.server = server
+        self.script = script
+        self.scriptFile = scriptFile
+        self.hook = hook
+        state = .pending
+    }
+}
+
+/// Предложения ждут конца хода в run/proposals/<разговор>/ (их пишет и lumen-mcp, и чат по ключу)
+public enum ProposalBox {
+    public static func dir(_ paths: AppPaths, _ conversationID: String) -> URL {
+        paths.run.appendingPathComponent("proposals/\(conversationID)", isDirectory: true)
+    }
+
+    public static func put(_ p: CustomizeProposal, paths: AppPaths, conversationID: String) throws {
+        let d = dir(paths, conversationID)
+        try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        try JSONEncoder().encode(p).write(to: d.appendingPathComponent("\(Date().timeIntervalSince1970)-\(p.id).json"))
+    }
+
+    /// Забрать всё, что накопилось за ход (по порядку), и очистить
+    public static func take(paths: AppPaths, conversationID: String) -> [CustomizeProposal] {
+        let d = dir(paths, conversationID)
+        let files = ((try? FileManager.default.contentsOfDirectory(at: d, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.pathExtension == "json" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let out = files.compactMap { (try? Data(contentsOf: $0)).flatMap { try? JSONDecoder().decode(CustomizeProposal.self, from: $0) } }
+        try? FileManager.default.removeItem(at: d)
+        return out
+    }
 }

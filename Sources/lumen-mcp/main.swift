@@ -35,7 +35,7 @@ let canDelegate = caller?.can.contains(.bots) == true && depth < 1
 // Lumen достраивает себя сам (Рома, 16.10): смотрит, создаёт, находит на skills.sh и ставит навыки.
 // Ботам — нет: их навыки выбирает человек.
 let manageSkills = tools.skills != nil && callerID.isEmpty
-if manageSkills { visible += SkillAdmin.definitions }
+if manageSkills { visible += SkillAdmin.definitions + CustomizeAdmin.definitions }
 
 /// Дождаться асинхронного (сеть) внутри синхронного цикла сервера
 final class TextBox: @unchecked Sendable { var value = "" }
@@ -157,6 +157,13 @@ while let line = readLine(strippingNewline: true) {
     case "tools/call":
         let name = params["name"] as? String ?? ""
         let args = params["arguments"] as? [String: Any] ?? [:]
+        if manageSkills, CustomizeAdmin.names.contains(name) {
+            let a = CustomizeAdmin.Args(args)
+            let paths = AppPaths(root: URL(fileURLWithPath: dbPath).deletingLastPathComponent())
+            let conv = env["LUMEN_CONVERSATION_ID"] ?? ""
+            reply(id ?? 0, ["content": [["type": "text", "text": wait { await CustomizeAdmin.call(name, a, paths: paths, conversationID: conv) }]]])
+            continue
+        }
         if SkillAdmin.names.contains(name) {
             reply(id ?? 0, ["content": [["type": "text", "text": manageSkill(name, args)]]])
             continue

@@ -211,6 +211,9 @@ public final class Store: Sendable {
         m.registerMigration("v14-connectors") { db in
             try db.alter(table: "bot") { t in t.add(column: "connectors", .jsonText).notNull().defaults(to: "[]") }
         }
+        m.registerMigration("v15-proposals") { db in
+            try db.alter(table: "message") { t in t.add(column: "proposals", .jsonText).notNull().defaults(to: "[]") }
+        }
         return m
     }
 

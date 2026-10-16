@@ -50,7 +50,8 @@ import Testing
     let cmd = ConnectorImport.parse("npx -y @playwright/mcp@latest")
     #expect(cmd.first?.name == "playwright" && cmd.first?.server.args == ["-y", "@playwright/mcp@latest"])
     #expect(ConnectorImport.parse("TOKEN=1 npx -y mcp-server-foo").first?.server.env["TOKEN"] == "1")
-    #expect(ConnectorImport.parse("что-то непонятное с пробелами").first?.server.command == "что-то")
+    #expect(ConnectorImport.parse("что-то непонятное с пробелами").isEmpty)
+    #expect(ConnectorImport.parse("???").isEmpty)
     #expect(ConnectorImport.parse("   ").isEmpty)
 }
 
@@ -352,4 +353,75 @@ final class FakeOAuthSite: URLProtocol, @unchecked Sendable {
 @Test func registryNamesFromOwnerWhenPackageNameIsGeneric() {
     let e = MCPRegistry.entry(["name": "com.notion/mcp", "remotes": [["type": "streamable-http", "url": "https://mcp.notion.com/mcp"]]], uvx: false)!
     #expect(e.shortName == "notion")
+}
+
+// MARK: Lumen предлагает сам
+
+@MainActor @Test func lumenProposesConnectorsAndHooksAndHumanAccepts() async throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-prop-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    let c = Conversation(title: "т", backend: .subscription, model: .haiku, effort: .low)
+    try app.store.save(c)
+
+    // готовый — строкой из README; свой — кодом; хук
+    var out = await CustomizeAdmin.call("propose_connector", .init(["name": "context7", "why": "Документация", "config": "https://mcp.context7.com/mcp"]),
+                                        paths: app.paths, conversationID: c.id)
+    #expect(out.contains("Карточка"))
+    let code = try String(contentsOf: try tinyMCPServer(in: home, word: "сова-3").args[1].asURL, encoding: .utf8)
+    out = await CustomizeAdmin.call("propose_connector", .init(["name": "Sova Test", "why": "Слово дня", "script": code]),
+                                    paths: app.paths, conversationID: c.id)
+    out = await CustomizeAdmin.call("propose_hook", .init(["event": "Stop", "command": "true", "name": "Тихий", "why": "проверка"]),
+                                    paths: app.paths, conversationID: c.id)
+    #expect(await CustomizeAdmin.call("propose_connector", .init(["name": "x", "why": "", "config": "???"]), paths: app.paths, conversationID: c.id).contains("Не понял"))
+    #expect(app.connectors.mcpServers.isEmpty && app.hooks.isEmpty) // сам ничего не подключил
+
+    let props = ProposalBox.take(paths: app.paths, conversationID: c.id)
+    #expect(props.map(\.kind) == [.connector, .connector, .hook])
+    #expect(ProposalBox.take(paths: app.paths, conversationID: c.id).isEmpty)
+    var m = ChatMessage(conversationID: c.id, role: .assistant, text: "Вот")
+    m.proposals = props
+    m = try app.store.save(m)
+    #expect(try app.store.messages(in: c.id).first?.proposals.count == 3)
+
+    // человек нажал «Подключить» у своего сервера и «Добавить» у хука
+    app.acceptProposal(props[1], in: m)
+    let saved = try #require(app.connectors.mcpServers["sova-test"])
+    let file = try #require(saved.args.last)
+    #expect(FileManager.default.fileExists(atPath: file) && file.contains("customize/servers/"))
+    #expect(try await MCPClient.probe(saved).get().first?.name == "secret_word")
+    m = try #require(try app.store.messages(in: c.id).first)
+    app.acceptProposal(m.proposals[2], in: m)
+    #expect(app.hooks.first?.name == "Тихий")
+    let after = try #require(try app.store.messages(in: c.id).first).proposals
+    #expect(after[1].state == .accepted && after[2].state == .accepted && after[0].state == .pending)
+
+    // список видит подключённое
+    let list = await CustomizeAdmin.call("list_customization", .init([:]), paths: app.paths, conversationID: c.id)
+    #expect(list.contains("python3") && list.contains("Тихий"))
+}
+
+private extension String { var asURL: URL { URL(fileURLWithPath: self) } }
+
+extension LiveCustomizeSuite {
+    /// «Сделай MCP» в чате: Lumen пишет свой сервер и показывает карточку; после «Подключить» сервер работает
+    @MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["LUMEN_LIVE"] == "1")) func liveLumenWritesOwnConnector() async throws {
+        pointToMCP()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-liveprop-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let app = try AppModel(paths: AppPaths(root: root))
+        await app.refreshClaude()
+        app.finishOnboarding(name: "Тест", address: .ty, backend: .subscription, theme: .lumen)
+        app.chat.set(model: .sonnet, effort: .low)
+        app.chat.send("Сделай мне свой MCP-коннектор dice с одним инструментом roll, который возвращает случайное число от 1 до 6.")
+        while app.chat.busy { try await Task.sleep(for: .milliseconds(200)) }
+        let reply = try #require(app.chat.messages.last)
+        #expect(reply.error == nil, "\(reply.error ?? "")")
+        let pr = try #require(reply.proposals.first { $0.kind == .connector }, "нет карточки: \(reply.text)")
+        #expect(pr.script != nil)
+        app.acceptProposal(pr, in: reply)
+        let s = try #require(app.connectors.mcpServers.values.first)
+        let tools = try await MCPClient.probe(s).get()
+        #expect(tools.contains { $0.name == "roll" }, "\(tools.map(\.name))")
+    }
 }

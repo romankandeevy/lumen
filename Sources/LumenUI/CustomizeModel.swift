@@ -186,6 +186,54 @@ extension AppModel {
         return changed
     }
 
+    // MARK: предложения Lumen
+
+    /// Подключить то, что предложил Lumen: коннектор (свой сервер — сначала код в customize/servers/) или хук
+    func acceptProposal(_ pr: CustomizeProposal, in message: ChatMessage) {
+        switch pr.kind {
+        case .connector:
+            guard var s = pr.server else { return }
+            var name = freeConnectorName(pr.name)
+            if let code = pr.script {
+                let dir = paths.customize.appendingPathComponent("servers/\(name)", isDirectory: true)
+                let file = dir.appendingPathComponent("server.py")
+                do {
+                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    try code.write(to: file, atomically: true, encoding: .utf8)
+                } catch {
+                    log("Не записался код коннектора \(name): \(error.localizedDescription)")
+                    return
+                }
+                s.args = ["-u", file.path]
+            }
+            name = saveConnector(s, name: name)
+            checkConnector(name)
+            var accepted = pr
+            accepted.name = name
+            replaceProposal(accepted, state: .accepted, in: message)
+        case .hook:
+            guard let h = pr.hook else { return }
+            hooks.append(h.rule)
+            saveHooks()
+            setProposal(pr.id, .accepted, in: message)
+        }
+    }
+
+    func setProposal(_ id: String, _ state: CustomizeProposal.State, in message: ChatMessage) {
+        guard let pr = message.proposals.first(where: { $0.id == id }) else { return }
+        replaceProposal(pr, state: state, in: message)
+    }
+
+    private func replaceProposal(_ pr: CustomizeProposal, state: CustomizeProposal.State, in message: ChatMessage) {
+        guard let mid = message.id else { return }
+        var list = (chat.messages.first { $0.id == mid } ?? message).proposals
+        guard let i = list.firstIndex(where: { $0.id == pr.id }) else { return }
+        var next = pr
+        next.state = state
+        list[i] = next
+        chat.setProposals(list, messageID: mid, conversationID: message.conversationID)
+    }
+
     // MARK: хуки
 
     func saveHooks() {

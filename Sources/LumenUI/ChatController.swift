@@ -238,6 +238,14 @@ final class ChatController {
         if let i = messages.firstIndex(where: { $0.id == messageID }) { messages[i].skillDraft = d }
     }
 
+    /// Карточки предложений Lumen под ответом: подключил / не надо
+    func setProposals(_ list: [CustomizeProposal], messageID: Int64, conversationID: String) {
+        guard var m = (try? app.store.messages(in: conversationID))?.first(where: { $0.id == messageID }) else { return }
+        m.proposals = list
+        _ = try? app.store.save(m)
+        if let i = messages.firstIndex(where: { $0.id == messageID }) { messages[i].proposals = list }
+    }
+
     /// Бот изменён — его процесс гасим, следующий ход поднимет его с новыми правами (`--resume`)
     func restart(_ id: String) {
         guard running?.id != id else { return }
@@ -600,6 +608,7 @@ final class ChatController {
             if bot == nil {
                 config.allowedTools += ["mcp__lumen__remember", "mcp__lumen__recall", "mcp__lumen__load_skill", "mcp__lumen__read_skill_file",
                                         "mcp__lumen__list_skills", "mcp__lumen__create_skill", "mcp__lumen__find_skills", "mcp__lumen__install_skill"]
+                    + CustomizeAdmin.names.sorted().map { "mcp__lumen__\($0)" }
                 // включённые коннекторы — без вопросов: их подключил сам человек
                 config.allowedTools += app.connectorsFor(c).map { "mcp__\($0.name)" }
             }
@@ -633,7 +642,7 @@ final class ChatController {
         defer { log() }
         var request = AnthropicChatRequest(model: c.model, effort: c.effort, system: app.systemPrompt(for: c),
                                            messages: AnthropicChatRequest.history(history))
-        request.tools = (MemoryTools.definitions + (tools.availableSkills.isEmpty ? [] : MemoryTools.skillDefinitions) + SkillAdmin.definitions).map {
+        request.tools = (MemoryTools.definitions + (tools.availableSkills.isEmpty ? [] : MemoryTools.skillDefinitions) + SkillAdmin.definitions + CustomizeAdmin.definitions).map {
             JSONBox(["name": $0.name, "description": $0.description, "input_schema": $0.schema, "strict": true])
         }
         // коннекторы из «Кастомизации»: Lumen сам держит их клиенты (MCPPool), модель видит «сервер__инструмент»
@@ -692,6 +701,8 @@ final class ChatController {
                     let out: String
                     if app.mcpPool.handles(name) {
                         out = await app.mcpPool.call(name, JSONBox(input))
+                    } else if CustomizeAdmin.names.contains(name) {
+                        out = await CustomizeAdmin.call(name, CustomizeAdmin.Args(input), paths: app.paths, conversationID: c.id, session: app.urlSession)
                     } else if SkillAdmin.names.contains(name) {
                         out = await SkillAdmin.call(name, SkillAdmin.Args(input), library: app.skillLibrary, session: app.urlSession)
                     } else {
@@ -791,6 +802,8 @@ final class ChatController {
                             remembered: remembered, recalled: recalled.filter { !remembered.contains($0) })
         m.next = stopped ? nil : next
         m.botID = turnBot
+        // коннекторы и хуки, которые Lumen предложил за ход, — карточками под ответом
+        m.proposals = ProposalBox.take(paths: app.paths, conversationID: c.id)
         if let context, context.0 > 0 {
             m.contextTokens = context.0
             m.contextWindow = context.1 > 0 ? context.1 : nil
@@ -989,10 +1002,12 @@ extension AppModel {
         Ты умеешь достраивать себя навыками (SKILL.md, формат agentskills.io): list_skills — какие есть; create_skill — создать новый; \
         find_skills и install_skill — найти и поставить готовый из каталога skills.sh. Когда просят научиться чему-то, сделать навык \
         или приём повторяется — сделай навык сам, не отказывайся. Ботов человек создаёт во вкладке «Боты» — подскажи, если спрашивают. \
-        Коннекторы (серверы MCP: сайты и программы — браузер, GitHub, документация, базы) подключает сам человек: \
-        «Кастомизация» → «Коннекторы» — там готовые, поиск по реестру MCP и поле, куда можно вставить JSON из README или \
-        команду «claude mcp add …». Сам не подключай и не выдумывай установку — подскажи, что вставить. Хуки (команды на события: \
-        звук после ответа, запрет опасных команд) — там же, во вкладке «Хуки». \(connectorLine)
+        Коннекторы (серверы MCP: сайты и программы — браузер, GitHub, Notion, базы) и хуки (команды на события Claude Code: \
+        звук после ответа, запрет опасных команд) ты тоже умеешь: list_customization — что подключено; find_connectors — найти \
+        готовый в реестре MCP; propose_connector — предложить готовый (config) или написать свой MCP-сервер на Python (script); \
+        propose_hook — предложить хук. Предложение появляется карточкой под ответом, подключает человек одним нажатием \
+        («Кастомизация» в Lumen). Когда просят коннектор, MCP или хук — делай это сам этими инструментами, не отказывайся и не \
+        отправляй делать руками; не говори, что уже подключено, пока человек не нажал. \(connectorLine)
         """
     }
 

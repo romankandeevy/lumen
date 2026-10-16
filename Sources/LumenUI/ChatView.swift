@@ -330,6 +330,9 @@ struct MessageRow: View {
                         SkillProposalCard(app: chat.app, message: message, draft: d)
                     }
                     if let chat {
+                        ForEach(message.proposals) { pr in ProposalCard(app: chat.app, message: message, proposal: pr) }
+                    }
+                    if let chat {
                         ForEach(message.remembered, id: \.self) { id in RememberedCard(app: chat.app, id: id) }
                         if !message.recalled.isEmpty && !streaming {
                             RecalledLine(app: chat.app, ids: message.recalled)

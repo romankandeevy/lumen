@@ -91,7 +91,8 @@ final class StubAPI: URLProtocol, @unchecked Sendable {
     #expect(StubAPI.requests.count == 2)
     let first = StubAPI.requests[0]
     #expect(first["model"] as? String == ChatModel.sonnet.rawValue)
-    #expect((first["tools"] as? [[String: Any]])?.map { $0["name"] as? String } == ["remember", "recall", "list_skills", "create_skill", "find_skills", "install_skill"])
+    #expect((first["tools"] as? [[String: Any]])?.map { $0["name"] as? String } == ["remember", "recall", "list_skills", "create_skill", "find_skills", "install_skill",
+                                                                       "list_customization", "find_connectors", "propose_connector", "propose_hook"])
     #expect((first["system"] as? [[String: Any]])?.first?["text"] as? String != nil)
     let msgs2 = try #require(StubAPI.requests[1]["messages"] as? [[String: Any]])
     let last = try #require(msgs2.last?["content"] as? [[String: Any]])

@@ -401,6 +401,8 @@ public struct ChatMessage: Codable, Sendable, Equatable, Identifiable {
     public var botID: String?
     /// Предложенный после этой задачи навык («сам научился»); nil — не предлагался или уже решили
     public var skillDraft: SkillDraft?
+    /// Коннекторы и хуки, которые Lumen предложил в этом ответе (карточки «Подключить» / «Добавить»)
+    public var proposals: [CustomizeProposal] = []
     /// Вложения сообщения человека: картинки и файлы
     public var attachments: [Attachment] = []
     /// Сообщение пришло боту из другого разговора (позвали через @): откуда — для пометки под ним
