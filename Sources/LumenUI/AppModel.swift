@@ -16,6 +16,8 @@ public final class AppModel {
 
     var profile: Profile
     var prefs: Preferences
+    /// «Характер»: как Lumen говорит, думает и действует (Persona.swift) — в инструкциях чата и агента
+    var persona: Persona
     /// Ширина панелей — отдельно от настроек: пока тянут, перерисовывается только панель, сохраняется в конце
     var sidebarWidth: Double = 256
     var panelWidth: Double = 320
@@ -51,6 +53,8 @@ public final class AppModel {
         case skills, skillEditor(String?)
         /// Артефакты: файлы и картинки, которые выдали Lumen и боты
         case artifacts
+        /// Характер: как Lumen говорит, думает и действует
+        case persona
     }
 
     var page: Page = .chat
@@ -146,6 +150,7 @@ public final class AppModel {
         store = try Store(path: paths.database)
         profile = store.profile
         prefs = store.preferences
+        persona = (try? store.value("persona", as: Persona.self)) ?? Persona()
         sidebarWidth = prefs.sidebarWidth
         panelWidth = prefs.panelWidth
         // при запуске Связку ключей не трогаем: если macOS спросит доступ, окно не должно висеть.
@@ -425,6 +430,13 @@ public final class AppModel {
     }
 
     // MARK: настройки
+
+    /// Сохранить характер: со следующего ответа — во всех чатах и задачах агента
+    func savePersona(_ p: Persona) {
+        persona = p
+        try? store.set("persona", p)
+        for ctl in controllers { ctl.promptChanged(all: true) }
+    }
 
     func update(_ change: (inout Preferences) -> Void) {
         // правка над копией: если внутри кто-то читает app.prefs, это не конфликт доступа (так Lumen падал 17.10)

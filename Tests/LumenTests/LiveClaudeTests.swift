@@ -219,6 +219,34 @@ func pointToMCP() {
     #expect(f.path.hasPrefix(home.path)) // лежит в хранилище Lumen, не в проекте
 }
 
+/// «Характер» реально меняет ответы: правило «Всегда» и запрещённое слово (Рома, 17.10)
+@MainActor @Test(.enabled(if: live)) func livePersonaChangesAnswers() async throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-soul-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    pointToMCP()
+    let app = try AppModel(paths: AppPaths(root: home))
+    await app.refreshClaude()
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .subscription, theme: .lumen)
+    app.chat.set(model: .haiku, effort: .low)
+    var p = Persona()
+    p.always = ["Начинать каждый ответ со слова «Йохо!»"]
+    p.bannedWords = ["привет"]
+    app.savePersona(p)
+    app.chat.send("Поздоровайся со мной одной фразой.")
+    while app.chat.busy { try await Task.sleep(for: .milliseconds(100)) }
+    let a = try #require(app.chat.messages.last?.text)
+    #expect(a.hasPrefix("Йохо"), "ответ: \(a)")
+    #expect(!a.lowercased().contains("привет"), "ответ: \(a)")
+
+    // поменяли характер посреди разговора — следующий ответ уже по-новому
+    p.always = ["Начинать каждый ответ со слова «Ахой!»"]
+    app.savePersona(p)
+    app.chat.send("А теперь попрощайся одной фразой.")
+    while app.chat.busy { try await Task.sleep(for: .milliseconds(100)) }
+    let b = try #require(app.chat.messages.last?.text)
+    #expect(b.hasPrefix("Ахой"), "ответ: \(b)")
+}
+
 @MainActor @Test(.enabled(if: live)) func liveMemoryAcrossChats() async throws {
     let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-mem-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: home) }

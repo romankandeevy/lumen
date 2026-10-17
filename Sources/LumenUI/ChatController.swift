@@ -190,15 +190,18 @@ final class ChatController {
     }
 
     /// Инструкции или файлы проекта поменялись — процессы его разговоров гасим, следующий ход возьмёт новый промпт
-    func promptChanged(projectID: String? = nil, conversationID: String? = nil) {
-        for (id, s) in sessions where turns[id] == nil {
+    func promptChanged(projectID: String? = nil, conversationID: String? = nil, all: Bool = false) {
+        for (id, s) in sessions {
             let pid = id == conversation?.id ? conversation?.projectID : app.conversations.first { $0.id == id }?.projectID
-            if id == conversationID || (projectID != nil && pid == projectID) {
-                s.close()
-                sessions[id] = nil
-            }
+            guard all || id == conversationID || (projectID != nil && pid == projectID) else { continue }
+            // идущий ход не обрываем — процесс перезапустится сразу после ответа
+            if turns[id] != nil { stalePrompt.insert(id); continue }
+            s.close()
+            sessions[id] = nil
         }
     }
+    /// Разговоры, чей процесс claude живёт со старыми инструкциями — закрыть, когда ответ закончится
+    @ObservationIgnored private var stalePrompt: Set<String> = []
 
     /// Обновить открытый разговор (бот поменял папку или «сколько думать»)
     func refresh(_ c: Conversation) {
@@ -398,6 +401,10 @@ final class ChatController {
             }
             let stopped = tr.stopRequested
             self.turns[c.id] = nil
+            if self.stalePrompt.remove(c.id) != nil {
+                self.sessions[c.id]?.close()
+                self.sessions[c.id] = nil
+            }
             self.settleOrb()
             self.app.reloadConversations()
             self.dispatchQueue(c.id, stopped: stopped)
@@ -1502,8 +1509,9 @@ extension AppModel {
     }
 
     func agentPrompt(for c: Conversation? = nil) -> String {
-        var lines = ["Ты — Lumen, агент на Маке. Отвечай по-русски, по делу."]
-        if !profile.name.isEmpty { lines.append("Собеседника зовут \(profile.name), обращайся на \(profile.address == .ty ? "«ты»" : "«вы»").") }
+        // характер — из настроек «Характер»; сверху — что ты агент на этом Маке
+        var lines = [persona.soul(userName: profile.name, ty: profile.address == .ty),
+                     "\n## Где ты\nТы — агент Lumen на этом Маке: работаешь в папке проекта — читаешь, правишь, запускаешь команды."]
         lines.append("Push, публикацию и выкатку не делай: это только с явного OK, и делает их человек.")
         lines.append("Всегда веди план, даже для маленькой задачи из двух шагов: первым действием составь его (TaskCreate на каждый шаг или TodoWrite), перед шагом отмечай его начатым, после — сделанным (TaskUpdate). Lumen показывает план человеку под перепиской. Только ответ на вопрос без действий — без плана.")
         lines.append("""
@@ -1558,9 +1566,8 @@ extension AppModel {
     /// Системный промпт Lumen (SOUL v0): кто он, с кем говорит, закреплённые факты.
     /// Детерминированный — одинаковый от хода к ходу, поэтому кэшируется.
     func systemPrompt(for c: Conversation? = nil) -> String {
-        var lines = ["Ты — Lumen, личный помощник на Маке. Отвечай по-русски, если тебя не попросили иначе. Пиши по делу, без воды."]
-        if !profile.name.isEmpty { lines.append("Собеседника зовут \(profile.name).") }
-        lines.append(profile.address == .ty ? "Обращайся к нему на «ты»." : "Обращайся к нему на «вы».")
+        // характер — из настроек «Характер» (Persona.swift)
+        var lines = [persona.soul(userName: profile.name, ty: profile.address == .ty), "\n## Где ты\nТы — Lumen, личный помощник на Маке."]
         if let known = knownBlock(for: c) { lines.append(known) }
         lines.append("Это чат: у тебя нет доступа к файлам и командам этого Мака, но есть браузер сбоку.")
         if let block = projectBlock(for: c) { lines.append(block) }

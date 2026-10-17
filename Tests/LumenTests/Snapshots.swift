@@ -203,6 +203,11 @@ enum Snap {
         .environment(\.palette, Palette.of(.lumen)).background(Palette.of(.lumen).sidebar), "47-project-hover", size: CGSize(width: 260, height: 56))
     ProjectRow.snapHover = false
 
+    // «Характер»
+    app.page = .persona
+    try await Snap.save(RootView(app: app), "48-persona", size: CGSize(width: 1500, height: 900))
+    app.page = .chat
+
     // браузер сбоку: пустой, с подсказкой про входы в аккаунты (страницу WebKit рисует сам, в снимок она не попадает)
     app.browserOpen = true
     try await Snap.save(RootView(app: app), "41-browser", size: CGSize(width: 1440, height: 820))
