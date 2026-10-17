@@ -178,11 +178,14 @@ struct ChatView: View {
     @ViewBuilder private var startChips: some View {
         if let group {
             let first = app.groupMembers(group).first?.id ?? "бот"
-            FlowChips(items: ["Обсудите, с чего начать", "Каждый — по одной идее", "@\(first) начни"]) { draft = $0 }
+            StartChips(items: ["Обсудите, с чего начать", "Каждый — по одной идее", "@\(first) начни"],
+                       icons: ["users", "lightbulb", "at-sign"], tint: p.glow) { draft = $0 }
         } else if let bot {
-            if !bot.starters.isEmpty { FlowChips(items: bot.starters) { draft = $0 } }
+            if !bot.starters.isEmpty {
+                StartChips(items: bot.starters, icons: [bot.icon], tint: BotColor.accent(bot.hue)) { draft = $0 }
+            }
         } else {
-            FlowChips(items: app.suggestions) { draft = $0 }
+            StartChips(items: app.suggestions, icons: ["lightbulb", "pen-line", "sparkles", "message-circle"], tint: p.glow) { draft = $0 }
                 .animation(.easeOut(duration: 0.3), value: app.suggestions)
                 .task { app.refreshSuggestionsIfNeeded() }
         }
@@ -1186,6 +1189,131 @@ private struct ElsewherePill: View {
             .onHover { hover = $0 }
             .help(others.map(\.title).joined(separator: "\n") + "\nЩелчок — открыть")
             .onAppear { withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { pulse = true } }
+        }
+    }
+}
+
+/// Подсказки под полем на пустом экране: компактные пилюли в ряд по центру, со значком; при наведении — светятся
+struct StartChips: View {
+    let items: [String]
+    var icons: [String] = ["lightbulb"]
+    var tint: Color
+    let pick: (String) -> Void
+
+    @Environment(\.palette) private var p
+
+    var body: some View {
+        if items.contains(where: { $0.count > 34 }) {
+            // длинные — списком под полем: весь текст виден, строки тонко разделены
+            VStack(spacing: 0) {
+                ForEach(Array(items.enumerated()), id: \.element) { i, text in
+                    if i > 0 { p.border.frame(height: 1).padding(.horizontal, 14) }
+                    Row(text: text, icon: icons[i % max(1, icons.count)], tint: tint) { pick(text) }
+                }
+            }
+            .padding(.horizontal, 10)
+        } else {
+            CenterFlow(spacing: 8) {
+                ForEach(Array(items.enumerated()), id: \.element) { i, text in
+                    Chip(text: text, icon: icons[i % max(1, icons.count)], tint: tint) { pick(text) }
+                }
+            }
+            .padding(.horizontal, 8)
+        }
+    }
+
+    private struct Row: View {
+        let text: String
+        let icon: String
+        let tint: Color
+        let action: () -> Void
+
+        @Environment(\.palette) private var p
+        @State private var hover = false
+
+        var body: some View {
+            Button(action: action) {
+                HStack(spacing: 12) {
+                    Icon(icon, 14).foregroundStyle(hover ? tint : p.mutedFg)
+                    Text(text).font(.geist(13.5)).lineLimit(1).truncationMode(.tail)
+                        .foregroundStyle(hover ? p.foreground : p.foreground.opacity(0.72))
+                    Spacer(minLength: 8)
+                    Icon("arrow-up", 12).rotationEffect(.degrees(45)).foregroundStyle(tint).opacity(hover ? 1 : 0)
+                }
+                .padding(.horizontal, 14).frame(height: 42)
+                .background(hover ? tint.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: R.lg))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { hover = $0 }
+            .animation(.easeOut(duration: 0.12), value: hover)
+        }
+    }
+
+    private struct Chip: View {
+        let text: String
+        let icon: String
+        let tint: Color
+        let action: () -> Void
+
+        @Environment(\.palette) private var p
+        @State private var hover = false
+
+        var body: some View {
+            Button(action: action) {
+                HStack(spacing: 7) {
+                    Icon(icon, 13).foregroundStyle(hover ? tint : p.mutedFg)
+                    Text(text).font(.geist(13)).lineLimit(1).truncationMode(.tail)
+                        .foregroundStyle(hover ? p.foreground : p.foreground.opacity(0.75))
+                }
+                .padding(.horizontal, 12).frame(height: 32)
+                .frame(maxWidth: 320)
+                .background(hover ? tint.opacity(0.08) : p.foreground.opacity(0.035), in: RoundedRectangle(cornerRadius: R.lg))
+                .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(hover ? tint.opacity(0.35) : p.border))
+                .contentShape(RoundedRectangle(cornerRadius: R.lg))
+            }
+            .buttonStyle(.plain)
+            .onHover { hover = $0 }
+            .animation(.easeOut(duration: 0.12), value: hover)
+        }
+    }
+}
+
+/// Перенос по строкам с выравниванием каждой строки по центру
+struct CenterFlow: Layout {
+    var spacing: CGFloat = 8
+
+    private func rows(_ subviews: Subviews, width: CGFloat) -> [[(Int, CGSize)]] {
+        var rows: [[(Int, CGSize)]] = [[]]
+        var x: CGFloat = 0
+        for (i, v) in subviews.enumerated() {
+            let s = v.sizeThatFits(.unspecified)
+            let w = min(s.width, width)
+            if x > 0 && x + w > width { rows.append([]); x = 0 }
+            rows[rows.count - 1].append((i, CGSize(width: w, height: s.height)))
+            x += w + spacing
+        }
+        return rows
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? 640
+        let rs = rows(subviews, width: width)
+        let h = rs.reduce(0) { $0 + ($1.map(\.1.height).max() ?? 0) } + spacing * CGFloat(max(0, rs.count - 1))
+        return CGSize(width: width, height: h)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in rows(subviews, width: bounds.width) {
+            let rowW = row.map(\.1.width).reduce(0, +) + spacing * CGFloat(max(0, row.count - 1))
+            let rowH = row.map(\.1.height).max() ?? 0
+            var x = bounds.minX + (bounds.width - rowW) / 2
+            for (i, size) in row {
+                subviews[i].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += rowH + spacing
         }
     }
 }
