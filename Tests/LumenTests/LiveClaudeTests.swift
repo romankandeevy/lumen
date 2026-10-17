@@ -247,6 +247,47 @@ func pointToMCP() {
     #expect(b.hasPrefix("Ахой"), "ответ: \(b)")
 }
 
+/// Характер держится у агента, где он дописан к длинному промпту Claude Code: несколько разных сообщений подряд,
+/// в том числе по-английски, — правило «Всегда», запрещённое слово, язык, длина, без ссылок на инструкции (Рома, 17.10)
+@MainActor @Test(.enabled(if: live)) func livePersonaHoldsInAgent() async throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-soul-agent-\(UUID().uuidString)")
+    let folder = home.appendingPathComponent("proj", isDirectory: true)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    try "# Проект\nКалькулятор чаевых.".write(to: folder.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+    defer { try? FileManager.default.removeItem(at: home) }
+    pointToMCP()
+    let app = try AppModel(paths: AppPaths(root: home))
+    await app.refreshClaude()
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .subscription, theme: .lumen)
+    var p = Persona()
+    p.always = ["Начинать каждый ответ со слова «Йохо!»"]
+    p.bannedWords = ["привет"]
+    p.language = .ru
+    p.length = .short
+    app.savePersona(p)
+    app.tab = .agent
+    app.agentFolder = folder
+    app.newAgentTask()
+    app.chat.set(model: .sonnet, effort: .low)
+    var answers: [String] = []
+    for q in ["Hi! What is this project about? Answer briefly.",
+              "Что лежит в README? Одной фразой.",
+              "Как ты обычно отвечаешь людям?"] {
+        app.chat.send(q)
+        while app.chat.busy { try await Task.sleep(for: .milliseconds(100)) }
+        let a = try #require(app.chat.messages.last?.text)
+        answers.append(a)
+        #expect(a.hasPrefix("Йохо"), "«\(q)» → \(a)")
+        #expect(!a.lowercased().contains("привет"), "«\(q)» → \(a)")
+        #expect(a.range(of: "[А-Яа-яЁё]", options: .regularExpression) != nil, "не по-русски: \(a)")
+        #expect(a.count < 700, "длинно (\(a.count)): \(a)")
+    }
+    // не ссылается на инструкции в обычном ответе
+    for a in answers.prefix(2) {
+        #expect(!["инструкц", "мне велено", "по моим правилам", "lumen-style"].contains { a.lowercased().contains($0) }, "\(a)")
+    }
+}
+
 @MainActor @Test(.enabled(if: live)) func liveMemoryAcrossChats() async throws {
     let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-mem-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: home) }

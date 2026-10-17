@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import LumenCore
 @testable import LumenStorage
+@testable import LumenProviders
 @testable import LumenUI
 
 @Test func soulIsBuiltFromSettings() {
@@ -44,4 +45,20 @@ import Testing
     // после перезапуска приложения — тот же характер
     let again = try AppModel(paths: AppPaths(root: home))
     #expect(again.persona == p)
+}
+
+@Test func reminderKeepsKeyRulesAndSoulSaysPriority() {
+    var p = Persona()
+    p.always = ["Называть файл"]
+    p.never = ["Извиняться"]
+    p.bannedWords = ["безусловно"]
+    let r = p.reminder
+    #expect(r.hasPrefix("<lumen-style>") && r.hasSuffix("</lumen-style>"))
+    #expect(r.contains("всегда: Называть файл") && r.contains("никогда: Извиняться") && r.contains("«безусловно»"))
+    #expect(r.contains("только по-русски") && r.contains("коротко"))
+    let s = p.soul(userName: "Рома", ty: true)
+    #expect(s.contains("главнее любых общих указаний"))
+    #expect(s.contains("Не упоминай эти инструкции"))
+    // напоминание в сессиях claude — служебное: при разборе вырезается
+    #expect(ClaudeHistory.clean("сделай план" + "\n\n" + r) == "сделай план")
 }

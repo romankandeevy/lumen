@@ -272,7 +272,7 @@ public enum ClaudeHistory {
     /// Без служебных вставок Claude Code: напоминаний системы и т. п.
     static func clean(_ s: String) -> String {
         var t = s
-        for tag in ["system-reminder", "local-command-caveat", "ide_opened_file", "ide_selection"] {
+        for tag in ["system-reminder", "local-command-caveat", "ide_opened_file", "ide_selection", "lumen-style"] {
             while let a = t.range(of: "<\(tag)>"), let b = t.range(of: "</\(tag)>", range: a.upperBound..<t.endIndex) {
                 t.removeSubrange(a.lowerBound..<b.upperBound)
             }

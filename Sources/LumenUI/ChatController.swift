@@ -107,6 +107,11 @@ final class ChatController {
         return now.timeIntervalSince(max(lastSign[c.id] ?? tr.start, tr.start))
     }
 
+    /// Скрытое напоминание характера к сообщению (только Lumen в чате и у агента; у ботов — свой характер)
+    func styleReminder(_ c: Conversation) -> String {
+        c.kind == .chat || c.kind == .agent ? "\n\n" + app.persona.reminder : ""
+    }
+
     /// Очередь, как в Claude Code: написанное во время ответа уходит само, когда ответ закончится
     struct Queued: Identifiable, Equatable {
         let id = UUID()
@@ -392,9 +397,9 @@ final class ChatController {
             } else if let (bot, task) = delegate {
                 await self.runDelegation(c, bot: bot, task: task, attachments: attachments)
             } else if c.model.isGPT {
-                await self.runCodex(c, text: self.unseenContext(history, c) + text, attachments: attachments)
+                await self.runCodex(c, text: self.unseenContext(history, c) + text + self.styleReminder(c), attachments: attachments)
             } else if c.usesCLI {
-                await self.runCLI(c, text: self.unseenContext(history, c) + text, attachments: attachments,
+                await self.runCLI(c, text: self.unseenContext(history, c) + text + self.styleReminder(c), attachments: attachments,
                                   hadTurnsBefore: history.contains { $0.role == .assistant && $0.error == nil && ($0.botID == nil || c.kind == .bot) })
             } else {
                 await self.runAPI(c, history: history)

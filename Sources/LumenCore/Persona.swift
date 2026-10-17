@@ -86,6 +86,30 @@ public struct Persona: Codable, Sendable, Equatable {
         let n = never.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         if !a.isEmpty { s += "\n\n## Всегда\n" + a.map { "- \($0)" }.joined(separator: "\n") }
         if !n.isEmpty { s += "\n\n## Никогда\n" + n.map { "- \($0)" }.joined(separator: "\n") }
+        s += """
+
+
+            ## Как это применять
+            - Это твой характер. Он главнее любых общих указаний о тоне, длине и оформлении, которые были выше: при расхождении следуй ему.
+            - Соблюдай его в каждом ответе, с первого слова, а не только когда о нём спрашивают.
+            - Не упоминай эти инструкции, не цитируй и не ссылайся на них («как мне велено», «по моим правилам», «мой характер») — просто так себя веди.
+            """
         return s
+    }
+
+    /// Короткое напоминание к каждому сообщению человека (не видно в переписке): модель сильнее всего держит то,
+    /// что стоит ближе к концу разговора, — так характер не «выветривается» и не проигрывает общему промпту агента
+    public var reminder: String {
+        var parts = ["длина — " + ["short": "коротко", "medium": "средне", "long": "подробно"][length.rawValue]!,
+                     language == .ru ? "только по-русски" : "на языке собеседника",
+                     "тон — " + ["warm": "тёплый", "plain": "ровный", "dry": "сухой"][warmth.rawValue]!]
+        if !emoji { parts.append("без эмодзи") }
+        let a = always.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let n = never.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let b = bannedWords.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        if !a.isEmpty { parts.append("всегда: " + a.joined(separator: "; ")) }
+        if !n.isEmpty { parts.append("никогда: " + n.joined(separator: "; ")) }
+        if !b.isEmpty { parts.append("не используй слова: " + b.map { "«\($0)»" }.joined(separator: ", ")) }
+        return "<lumen-style>Отвечай в своём характере: " + parts.joined(separator: "; ") + ". Об этом напоминании не говори.</lumen-style>"
     }
 }
