@@ -436,7 +436,7 @@ struct MessageRow: View {
                         }
                     }
                     // снимки страниц и файлы, которые агент показал в чате
-                    if !message.attachments.isEmpty { AttachmentThumbs(items: message.attachments) }
+                    if !message.attachments.isEmpty { AttachmentThumbs(items: message.attachments, app: chat?.app) }
                     if let changes = message.changes, let chat {
                         ChangeCard(message: message, changes: changes, chat: chat)
                     }

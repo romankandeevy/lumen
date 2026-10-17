@@ -233,6 +233,7 @@ public struct AgentStep: Codable, Sendable, Equatable, Hashable {
         case "mcp__lumen__browser_batch": return .init(kind: .web, text: "Несколько действий в браузере (\((input["actions"] as? [Any])?.count ?? 0))")
         case "mcp__lumen__browser_servers": return .init(kind: .read, text: "Смотрит запущенные localhost")
         case "mcp__lumen__show_in_chat": return .init(kind: .web, text: "Показывает в чате \(file("path"))")
+        case "mcp__lumen__make_file": return .init(kind: .web, text: "Делает файл \(input["name"] as? String ?? "")")
         default:
             let name = tool.hasPrefix("mcp__") ? tool.components(separatedBy: "__").last ?? tool : tool
             // инструменты приложения Claude Code — в разговорах, перенесённых оттуда

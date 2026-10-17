@@ -230,3 +230,51 @@ private func writeSession(dir: URL, id: String, cwd: String) throws -> URL {
     #expect(!last.text.contains("API Error"))
     #expect(t.live == .idle)
 }
+
+@Test func markdownFilesArePreviewedAsFormattedText() {
+    let html = MarkdownHTML.render("""
+        # План
+        Абзац с **жирным**, *курсивом*, `кодом` и [ссылкой](https://x.ru).
+
+        - раз
+        - два
+
+        1. первое
+        2. второе
+
+        > цитата
+
+        ```swift
+        let a = 1 < 2
+        ```
+
+        | Имя | Цена |
+        |---|---|
+        | A | 1 |
+        """)
+    #expect(html.contains("<h1>План</h1>"))
+    #expect(html.contains("<strong>жирным</strong>") && html.contains("<em>курсивом</em>") && html.contains("<code>кодом</code>"))
+    #expect(html.contains("<a href=\"https://x.ru\">ссылкой</a>"))
+    #expect(html.contains("<ul><li>раз</li><li>два</li></ul>") && html.contains("<ol><li>первое</li><li>второе</li></ol>"))
+    #expect(html.contains("<blockquote>"))
+    #expect(html.contains("<pre><code>let a = 1 &lt; 2</code></pre>"))
+    #expect(html.contains("<th>Имя</th>") && html.contains("<td>A</td>"))
+    // код — моноширинным, без разметки
+    #expect(MarkdownHTML.page(name: "App.swift", text: "if a < b {}").contains("<pre><code>if a &lt; b {}</code></pre>"))
+}
+
+@Test func artifactsCollectEverythingLumenGaveAsAttachment() throws {
+    let store = try Store()
+    let c = Conversation(title: "Паспорт", kind: .agent, folder: "/tmp", backend: .subscription, model: .opus, effort: .high)
+    try store.save(c)
+    try store.save(ChatMessage(conversationID: c.id, role: .user, text: "сделай план"))
+    var m = ChatMessage(conversationID: c.id, role: .assistant, text: "Готово")
+    m.attachments = [LumenCore.Attachment(name: "plan.md", kind: .text, mime: "text/plain", path: "/tmp/plan.md", size: 10)]
+    try store.save(m)
+    try store.save(ChatMessage(conversationID: c.id, role: .assistant, text: "без вложений"))
+    let list = try store.artifacts()
+    #expect(list.count == 1)
+    #expect(list.first?.title == "Паспорт")
+    #expect(list.first?.message.attachments.first?.name == "plan.md")
+    #expect(BrowserTools.names.contains("make_file")) // у всех ботов и Lumen
+}

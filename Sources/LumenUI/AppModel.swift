@@ -37,6 +37,8 @@ public final class AppModel {
         case bots, bot(String), botEditor(String?), group(String), groupEditor(String?)
         /// Кастомизация (навыки, коннекторы, хуки) и редактор навыка (nil — новый)
         case skills, skillEditor(String?)
+        /// Артефакты: файлы и картинки, которые выдали Lumen и боты
+        case artifacts
     }
 
     var page: Page = .chat

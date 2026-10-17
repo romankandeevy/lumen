@@ -30,6 +30,12 @@ public struct Attachment: Codable, Sendable, Equatable, Hashable, Identifiable {
 
     public var url: URL { URL(fileURLWithPath: path) }
 
+    /// Видео и аудио — проигрываются в браузере сбоку
+    public static let videoExts: Set<String> = ["mp4", "mov", "m4v", "webm"]
+    public static let audioExts: Set<String> = ["mp3", "m4a", "wav", "aac", "aiff", "aif", "flac", "ogg", "caf"]
+    public var isVideo: Bool { Self.videoExts.contains(url.pathExtension.lowercased()) }
+    public var isAudio: Bool { Self.audioExts.contains(url.pathExtension.lowercased()) }
+
     /// «1,2 МБ», «340 КБ»
     public var sizeText: String {
         if size < 1000 { return "\(size) байт" }

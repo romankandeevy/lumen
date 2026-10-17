@@ -173,6 +173,21 @@ enum Snap {
     app.chat.reloadMessages()
     try await Snap.save(RootView(app: app), "43-agent-shots")
 
+    // файл вложением (make_file) и вкладка «Артефакты»
+    let md = FileManager.default.temporaryDirectory.appendingPathComponent("plan-\(UUID().uuidString.prefix(4)).md")
+    try "# План паспорта\n\n- Разворот\n- Штампы\n- Закладка в цвете языка".write(to: md, atomically: true, encoding: .utf8)
+    if var fileA = app.importAttachment(md) {
+        fileA.name = "passport-plan.md"
+        var fm = ChatMessage(conversationID: pc.id, role: .assistant, text: "Сделал план файлом — открой сбоку или скачай.")
+        fm.attachments = [fileA]
+        try app.store.save(fm)
+        app.chat.reloadMessages()
+    }
+    try await Snap.save(RootView(app: app), "44-make-file")
+    app.page = .artifacts
+    try await Snap.save(RootView(app: app), "45-artifacts")
+    app.page = .chat
+
     // браузер сбоку: пустой, с подсказкой про входы в аккаунты (страницу WebKit рисует сам, в снимок она не попадает)
     app.browserOpen = true
     try await Snap.save(RootView(app: app), "41-browser", size: CGSize(width: 1440, height: 820))

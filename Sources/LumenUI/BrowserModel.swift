@@ -614,6 +614,10 @@ enum UTTypeMime {
         case "mp4": "video/mp4"
         case "mov": "video/quicktime"
         case "mp3": "audio/mpeg"
+        case "m4a": "audio/mp4"
+        case "wav": "audio/wav"
+        case "webm": "video/webm"
+        case "m4v": "video/x-m4v"
         default: "application/octet-stream"
         }
     }

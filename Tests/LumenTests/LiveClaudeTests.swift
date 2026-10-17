@@ -199,6 +199,26 @@ func pointToMCP() {
     #expect(app.chat.messages.last?.text.uppercased().contains("ГРУША") == true, "\(app.chat.messages.last?.text ?? "")")
 }
 
+/// Lumen выдаёт файл вложением (make_file), ничего не записывая в проект (Рома, 17.10)
+@MainActor @Test(.enabled(if: live)) func liveMakesFileAsAttachment() async throws {
+    let home = URL(fileURLWithPath: "/tmp/lf-\(UUID().uuidString.prefix(6))")
+    defer { try? FileManager.default.removeItem(at: home) }
+    pointToMCP()
+    let app = try AppModel(paths: AppPaths(root: home))
+    await app.refreshClaude()
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .subscription, theme: .lumen)
+    app.chat.set(model: .sonnet, effort: .low)
+    app.startBrowser()
+    app.chat.send("Сделай файл plan.md: заголовок «План» и три пункта списка про изучение английского. Выдай его файлом-вложением.")
+    while app.chat.busy { try await Task.sleep(for: .milliseconds(100)) }
+    let m = try #require(app.chat.messages.last)
+    #expect(m.error == nil, "\(m.error ?? "")")
+    let f = try #require(m.attachments.first, "вложения нет: \(m.text)")
+    #expect(f.name.hasSuffix(".md"))
+    #expect((try? String(contentsOf: f.url, encoding: .utf8))?.contains("План") == true)
+    #expect(f.path.hasPrefix(home.path)) // лежит в хранилище Lumen, не в проекте
+}
+
 @MainActor @Test(.enabled(if: live)) func liveMemoryAcrossChats() async throws {
     let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-mem-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: home) }

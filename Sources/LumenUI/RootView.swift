@@ -25,6 +25,7 @@ public struct RootView: View {
                 case .groupEditor(let id): GroupEditor(app: app, groupID: id).id(id ?? "new")
                 case .botEditor(let id): BotEditor(app: app, botID: id).id(id ?? "new")
                 case .skills: SkillsView(app: app)
+                case .artifacts: ArtifactsView(app: app)
                 case .skillEditor(let name): SkillEditor(app: app, name: name).id(name ?? "new")
                 }
             }
@@ -130,6 +131,7 @@ struct Sidebar: View {
                     NavRow(title: "Кастомизация", icon: "wrench", active: skillsActive,
                            trailing: customizeCount == 0 ? nil : "\(customizeCount)") { app.page = .skills }
                     NavRow(title: "Память", icon: "brain", active: app.page == .memory, trailing: "\(app.memoryCount)") { app.page = .memory }
+                    NavRow(title: "Артефакты", icon: "layout-grid", active: app.page == .artifacts) { app.page = .artifacts }
                 }
                 .padding(.horizontal, 12).padding(.top, 12)
 

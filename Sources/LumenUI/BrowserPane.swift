@@ -25,10 +25,32 @@ extension AppModel {
 
     /// Действие агента: браузер, а снимки экрана и show_in_chat — ещё и в чат, под идущий ответ
     func browserCall(_ tool: String, _ args: [String: Any], who: String, conv: String) async -> BrowserTools.Reply {
+        if tool == "make_file" {
+            // файл вложением: в хранилище Lumen, не в проект — человек откроет сбоку и скачает, если нужен
+            let raw = (args["name"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = (raw as NSString).lastPathComponent.isEmpty ? "файл.md" : (raw as NSString).lastPathComponent
+            let content = args["content"] as? String ?? ""
+            guard content.utf8.count <= 5_000_000 else { return .init(text: "Файл больше 5 МБ — так не выдаю.", error: true) }
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-make-\(UUID().uuidString)", isDirectory: true)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let tmp = dir.appendingPathComponent(name)
+            guard (try? content.write(to: tmp, atomically: true, encoding: .utf8)) != nil,
+                  var a = importAttachment(tmp) else { return .init(text: "Файл не получился.", error: true) }
+            a.name = name
+            guard chat.addShot(conv, a) else { return .init(text: "Сейчас нет идущего ответа, куда положить файл.", error: true) }
+            return .init(text: "Файл «\(name)» (\(a.sizeText)) лежит под ответом: человек может открыть его сбоку и скачать. В проект он не записан.")
+        }
         if tool == "show_in_chat" {
             let path = ((args["path"] as? String ?? "") as NSString).expandingTildeInPath
             guard FileManager.default.fileExists(atPath: path) else { return .init(text: "Нет такого файла: \(path)", error: true) }
-            guard let a = importAttachment(URL(fileURLWithPath: path)) else { return .init(text: "Файл не прочитался: \(path)", error: true) }
+            let url = URL(fileURLWithPath: path)
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            // большое (видео, архив) не копируем — вложение ссылается на сам файл
+            let big = size > 50_000_000
+            guard let a = big
+                ? Attachment(name: url.lastPathComponent, kind: .file, mime: UTTypeMime.mime(url.pathExtension), path: path, size: size)
+                : importAttachment(url) else { return .init(text: "Файл не прочитался: \(path)", error: true) }
             guard chat.addShot(conv, a) else { return .init(text: "Сейчас нет идущего ответа, куда положить файл.", error: true) }
             return .init(text: "Показано в чате под ответом: \(a.name).")
         }
@@ -38,6 +60,35 @@ extension AppModel {
             if let a = importImage(image, name: name) { chat.addShot(conv, a) }
         }
         return r
+    }
+
+    /// Открыть вложение для просмотра в браузере сбоку: картинки, PDF, HTML — как есть; Markdown — оформленным; код и текст — моноширинным
+    func preview(_ a: Attachment) {
+        let ext = a.url.pathExtension.lowercased()
+        var target = a.url
+        if a.kind != .image && a.kind != .pdf && !a.isVideo && !a.isAudio && !["html", "htm", "svg"].contains(ext) {
+            // не текст (архив, документ Office…) — в программе по умолчанию
+            guard let text = try? String(contentsOf: a.url, encoding: .utf8) else { NSWorkspace.shared.open(a.url); return }
+            let page = paths.attachments.appendingPathComponent("preview-\(a.id).html")
+            try? MarkdownHTML.page(name: a.name, text: text).write(to: page, atomically: true, encoding: .utf8)
+            target = page
+        }
+        browser.open(target)
+        browserOpen = true
+    }
+
+    /// «Скачать»: копия в «Загрузки» под своим именем и показать её в Finder
+    func download(_ a: Attachment) {
+        let dir = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
+        let base = (a.name as NSString).deletingPathExtension, ext = (a.name as NSString).pathExtension
+        var dest = dir.appendingPathComponent(a.name)
+        var i = 2
+        while FileManager.default.fileExists(atPath: dest.path) {
+            dest = dir.appendingPathComponent(ext.isEmpty ? "\(base) \(i)" : "\(base) \(i).\(ext)")
+            i += 1
+        }
+        guard (try? FileManager.default.copyItem(at: a.url, to: dest)) != nil else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([dest])
     }
 
     func toggleBrowser() {

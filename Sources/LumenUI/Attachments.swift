@@ -241,6 +241,8 @@ struct MessageAttachments: View {
 /// на том же месте, много — первые четыре и «+N». Нажатие открывает файл.
 struct AttachmentThumbs: View {
     let items: [Attachment]
+    /// Открыть сбоку и скачать — для файлов (без app — открыть в программе по умолчанию)
+    var app: AppModel?
 
     @Environment(\.palette) private var p
     @State private var hovered: String?
@@ -249,9 +251,21 @@ struct AttachmentThumbs: View {
     static let visible = 4
 
     var body: some View {
+        let images = items.filter { $0.kind == .image }
+        let files = items.filter { $0.kind != .image }
+        VStack(alignment: .leading, spacing: 8) {
+            // файлы от агента (make_file, show_in_chat): карточка — открыть сбоку, скачать
+            if !files.isEmpty {
+                FlowWrap(spacing: 6) { ForEach(files) { a in FileChip(attachment: a, app: app) } }
+            }
+            if !images.isEmpty { thumbs(images) }
+        }
+    }
+
+    private func thumbs(_ items: [Attachment]) -> some View {
         let shown = all ? items : Array(items.prefix(Self.visible))
         let more = items.count - shown.count
-        FlowWrap(spacing: 6) {
+        return FlowWrap(spacing: 6) {
             ForEach(shown) { a in thumb(a) }
             if more > 0 {
                 Button { withAnimation(.easeOut(duration: 0.15)) { all = true } } label: {
@@ -317,5 +331,50 @@ enum ThumbCache {
         let img = NSImage(cgImage: cg, size: NSSize(width: CGFloat(cg.width) / 2, height: CGFloat(cg.height) / 2))
         cache.setObject(img, forKey: url as NSURL)
         return img
+    }
+}
+
+
+/// Файл под ответом агента: значок, имя, размер; щелчок — открыть сбоку, «Скачать» — в «Загрузки»
+struct FileChip: View {
+    let attachment: Attachment
+    let app: AppModel?
+
+    @Environment(\.palette) private var p
+    @State private var hover = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button { if let app { app.preview(attachment) } else { NSWorkspace.shared.open(attachment.url) } } label: {
+                HStack(spacing: 10) {
+                    Group {
+                        if attachment.isVideo { Image(systemName: "film").font(.system(size: 15)) }
+                        else if attachment.isAudio { Image(systemName: "waveform").font(.system(size: 15)) }
+                        else { Icon(attachment.kind == .pdf ? "file-text" : (attachment.kind == .text ? "file-text" : "file"), 18) }
+                    }
+                    .foregroundStyle(p.glow).frame(width: 18)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(attachment.name).tw(13, .medium, lh: 18).lineLimit(1)
+                        Text(attachment.sizeText + (attachment.isVideo || attachment.isAudio ? " · проиграть сбоку" : " · открыть сбоку"))
+                            .tw(11, lh: 14).foregroundStyle(p.mutedFg)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Открыть сбоку")
+            Button { if let app { app.download(attachment) } } label: {
+                Icon("download", 14).foregroundStyle(hover ? p.foreground : p.mutedFg)
+                    .frame(width: 28, height: 28)
+                    .background(p.foreground.opacity(hover ? 0.1 : 0.05), in: RoundedRectangle(cornerRadius: R.md))
+            }
+            .buttonStyle(.plain)
+            .help("Скачать в «Загрузки»")
+            .disabled(app == nil)
+        }
+        .padding(.leading, 12).padding(.trailing, 6).padding(.vertical, 6)
+        .background(p.card.opacity(0.6), in: RoundedRectangle(cornerRadius: R.lg))
+        .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
+        .onHover { hover = $0 }
     }
 }
