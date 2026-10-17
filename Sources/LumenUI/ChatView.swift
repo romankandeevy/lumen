@@ -388,6 +388,8 @@ struct MessageRow: View {
                         case .steps(let s): StepsView(steps: s, live: streaming && last)
                         }
                     }
+                    // снимки страниц и файлы, которые агент показал в чате
+                    if !message.attachments.isEmpty { MessageAttachments(items: message.attachments, leading: true) }
                     if let changes = message.changes, let chat {
                         ChangeCard(message: message, changes: changes, chat: chat)
                     }

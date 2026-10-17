@@ -4,7 +4,7 @@ import LumenCore
 /// Клиент встроенного браузера для lumen-mcp: строка JSON в сокет Lumen, строка JSON обратно.
 /// Unix-сокет, а не порт: firewall его не трогает, а достучаться может только этот пользователь Мака.
 public enum BrowserClient {
-    public static func call(socket path: String, tool: String, args: [String: Any], who: String, timeout: Int = 90) -> BrowserTools.Reply {
+    public static func call(socket path: String, tool: String, args: [String: Any], who: String, conv: String = "", timeout: Int = 90) -> BrowserTools.Reply {
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return .init(text: "Браузер Lumen недоступен: не открылся сокет.", error: true) }
         defer { close(fd) }
@@ -24,7 +24,7 @@ public enum BrowserClient {
         guard ok == 0 else {
             return .init(text: "Браузер Lumen сейчас недоступен — Lumen закрыт или перезапускается. Попробуй через несколько секунд.", error: true)
         }
-        let request = BrowserTools.request(tool: tool, args: args, who: who)
+        let request = BrowserTools.request(tool: tool, args: args, who: who, conv: conv)
         var sent = 0
         while sent < request.count {
             let n = request.withUnsafeBytes { write(fd, $0.baseAddress! + sent, request.count - sent) }

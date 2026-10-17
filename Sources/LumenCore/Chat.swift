@@ -219,6 +219,17 @@ public struct AgentStep: Codable, Sendable, Equatable, Hashable {
         case "mcp__lumen__browser_screenshot": return .init(kind: .read, text: "Смотрит на страницу")
         case "mcp__lumen__browser_js": return .init(kind: .run, text: "Скрипт на странице")
         case "mcp__lumen__browser_wait": return .init(kind: .think, text: "Ждёт страницу")
+        case "mcp__lumen__browser_hover": return .init(kind: .web, text: "Наводит указатель")
+        case "mcp__lumen__browser_drag": return .init(kind: .web, text: "Перетаскивает")
+        case "mcp__lumen__browser_zoom": return .init(kind: .read, text: "Рассматривает кусок страницы")
+        case "mcp__lumen__browser_upload": return .init(kind: .web, text: "Загружает файлы на страницу")
+        case "mcp__lumen__browser_console": return .init(kind: .read, text: "Смотрит консоль страницы")
+        case "mcp__lumen__browser_network": return .init(kind: .read, text: "Смотрит запросы страницы")
+        case "mcp__lumen__browser_tabs": return .init(kind: .web, text: "Вкладки: \(input["action"] as? String ?? "список")")
+        case "mcp__lumen__browser_resize": return .init(kind: .web, text: "Вид: \(input["preset"] as? String ?? "") \(input["color_scheme"] as? String ?? "")")
+        case "mcp__lumen__browser_batch": return .init(kind: .web, text: "Несколько действий в браузере (\((input["actions"] as? [Any])?.count ?? 0))")
+        case "mcp__lumen__browser_servers": return .init(kind: .read, text: "Смотрит запущенные localhost")
+        case "mcp__lumen__show_in_chat": return .init(kind: .web, text: "Показывает в чате \(file("path"))")
         default:
             let name = tool.hasPrefix("mcp__") ? tool.components(separatedBy: "__").last ?? tool : tool
             // инструменты приложения Claude Code — в разговорах, перенесённых оттуда

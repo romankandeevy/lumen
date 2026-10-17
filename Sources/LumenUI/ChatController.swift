@@ -481,6 +481,7 @@ final class ChatController {
         tr.revealTask = nil
         var m = ChatMessage(conversationID: c.id, role: .assistant, text: pre, model: c.model,
                             steps: c.kind == .chat ? (tr.message?.steps ?? []).filter(\.shownInChat) : (tr.message?.steps ?? []))
+        m.attachments = tr.message?.attachments ?? []
         m.botID = tr.bot
         if let saved = try? app.store.save(m), conversation?.id == c.id { messages.append(saved) }
         tr.flushed += tr.received
@@ -1128,6 +1129,18 @@ final class ChatController {
         if !app.prefs.contextOpen && conversation?.id == c.id { app.update { $0.contextOpen = true } }
     }
 
+    /// Картинка или файл от агента — под идущий ответ (снимок браузера, show_in_chat). Бот, позванный через @, кладёт в чат, откуда позвали.
+    @discardableResult
+    func addShot(_ id: String, _ a: Attachment) -> Bool {
+        guard let tr = turns[id] ?? turns.values.first(where: { $0.delegate == id }) else { return false }
+        if tr.message == nil {
+            tr.message = ChatMessage(conversationID: tr.conversation.id, role: .assistant, text: "", model: tr.conversation.model)
+            tr.message?.botID = tr.bot
+        }
+        tr.message?.attachments.append(a)
+        return true
+    }
+
     private func appendStep(_ step: AgentStep, _ c: Conversation) {
         guard let tr = turns[c.id] else { return }
         if tr.thinking {
@@ -1159,6 +1172,7 @@ final class ChatController {
         // в чате — только шаги в браузере: их человек должен видеть, память и так видна плашками
         let all = tr?.message?.steps ?? []
         let steps = c.kind != .chat || turnBot != nil ? all : all.filter(\.shownInChat)
+        let shots = tr?.message?.attachments ?? []
         tr?.message = nil
         let since = tr?.start ?? Date()
         let remembered = (try? app.store.memoryUses(conversationID: c.id, since: since, action: "remember")) ?? []
@@ -1169,6 +1183,7 @@ final class ChatController {
                             model: c.model, stopped: stopped, error: error, steps: steps, changes: changes,
                             remembered: remembered, recalled: recalled.filter { !remembered.contains($0) })
         m.next = stopped ? nil : next
+        m.attachments = shots
         m.botID = turnBot
         if turnBot == nil || c.kind == .bot { m.cliAnchor = tr?.anchor }
         // коннекторы и хуки, которые Lumen предложил за ход, — карточками под ответом

@@ -6,12 +6,13 @@ import LumenCore
 /// Lumen выполняет его в панели и отвечает строкой JSON. Доступ — только у этого пользователя (права 0600).
 final class BrowserServer: @unchecked Sendable {
     private let path: String
-    private let handler: @Sendable (String, [String: Any], String) async -> BrowserTools.Reply
+    /// tool, args, кто, разговор
+    private let handler: @Sendable (String, [String: Any], String, String) async -> BrowserTools.Reply
     private var fd: Int32 = -1
     private var source: DispatchSourceRead?
     private let queue = DispatchQueue(label: "lumen.browser.server")
 
-    init(path: String, handler: @escaping @Sendable (String, [String: Any], String) async -> BrowserTools.Reply) {
+    init(path: String, handler: @escaping @Sendable (String, [String: Any], String, String) async -> BrowserTools.Reply) {
         self.path = path
         self.handler = handler
     }
@@ -65,9 +66,10 @@ final class BrowserServer: @unchecked Sendable {
             }
             let args = o["args"] as? [String: Any] ?? [:]
             let who = o["who"] as? String ?? "Lumen"
+            let conv = o["conv"] as? String ?? ""
             nonisolated(unsafe) let a = args
             Task {
-                let reply = await handler(tool, a, who)
+                let reply = await handler(tool, a, who, conv)
                 let out = reply.json
                 out.withUnsafeBytes { p in
                     var sent = 0

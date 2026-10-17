@@ -11,30 +11,57 @@ public enum BrowserTools {
 
     /// Инструменты для claude (имена — как в lumen-mcp, у claude они станут `mcp__lumen__browser_…`)
     nonisolated(unsafe) public static let definitions: [(name: String, description: String, schema: [String: Any])] = [
-        ("browser_navigate", "Открыть адрес во встроенном браузере Lumen (панель сбоку, человек видит). url может быть back, forward или reload. Возвращает снимок страницы.",
-         obj(["url": str("Адрес; без схемы — https://")], required: ["url"])),
+        ("browser_navigate", "Открыть адрес во встроенном браузере Lumen (панель сбоку, человек видит). url может быть back, forward или reload. Без схемы — https://. Возвращает снимок страницы.",
+         obj(["url": str("Адрес")], required: ["url"])),
         ("browser_show", "Показать человеку файл или локальный сайт в браузере сбоку: макет HTML, картинку, рендер (Blender и т. п.), PDF, SVG, видео или адрес localhost.",
          obj(["path": str("Путь к файлу на этом Маке или адрес http://localhost:…")], required: ["path"])),
-        ("browser_read_page", "Прочитать страницу: элементы с метками eN (ссылки, кнопки, поля, заголовки, текст). Метки нужны для click, type, select.",
-         obj(["filter": ["type": "string", "enum": ["interactive", "all"], "description": "interactive — только то, на что можно нажать и что заполнить"]])),
-        ("browser_find", "Найти на странице элементы по словам (текст, подпись, placeholder). Возвращает метки eN.",
+        ("browser_read_page", "Прочитать страницу как дерево элементов с метками eN (ссылки, кнопки, поля, заголовки, текст). Метки нужны для click, type, select, hover, scroll, upload. filter: visible (по умолчанию) — только видимое на экране; interactive — только то, что нажимается и заполняется, на всей странице; all — всё, и вне экрана. ref — прочитать только этот элемент и то, что внутри.",
+         obj(["filter": ["type": "string", "enum": ["visible", "interactive", "all"]], "ref": str("Метка eN — только это поддерево"),
+              "depth": ["type": "number", "description": "Глубина дерева, по умолчанию 40"]])),
+        ("browser_find", "Найти на странице элементы по словам (текст, подпись, placeholder, роль): «кнопка войти», «поле почты». Возвращает до 20 меток eN.",
          obj(["query": str("Что искать")], required: ["query"])),
-        ("browser_click", "Нажать на элемент по метке eN (или по точке x, y из снимка экрана). Возвращает снимок страницы после нажатия.",
+        ("browser_click", "Нажать на элемент по метке eN или в точку x, y (точки страницы, как на снимке). button: left (по умолчанию), right, middle; clicks: 1, 2 (двойной), 3 (тройной — выделить строку); modifiers: «shift», «cmd», «alt», «ctrl», через +. Возвращает снимок страницы.",
+         obj(["ref": str("Метка eN"), "x": ["type": "number"], "y": ["type": "number"],
+              "button": ["type": "string", "enum": ["left", "right", "middle"]], "clicks": ["type": "number"], "modifiers": str("Например cmd или shift+cmd")])),
+        ("browser_hover", "Навести указатель на элемент (метка eN или точка x, y) — показать меню, подсказку.",
          obj(["ref": str("Метка eN"), "x": ["type": "number"], "y": ["type": "number"]])),
-        ("browser_type", "Ввести текст в поле по метке eN (без метки — в поле с фокусом). Старый текст заменяется. submit: true — потом Enter.",
-         obj(["ref": str("Метка eN"), "text": str("Текст"), "submit": ["type": "boolean"]], required: ["text"])),
-        ("browser_select", "Выбрать вариант в списке (select) или поставить/снять галочку по метке eN.",
-         obj(["ref": str("Метка eN"), "value": str("Текст или значение варианта; для галочки true/false")], required: ["ref", "value"])),
-        ("browser_key", "Нажать клавишу в поле с фокусом: Enter, Escape, Tab, Backspace, ArrowDown, ArrowUp, PageDown, PageUp.",
-         obj(["key": str("Клавиша")], required: ["key"])),
-        ("browser_scroll", "Прокрутить страницу (down/up, amount — сколько экранов) или до элемента по метке.",
-         obj(["direction": ["type": "string", "enum": ["down", "up"]], "amount": ["type": "number"], "ref": str("Метка eN")])),
-        ("browser_screenshot", "Снимок видимой части страницы — чтобы посмотреть на вид, вёрстку, макет.", obj([:])),
-        ("browser_text", "Весь текст страницы — чтобы прочитать статью, письмо, документ.", obj([:])),
+        ("browser_drag", "Перетащить: из from_ref (или from_x/from_y) в to_ref (или to_x/to_y) — ползунки, карточки, файлы в зону.",
+         obj(["from_ref": str("Откуда, метка"), "from_x": ["type": "number"], "from_y": ["type": "number"],
+              "to_ref": str("Куда, метка"), "to_x": ["type": "number"], "to_y": ["type": "number"]])),
+        ("browser_type", "Ввести текст в поле по метке eN (старый текст заменяется) или, без метки, в поле с фокусом там, где курсор. clear: false — дописать. submit: true — потом Enter.",
+         obj(["ref": str("Метка eN"), "text": str("Текст"), "clear": ["type": "boolean"], "submit": ["type": "boolean"]], required: ["text"])),
+        ("browser_select", "Заполнить элемент формы по метке eN: вариант в списке (текст или значение), галочка или переключатель (true/false), ползунок или число.",
+         obj(["ref": str("Метка eN"), "value": str("Значение")], required: ["ref", "value"])),
+        ("browser_key", "Клавиши в поле с фокусом: одна (Enter, Escape, Tab, Backspace, Delete, ArrowDown, PageDown, Home, End), сочетание (cmd+a, shift+Tab) или несколько через пробел («Backspace Backspace»). repeat — сколько раз повторить.",
+         obj(["key": str("Клавиши"), "repeat": ["type": "number"]], required: ["key"])),
+        ("browser_scroll", "Прокрутить: страницу или блок под точкой x, y — вниз, вверх, влево, вправо (amount — сколько экранов); или до элемента по метке.",
+         obj(["direction": ["type": "string", "enum": ["down", "up", "left", "right"]], "amount": ["type": "number"], "ref": str("Метка eN"),
+              "x": ["type": "number"], "y": ["type": "number"]])),
+        ("browser_screenshot", "Снимок видимой части страницы — посмотреть на вид, вёрстку, макет. Снимок появляется и у человека в чате. save_to — ещё и сохранить PNG по пути.",
+         obj(["save_to": str("Путь .png, необязательно")])),
+        ("browser_zoom", "Увеличенный снимок куска страницы: region [x0, y0, x1, y1] в точках страницы — разглядеть мелкий текст, иконку, отступы.",
+         obj(["region": ["type": "array", "items": ["type": "number"], "minItems": 4, "maxItems": 4]], required: ["region"])),
+        ("browser_text", "Весь текст страницы, основное содержимое первым — прочитать статью, письмо, документ.", obj([:])),
+        ("browser_upload", "Загрузить файлы с этого Мака в поле файла (или в зону перетаскивания) по метке eN. До 10 МБ за раз; ключи и пароли (.env, .pem, .key) не загружаются.",
+         obj(["ref": str("Метка поля или зоны"), "paths": ["type": "array", "items": ["type": "string"]]], required: ["ref", "paths"])),
+        ("browser_console", "Сообщения консоли страницы с прошлого чтения: log, warn, error, ошибки скриптов. pattern — фильтр (регулярное выражение), only_errors — только ошибки. Для отладки своего сайта.",
+         obj(["pattern": str("Фильтр"), "only_errors": ["type": "boolean"]])),
+        ("browser_network", "Сетевые запросы страницы с прошлого чтения: метод, код, адрес, тип, время. pattern — фильтр по адресу.",
+         obj(["pattern": str("Фильтр")])),
         ("browser_js", "Выполнить JavaScript на странице и вернуть результат (выражение или тело функции с return).",
          obj(["code": str("Код")], required: ["code"])),
-        ("browser_wait", "Подождать: пока на странице появится текст или несколько секунд (до 20).",
+        ("browser_wait", "Подождать: пока на странице появится текст или несколько секунд (до 30).",
          obj(["text": str("Какой текст ждать"), "seconds": ["type": "number"]])),
+        ("browser_tabs", "Вкладки: list — список; new — новая (url — что открыть); switch — перейти (tab — номер); close — закрыть (tab — номер, без него — текущую).",
+         obj(["action": ["type": "string", "enum": ["list", "new", "switch", "close"]], "tab": ["type": "number"], "url": str("Адрес для новой")])),
+        ("browser_resize", "Как страница выглядит на телефоне, планшете или компьютере (preset) и в тёмной или светлой теме (color_scheme) — проверить вёрстку и макеты.",
+         obj(["preset": ["type": "string", "enum": ["mobile", "tablet", "desktop"]], "color_scheme": ["type": "string", "enum": ["light", "dark", "system"]]])),
+        ("browser_batch", "Несколько действий браузера подряд за один вызов (быстрее): actions — список {tool, args}, например [{tool: \"type\", args: {ref: \"e3\", text: \"…\"}}, {tool: \"click\", args: {ref: \"e5\"}}]. Остановится на первой ошибке.",
+         obj(["actions": ["type": "array", "items": ["type": "object", "properties": ["tool": str("Имя действия: navigate, click, type …"), "args": ["type": "object"]], "required": ["tool"]]]], required: ["actions"])),
+        ("browser_servers", "Какие локальные серверы сейчас запущены на этом Маке: localhost:порт, программа, заголовок страницы. Открыть — browser_navigate или browser_show.",
+         obj([:])),
+        ("show_in_chat", "Показать человеку картинку или файл прямо в чате, под твоим ответом: скриншот, рендер, макет PNG/JPG, PDF, любой файл.",
+         obj(["path": str("Путь к файлу на этом Маке")], required: ["path"])),
     ]
 
     /// Строчка в правила модели: что есть и как этим пользоваться
@@ -42,8 +69,11 @@ public enum BrowserTools {
         Встроенный браузер Lumen — панель сбоку окна, человек видит всё, что ты там делаешь (инструменты browser_*). \
         В нём его входы в аккаунты: действуй от его имени аккуратно — ничего не покупай, не отправляй, не публикуй и не удаляй \
         без его явного OK в разговоре; пароли не вводи — войти человек может сам в этой панели. Порядок: browser_navigate → \
-        browser_read_page (метки eN) → browser_click / browser_type по меткам; после действий снимок страницы приходит сам. \
-        Показать человеку макет, картинку, рендер Blender, PDF, вёрстку или локальный сайт — browser_show с путём к файлу или адресом localhost \
+        browser_read_page или browser_find (метки eN) → browser_click / browser_type по меткам; после действий снимок страницы приходит сам; \
+        несколько шагов подряд — browser_batch. Метки устаревают после перехода — тогда прочитай страницу заново. \
+        Свой сайт отлаживай с browser_console и browser_network, вёрстку смотри через browser_resize и browser_screenshot. \
+        Показать человеку макет, картинку, рендер Blender, PDF, вёрстку или локальный сайт — browser_show с путём к файлу или адресом localhost; \
+        картинку или файл прямо в чате под ответом — show_in_chat (снимки browser_screenshot попадают в чат сами) \
         (в своих HTML ставь <meta charset="utf-8">, иначе русский текст сломается).
         """
 
@@ -84,8 +114,9 @@ public enum BrowserTools {
         }
     }
 
-    public static func request(tool: String, args: [String: Any], who: String) -> Data {
-        var d = (try? JSONSerialization.data(withJSONObject: ["tool": tool, "args": args, "who": who])) ?? Data()
+    /// `conv` — разговор, в котором идёт ход: туда ложатся снимки экрана и show_in_chat
+    public static func request(tool: String, args: [String: Any], who: String, conv: String = "") -> Data {
+        var d = (try? JSONSerialization.data(withJSONObject: ["tool": tool, "args": args, "who": who, "conv": conv])) ?? Data()
         d.append(0x0A)
         return d
     }

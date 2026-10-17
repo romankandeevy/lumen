@@ -186,23 +186,26 @@ struct FileCard: View {
 /// Щелчок по картинке или файлу открывает его.
 struct MessageAttachments: View {
     let items: [Attachment]
+    /// У человека — справа, у ответа — слева и крупнее (снимки страниц, рендеры)
+    var leading = false
     @Environment(\.palette) private var p
 
     var body: some View {
         let images = items.filter { $0.kind == .image }
         let files = items.filter { $0.kind != .image }
-        VStack(alignment: .trailing, spacing: 8) {
+        VStack(alignment: leading ? .leading : .trailing, spacing: 8) {
             if images.count == 1, let a = images.first, let image = NSImage(contentsOf: a.url) {
                 Button { open(a) } label: {
                     Image(nsImage: image).resizable().aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: 320, maxHeight: 280)
+                        .frame(maxWidth: leading ? 520 : 320, maxHeight: leading ? 400 : 280)
                         .clipShape(RoundedRectangle(cornerRadius: R.xl))
                         .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
                 }
                 .buttonStyle(.plain)
                 .help("Открыть \(a.name)")
             } else if !images.isEmpty {
-                LazyVGrid(columns: Array(repeating: GridItem(.fixed(120), spacing: 6), count: min(3, images.count)), alignment: .trailing, spacing: 6) {
+                LazyVGrid(columns: Array(repeating: GridItem(.fixed(leading ? 160 : 120), spacing: 6), count: min(3, images.count)),
+                          alignment: leading ? .leading : .trailing, spacing: 6) {
                     ForEach(images) { a in
                         Button { open(a) } label: {
                             Group {
@@ -210,7 +213,7 @@ struct MessageAttachments: View {
                                     Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
                                 } else { p.card }
                             }
-                            .frame(width: 120, height: 120)
+                            .frame(width: leading ? 160 : 120, height: leading ? 120 : 120)
                             .clipShape(RoundedRectangle(cornerRadius: R.lg))
                             .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
                         }

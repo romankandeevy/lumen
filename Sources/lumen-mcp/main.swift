@@ -201,8 +201,8 @@ while let line = readLine(strippingNewline: true) {
             reply(id ?? 0, ["content": [["type": "text", "text": manageSkill(name, args)]]])
             continue
         }
-        if browserOn, name.hasPrefix("browser_") {
-            let r = BrowserClient.call(socket: browserSocket, tool: name, args: args, who: browserWho)
+        if browserOn, BrowserTools.names.contains(name) {
+            let r = BrowserClient.call(socket: browserSocket, tool: name, args: args, who: browserWho, conv: env["LUMEN_CONVERSATION_ID"] ?? "")
             var content: [[String: Any]] = [["type": "text", "text": r.text]]
             if let png = r.image { content.append(["type": "image", "data": png.base64EncodedString(), "mimeType": "image/png"]) }
             var out: [String: Any] = ["content": content]
