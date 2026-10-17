@@ -7,6 +7,16 @@
         <link>https://github.com/romankandeevy/lumen</link>
         <language>ru</language>
         <item>
+            <title>Lumen 1.3.6</title>
+            <pubDate>Sat, 17 Oct 2026 19:06:02 +0300</pubDate>
+            <sparkle:version>13</sparkle:version>
+            <sparkle:shortVersionString>1.3.6</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink>https://github.com/romankandeevy/lumen/releases/tag/v1.3.6</sparkle:releaseNotesLink>
+            <sparkle:channel>beta</sparkle:channel>
+            <enclosure url="https://github.com/romankandeevy/lumen/releases/download/v1.3.6/Lumen-1.3.6.zip" sparkle:edSignature="7tdmk65kb6Zp6deHluwH7h3GY6NUR8LHdyklkKESUBk1Hi+mFGaTOuIOnUbt0EfGncvrlLahJn6hDBjMxBGtBw==" length="13336206" type="application/octet-stream"/>
+        </item>
+        <item>
             <title>Lumen 1.3.5</title>
             <pubDate>Sat, 17 Oct 2026 16:54:43 +0300</pubDate>
             <sparkle:version>12</sparkle:version>
