@@ -234,17 +234,19 @@ struct ChatView: View {
                         MessageRow(message: s, chat: chat, streaming: true)
                     }
                     // план — в самой переписке, после последнего сообщения: листается вместе с чатом и не закрывает экран
+                    // ход кончился — план уходит; остаётся, только если в нём есть ещё не начатые шаги (агент ждёт ответа)
                     if let c = chat.conversation, c.kind != .chat, !c.plan.isEmpty,
-                       chat.busy || app.claudeBusy(c.id) || c.plan.contains(where: { $0.state != .done }) {
+                       chat.busy || app.claudeBusy(c.id) || c.plan.contains(where: { $0.state == .todo }) {
                         PlanCard(items: c.plan).padding(.leading, 36)
                     }
                     // разговор сейчас идёт в приложении Claude — видно здесь (по записям сессии, а не по времени файла)
                     if !chat.busy, let c = chat.conversation, let live = app.claudeLive[c.id] {
                         TimelineView(.periodic(from: .now, by: 5)) { ctx in
+                            let steps = chat.messages.last.flatMap { $0.role == .assistant && $0.via?.isClaudeCode == true ? $0.steps : nil } ?? []
                             switch live.active(now: ctx.date) {
-                            case .working(let since, let step): LiveStepLine(text: step.map { "Claude Code: \($0)" } ?? "Идёт в Claude Code", since: since)
+                            case .working(let since, let step): ClaudeLiveLine(text: step ?? "Работает", since: since, steps: steps)
                             case .retrying(let since):
-                                LiveStepLine(text: "Claude Code: нет связи с API — повторяет", since: since, tint: Palette.destructive)
+                                ClaudeLiveLine(text: "Нет связи с API, повторяет", since: since, steps: steps, tint: Palette.destructive)
                             case .idle: EmptyView()
                             }
                         }
@@ -419,7 +421,7 @@ struct MessageRow: View {
             HStack(spacing: 0) {
                 Spacer(minLength: 0)
                 Text(message.text)
-                    .tw(14, lh: 22.75)
+                    .chatTw(14, lh: 22.75)
                     .textSelection(.enabled)
                     .padding(.horizontal, 16).padding(.vertical, 10)
                     .background(p.secondary, in: UnevenRoundedRectangle(topLeadingRadius: R.xxl, bottomLeadingRadius: R.xxl,
@@ -713,35 +715,36 @@ struct RichText: View {
                     TimelineView(.periodic(from: .now, by: 0.5)) { tl in
                         let on = Int(tl.date.timeIntervalSinceReferenceDate * 2) % 2 == 0
                         (Text(Self.markdown(s)) + Text(" ▍").foregroundColor(on ? p.glow : .clear))
-                            .tw(15, lh: 24.75)
+                            .chatTw(15, lh: 24.75)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 case .prose(let s):
-                    Text(Self.markdown(s)).tw(15, lh: 24.75).textSelection(.enabled)
+                    Text(Self.markdown(s)).chatTw(15, lh: 24.75).textSelection(.enabled)
                         .tint(p.glow)
                         .fixedSize(horizontal: false, vertical: true)
-                case .code(let s):
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        Text(s).font(.system(size: 12.5, design: .monospaced)).lineSpacing(3).textSelection(.enabled).padding(14)
-                    }
-                    .background(p.card, in: RoundedRectangle(cornerRadius: R.lg))
-                    .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
+                case .code(let s, let lang):
+                    CodeBlock(code: s, lang: lang)
                 }
             }
         }
     }
 
-    enum Part: Equatable { case prose(String), code(String) }
+    enum Part: Equatable { case prose(String), code(String, lang: String?) }
 
     static func parts(_ text: String) -> [Part] {
         var out: [Part] = []
         for (i, chunk) in text.components(separatedBy: "```").enumerated() {
             if i % 2 == 1 {
-                // первая строка блока — язык, её не показываем
+                // первая строка блока — язык: он подписью над кодом
                 var lines = chunk.components(separatedBy: "\n")
-                if let first = lines.first, !first.contains(" ") { lines.removeFirst() }
+                var lang: String?
+                if let first = lines.first, !first.contains(" ") {
+                    lines.removeFirst()
+                    let l = first.trimmingCharacters(in: .whitespaces)
+                    if !l.isEmpty { lang = l }
+                }
                 let code = lines.joined(separator: "\n").trimmingCharacters(in: .newlines)
-                if !code.isEmpty { out.append(.code(code)) }
+                if !code.isEmpty { out.append(.code(code, lang: lang)) }
             } else {
                 // абзацы — отдельными блоками, как <p> в макете
                 for para in chunk.components(separatedBy: "\n\n") {
@@ -819,6 +822,78 @@ struct Composer: View {
         return pool.filter { q.isEmpty || $0.id.hasPrefix(q) || $0.name.lowercased().contains(q) }
     }
     private var inBot: Bool { chat.conversation?.kind == .bot }
+    /// Позванный бот — чипом в его цвете в начале поля, «@id» из текста убран (как в Codex). ⌫ в пустом поле — убрать
+    @State private var mentioned: Bot?
+    /// Навык из «/» — тоже чипом; при отправке становится просьбой взять этот навык
+    @State private var pickedSkill: Skill?
+    @State private var slashIndex = 0
+
+    /// Что предлагает «/»: действия Lumen и навыки из библиотеки Lumen (навыков Claude Code здесь нет)
+    struct SlashItem: Identifiable {
+        enum Kind { case action, skill }
+        let id: String
+        let kind: Kind
+        let icon: String
+        let note: String
+    }
+
+    private var slashItems: [SlashItem] {
+        guard draft.hasPrefix("/"), !draft.contains(" "), !draft.contains("\n") else { return [] }
+        let q = draft.dropFirst().lowercased()
+        var all: [SlashItem] = []
+        if !inGroup {
+            all.append(SlashItem(id: agent ? "new" : "new", kind: .action, icon: "square-pen", note: agent ? "Новая задача" : "Новый чат"))
+            if chat.conversation?.usesCLI == true && !chat.busy {
+                all.append(SlashItem(id: "compact", kind: .action, icon: "layers", note: "Сжать разговор: пересказать старое и освободить место"))
+            }
+            all.append(SlashItem(id: "remember", kind: .action, icon: "brain", note: "Запомнить то, что напишешь дальше"))
+            all.append(SlashItem(id: "browser", kind: .action, icon: "globe", note: app.browserOpen ? "Спрятать браузер" : "Открыть браузер сбоку"))
+            all.append(SlashItem(id: "memory", kind: .action, icon: "book-text", note: "Открыть память"))
+        }
+        all += app.skills.map { SlashItem(id: $0.name, kind: .skill, icon: "book-open", note: $0.description) }
+        return all.filter { q.isEmpty || $0.id.lowercased().hasPrefix(q) || $0.note.lowercased().contains(q) }
+    }
+
+    /// Выбрали строку «/»: действие — сразу, навык — чипом
+    private func pickSlash(_ item: SlashItem) {
+        draft = ""
+        slashIndex = 0
+        switch (item.kind, item.id) {
+        case (.action, "new"): agent ? app.newAgentTask() : app.newChat()
+        case (.action, "compact"): chat.compact()
+        case (.action, "remember"): draft = "Запомни: "
+        case (.action, "browser"): app.toggleBrowser()
+        case (.action, "memory"): app.page = .memory
+        case (.skill, _): pickedSkill = app.skills.first { $0.name == item.id }
+        default: break
+        }
+        focused = true
+    }
+
+    /// «@id » в начале текста (выбрали из списка, вставили, нажали участника группы) — превратить в чип
+    private func absorbMention() {
+        guard !inBot, mentioned == nil, draft.hasPrefix("@"), let space = draft.firstIndex(where: { $0 == " " || $0 == "\n" }) else { return }
+        let id = String(draft[draft.index(after: draft.startIndex)..<space]).lowercased()
+        let pool = inGroup ? (app.group(chat.conversation?.groupID).map(app.groupMembers) ?? []) : app.bots
+        guard let b = pool.first(where: { $0.id == id }) else { return }
+        mentioned = b
+        draft = String(draft[draft.index(after: space)...])
+    }
+
+    /// Чип в поле: значок и имя в цвете, щелчок по крестику — убрать
+    private func fieldChip(_ text: String, color: Color, @ViewBuilder icon: () -> some View, remove: @escaping () -> Void) -> some View {
+        HStack(spacing: 5) {
+            icon()
+            Text(text).font(.geist(13, .medium)).foregroundStyle(color)
+            Button(action: remove) { Icon("x", 11).foregroundStyle(color.opacity(0.7)) }.buttonStyle(.plain).help("Убрать")
+        }
+        .padding(.leading, 4).padding(.trailing, 7).frame(height: 24)
+        .background(color.opacity(0.12), in: Capsule())
+        .overlay(Capsule().strokeBorder(color.opacity(0.3)))
+    }
+
+    /// Цвет поля: бот, в чьём разговоре мы, или позванный чипом
+    private var tintBot: Bot? { currentBot ?? mentioned }
     private var currentBot: Bot? { inBot ? app.bot(chat.conversation?.botID) : nil }
     @State private var botFolderOpen = false
     @State private var botEffortOpen = false
@@ -922,9 +997,19 @@ struct Composer: View {
                 .padding(.bottom, 4)
                 .overlay(alignment: .bottom) { p.border.frame(height: 1) }
             }
+            if !slashItems.isEmpty { slashMenu }
             if !chat.openQueue.isEmpty { queueList }
             if !attachments.isEmpty { AttachmentStrip(items: $attachments) }
-            TextField(big ? "Опиши задачу: что сделать, починить или проверить" : (agent ? "Что сделать в проекте?" : (currentBot.map { "Задача для «\($0.name)»" } ?? (chat.conversation?.kind == .group ? "Написать группе · @id — ответит один" : "Просто напиши"))),
+            HStack(alignment: .top, spacing: 6) {
+            if let b = mentioned {
+                fieldChip(b.name, color: BotColor.accent(b.hue)) { BotAvatar(bot: b, size: 16) } remove: { mentioned = nil }
+                    .padding(.top, big ? 0 : -2)
+            }
+            if let sk = pickedSkill {
+                fieldChip("/" + sk.name, color: p.glow) { Icon("book-open", 12).foregroundStyle(p.glow) } remove: { pickedSkill = nil }
+                    .padding(.top, big ? 0 : -2)
+            }
+            TextField(mentioned.map { "Задача для «\($0.name)»" } ?? (big ? "Опиши задачу: что сделать, починить или проверить" : (agent ? "Что сделать в проекте? / — команды и навыки" : (currentBot.map { "Задача для «\($0.name)»" } ?? (chat.conversation?.kind == .group ? "Написать группе · @id — ответит один" : "Просто напиши · / — команды и навыки")))),
                       text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.geist(big ? 15 : 14))
@@ -932,6 +1017,35 @@ struct Composer: View {
                 .lineLimit(big ? 4...14 : 2...12)
                 .focused($focused)
                 .onSubmit(send)
+                .onChange(of: draft) { absorbMention(); if slashIndex >= slashItems.count { slashIndex = 0 } }
+                // ⌫ в пустом поле — убрать чип; стрелки и Tab — по меню «/»
+                .onKeyPress(.delete) {
+                    guard draft.isEmpty else { return .ignored }
+                    if pickedSkill != nil { pickedSkill = nil; return .handled }
+                    if mentioned != nil { mentioned = nil; return .handled }
+                    return .ignored
+                }
+                .onKeyPress(.downArrow) {
+                    guard !slashItems.isEmpty else { return .ignored }
+                    slashIndex = (slashIndex + 1) % slashItems.count
+                    return .handled
+                }
+                .onKeyPress(.upArrow) {
+                    guard !slashItems.isEmpty else { return .ignored }
+                    slashIndex = (slashIndex - 1 + slashItems.count) % slashItems.count
+                    return .handled
+                }
+                .onKeyPress(.tab) {
+                    guard slashItems.indices.contains(slashIndex) else { return .ignored }
+                    pickSlash(slashItems[slashIndex])
+                    return .handled
+                }
+                .onKeyPress(.escape) {
+                    guard !slashItems.isEmpty else { return .ignored }
+                    draft = ""
+                    return .handled
+                }
+            }
                 .frame(minHeight: big ? 96 : 48, alignment: .topLeading)
             HStack(spacing: 2) {
                 // как в Claude: «+» в левом нижнем углу — картинки и файлы
@@ -953,10 +1067,10 @@ struct Composer: View {
         .background(p.card.opacity(0.6), in: RoundedRectangle(cornerRadius: R.xxl))
         // без свечения в фокусе (Рома, 16.10): ровная рамка
         .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(
-            currentBot.map { focused ? BotColor.accent($0.hue).opacity(0.45) : BotColor.soft($0.hue) } ?? (focused ? p.foreground.opacity(0.14) : p.border)))
+            tintBot.map { focused ? BotColor.accent($0.hue).opacity(0.45) : BotColor.soft($0.hue) } ?? (focused ? p.foreground.opacity(0.14) : p.border)))
         .background {
-            // у бота — его цвет: лёгкое свечение за полем
-            if let b = currentBot {
+            // у бота — его цвет: лёгкое свечение за полем (и когда бота позвали чипом)
+            if let b = tintBot {
                 RoundedRectangle(cornerRadius: R.xxl).fill(BotColor.faint(b.hue)).blur(radius: 18).padding(-6).allowsHitTesting(false)
             }
         }
@@ -1008,11 +1122,52 @@ struct Composer: View {
     }
 
     private func send() {
+        // открыто меню «/» — Enter выбирает строку
+        if slashItems.indices.contains(slashIndex) { pickSlash(slashItems[slashIndex]); return }
         // идёт ответ — сообщение встаёт в очередь (в группе — сразу в комнату)
         guard canSend, ready else { return }
-        chat.send(draft, attachments: attachments)
+        var text = draft
+        if let sk = pickedSkill { text = "Возьми навык «\(sk.name)»: " + text }
+        if let b = mentioned { text = "@\(b.id) " + text }
+        // «/что-то», что не наша команда, не уходит в claude командой: там свои навыки Claude Code
+        if text.hasPrefix("/") { text = "\u{200B}" + text }
+        chat.send(text, attachments: attachments)
         draft = ""
         attachments = []
+        mentioned = nil
+        pickedSkill = nil
+    }
+
+    /// Меню «/»: «Команды» и «Навыки» разделами, значок в квадратике, выбранная строка подсвечена; ↑↓ Tab Enter
+    private var slashMenu: some View {
+        let items = slashItems
+        return VStack(alignment: .leading, spacing: 2) {
+            ForEach(Array(items.enumerated()), id: \.element.id) { i, it in
+                if i == 0 || items[i - 1].kind != it.kind {
+                    Text(it.kind == .action ? "Команды" : "Навыки").tw(11, .medium, lh: 14).foregroundStyle(p.mutedFg)
+                        .padding(.horizontal, 8).padding(.top, i == 0 ? 2 : 8).padding(.bottom, 2)
+                }
+                Button { pickSlash(it) } label: {
+                    HStack(spacing: 10) {
+                        Icon(it.icon, 14).foregroundStyle(i == slashIndex ? p.glow : p.mutedFg)
+                            .frame(width: 26, height: 26)
+                            .background(p.foreground.opacity(i == slashIndex ? 0.08 : 0.04), in: RoundedRectangle(cornerRadius: R.md))
+                        Text("/" + it.id).font(.geist(13, .medium)).foregroundStyle(p.foreground)
+                        Text(it.note).font(.geist(12)).foregroundStyle(p.mutedFg).lineLimit(1)
+                        Spacer(minLength: 0)
+                        if i == slashIndex { Text("↵").font(.geist(12)).foregroundStyle(p.mutedFg) }
+                    }
+                    .padding(.horizontal, 6).padding(.vertical, 4)
+                    .background(i == slashIndex ? p.foreground.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: R.lg))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .onHover { if $0 { slashIndex = i } }
+            }
+        }
+        .padding(.bottom, 6)
+        .frame(maxHeight: 300)
+        .overlay(alignment: .bottom) { p.border.frame(height: 1) }
     }
 
     /// `FolderPicker`: папка проекта; у начатой сессии папка уже не меняется

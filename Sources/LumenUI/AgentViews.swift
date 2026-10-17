@@ -391,7 +391,7 @@ struct PlanMark: View {
     let state: PlanItem.State
 
     @Environment(\.palette) private var p
-    @State private var spin = false
+    @Environment(\.lessMotion) private var lessMotion
 
     var body: some View {
         switch state {
@@ -399,11 +399,13 @@ struct PlanMark: View {
             Icon("check", 12).foregroundStyle(p.background)
                 .frame(width: 17, height: 17).background(p.foreground.opacity(0.7), in: Circle())
         case .doing:
-            Circle().stroke(p.foreground.opacity(0.15), lineWidth: 2)
-                .overlay(Circle().trim(from: 0, to: 0.25).stroke(p.glow, style: StrokeStyle(lineWidth: 2, lineCap: .round)))
-                .frame(width: 15, height: 15).padding(1)
-                .rotationEffect(.degrees(spin ? 360 : 0))
-                .onAppear { withAnimation(.linear(duration: 1.1).repeatForever(autoreverses: false)) { spin = true } }
+            // крутится по часам, а не анимацией из onAppear: в прокрутке та срывается и дуга стоит
+            TimelineView(.animation(minimumInterval: 1 / 30, paused: lessMotion)) { ctx in
+                Circle().stroke(p.foreground.opacity(0.15), lineWidth: 2)
+                    .overlay(Circle().trim(from: 0, to: 0.25).stroke(p.glow, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .rotationEffect(.degrees(ctx.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.1) / 1.1 * 360)))
+                    .frame(width: 15, height: 15).padding(1)
+            }
         case .todo:
             Circle().strokeBorder(p.foreground.opacity(0.35), style: StrokeStyle(lineWidth: 1.5, dash: [2.5, 2.5]))
                 .frame(width: 17, height: 17)
@@ -598,10 +600,8 @@ struct PlanCard: View {
             .foregroundStyle(p.mutedFg)
             VStack(alignment: .leading, spacing: 8) {
                     ForEach(Array(items.enumerated()), id: \.offset) { _, it in
-                        HStack(alignment: .firstTextBaseline, spacing: 10) {
-                            Image(systemName: it.state == .done ? "checkmark.circle.fill" : (it.state == .doing ? "ellipsis.circle" : "circle.dashed"))
-                                .font(.system(size: 15))
-                                .foregroundStyle(it.state == .todo ? p.mutedFg : p.foreground.opacity(0.85))
+                        HStack(alignment: .top, spacing: 10) {
+                            PlanMark(state: it.state).padding(.top, 2)
                             Text(it.text).tw(14, lh: 20)
                                 .foregroundStyle(it.state == .todo ? p.foreground.opacity(0.75) : p.foreground)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -614,6 +614,58 @@ struct PlanCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(p.background.opacity(0.92), in: RoundedRectangle(cornerRadius: R.xl))
         .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
+    }
+}
+
+/// Разговор сейчас идёт в приложении Claude: «Claude Code · Читает файл · 12 с ›». Щелчок раскрывает последние шаги этого хода.
+struct ClaudeLiveLine: View {
+    let text: String
+    let since: Date
+    let steps: [AgentStep]
+    var tint: Color?
+
+    @Environment(\.palette) private var p
+    @State private var open = false
+    @State private var hover = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button { withAnimation(.easeOut(duration: 0.15)) { open.toggle() } } label: {
+                HStack(spacing: 10) {
+                    LiveDot(color: tint ?? p.glow, size: 7).frame(width: 22)
+                    Text("Claude Code").tw(13, .medium, lh: 20).foregroundStyle(p.foreground.opacity(0.75))
+                    TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                        HStack(spacing: 8) {
+                            Text(text).tw(14, lh: 20).foregroundStyle(p.mutedFg).lineLimit(1).shimmer(p.foreground)
+                            Text(LiveStepLine.elapsed(ctx.date.timeIntervalSince(since))).tw(13, lh: 20)
+                                .foregroundStyle(p.mutedFg.opacity(0.8)).monospacedDigit()
+                        }
+                    }
+                    if !steps.isEmpty {
+                        Icon(open ? "chevron-down" : "chevron-right", 13).foregroundStyle(hover ? p.foreground : p.mutedFg)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(steps.isEmpty)
+            .onHover { hover = $0 }
+            .help(steps.isEmpty ? "" : (open ? "Свернуть" : "Что он делал в этом ходе"))
+            if open {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(steps.suffix(12).enumerated()), id: \.offset) { _, s in
+                        HStack(spacing: 8) {
+                            Icon(StepsView.icon(s.kind), 13).foregroundStyle(p.mutedFg)
+                            Text(s.text).tw(13, lh: 18).foregroundStyle(p.foreground.opacity(0.75)).lineLimit(1)
+                        }
+                    }
+                    if steps.count > 12 { Text("и ещё \(steps.count - 12) раньше").tw(12, lh: 16).foregroundStyle(p.mutedFg) }
+                }
+                .padding(.leading, 32)
+                .transition(.opacity)
+            }
+        }
     }
 }
 

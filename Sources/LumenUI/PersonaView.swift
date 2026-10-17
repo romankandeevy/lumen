@@ -7,6 +7,8 @@ import SwiftUI
 /// Сохранённое действует со следующего ответа во всех чатах и задачах агента.
 struct PersonaView: View {
     @Bindable var app: AppModel
+    /// Внутри настроек: шапка меньше, без своих полей вокруг, превью уже
+    var embedded = false
 
     @Environment(\.palette) private var p
     @State private var draft = Persona()
@@ -19,8 +21,8 @@ struct PersonaView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Характер").font(.geist(28, .semibold))
+                VStack(alignment: .leading, spacing: embedded ? 4 : 6) {
+                    Text("Характер").font(.geist(embedded ? 20 : 28, .semibold))
                     Text("Как Lumen думает вслух и отвечает. Меняй слева — справа видно, как он ответит.")
                         .font(.geist(14)).foregroundStyle(p.mutedFg)
                 }
@@ -54,10 +56,10 @@ struct PersonaView: View {
                 .frame(maxWidth: .infinity)
 
                 PersonaPreview(app: app, persona: draft)
-                    .frame(width: 400)
+                    .frame(width: embedded ? 340 : 400)
             }
         }
-        .padding(.horizontal, 40).padding(.top, 48)
+        .padding(.horizontal, embedded ? 0 : 40).padding(.top, embedded ? 0 : 48)
         .frame(maxWidth: 1200, maxHeight: .infinity, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .foregroundStyle(p.foreground)

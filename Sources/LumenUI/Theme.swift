@@ -72,6 +72,58 @@ public struct Palette: Sendable {
             borderBase: hsb(0.3, 0.12), isMono: false, isLight: true)
     }
 
+    /// Монохром при свете: белая бумага, чёрные чернила, «свет» — графит
+    static let monoLight = Palette(
+        background: Color(hex: 0xFAFAFA), foreground: Color(hex: 0x111111), card: Color(hex: 0xFFFFFF),
+        secondary: Color(hex: 0xECECEC), muted: Color(hex: 0xF1F1F1), mutedFg: Color(hex: 0x6B6B6B),
+        sidebar: Color(hex: 0xF3F3F3), sidebarAccent: Color(hex: 0xE4E4E4),
+        primary: Color(hex: 0x111111), primaryFg: Color(hex: 0xFFFFFF), popover: Color(hex: 0xFFFFFF),
+        glow: Color(hex: 0x1C1C1C), glowCore: Color(hex: 0x555555), glowSoftBase: Color(hex: 0x000000),
+        borderBase: Color(hex: 0x000000), isMono: true, isLight: true)
+
+    /// Тема целиком: цвета для светлого и тёмного. Свет (`Appearance`) выбирает, какие из них сейчас
+    struct Family: Identifiable {
+        let id: String
+        let name: String
+        let note: String
+        let dark: Palette
+        let light: Palette
+        var user = false
+
+        func palette(dark isDark: Bool) -> Palette { isDark ? dark : light }
+
+        /// Встроенные: у каждой — своя идея света (лампа, полдень и полночь, закат, северное сияние, луна)
+        static let builtIn: [Family] = [
+            Family(id: "lumen", name: "Люмен", note: "Тёплый свет лампы", dark: .lumen, light: .light),
+            Family(id: "mono", name: "Монохром", note: "Чёрное и белое, как Пульт", dark: .mono, light: .monoLight),
+            hue("sunset", "Закат", "Медь и угли вечернего неба", 16, 0.45),
+            hue("aurora", "Сияние", "Зелёный свет северной ночи", 162, 0.4),
+            hue("moon", "Луна", "Холодный ровный свет", 218, 0.22),
+        ]
+
+        static func hue(_ id: String, _ name: String, _ note: String, _ h: Double, _ tint: Double, user: Bool = false) -> Family {
+            Family(id: id, name: name, note: note,
+                   dark: .custom(CustomTheme(dark: true, hue: h, tint: tint)),
+                   light: .custom(CustomTheme(dark: false, hue: h, tint: tint)), user: user)
+        }
+
+        static func of(_ t: UserTheme) -> Family {
+            hue(t.id, t.name.isEmpty ? "Без названия" : t.name, "Своя тема", t.hue, t.tint, user: true)
+        }
+
+        static func all(_ prefs: Preferences) -> [Family] { builtIn + prefs.userThemes.map(of) }
+
+        static func find(_ id: String, _ prefs: Preferences) -> Family {
+            all(prefs).first { $0.id == id } ?? builtIn[0]
+        }
+    }
+
+    /// Цвета окна: выбранная тема при выбранном свете (системный — как сейчас в macOS)
+    static func resolve(_ prefs: Preferences, systemDark: Bool) -> Palette {
+        let dark = prefs.appearance == .system ? systemDark : prefs.appearance == .dark
+        return Family.find(prefs.themeID, prefs).palette(dark: dark)
+    }
+
     static func of(_ t: Theme, custom: CustomTheme = CustomTheme()) -> Palette {
         switch t {
         case .lumen: .lumen
@@ -93,6 +145,16 @@ private struct PaletteKey: EnvironmentKey {
     static let defaultValue = Palette.lumen
 }
 
+private struct ChatTextKey: EnvironmentKey {
+    static let defaultValue = ChatText()
+}
+
+/// Текст переписки из настроек «Шрифты и масштаб»: шрифт и множитель размера
+struct ChatText: Equatable {
+    var font = ChatFont.geist
+    var scale: Double = 1
+}
+
 private struct ReducedMotionKey: EnvironmentKey {
     static let defaultValue = false
 }
@@ -101,6 +163,11 @@ extension EnvironmentValues {
     var palette: Palette {
         get { self[PaletteKey.self] }
         set { self[PaletteKey.self] = newValue }
+    }
+
+    var chatText: ChatText {
+        get { self[ChatTextKey.self] }
+        set { self[ChatTextKey.self] = newValue }
     }
 
     /// «Меньше движения» из настроек или системы
@@ -176,6 +243,31 @@ extension View {
             .lineSpacing(extra)
             .padding(.vertical, extra / 2)
     }
+}
+
+/// Текст переписки: размер и высота строки как в макете, умноженные на масштаб; шрифт — выбранный
+private struct ChatTextStyle: ViewModifier {
+    let size: CGFloat
+    let lh: CGFloat
+    @Environment(\.chatText) private var t
+
+    func body(content: Content) -> some View {
+        let s = size * t.scale, l = lh * t.scale
+        switch t.font {
+        case .geist: content.tw(s, lh: l)
+        case .system, .serif, .mono:
+            let design: Font.Design = t.font == .serif ? .serif : (t.font == .mono ? .monospaced : .default)
+            let natural = ceil(NSFont.systemFont(ofSize: s).ascender - NSFont.systemFont(ofSize: s).descender + NSFont.systemFont(ofSize: s).leading)
+            let extra = max(0, l - natural)
+            content.font(.system(size: t.font == .mono ? s * 0.92 : s, design: design))
+                .lineSpacing(extra).padding(.vertical, extra / 2)
+        }
+    }
+}
+
+extension View {
+    /// Как `.tw`, но для текста переписки: учитывает «Шрифты и масштаб»
+    func chatTw(_ size: CGFloat, lh: CGFloat) -> some View { modifier(ChatTextStyle(size: size, lh: lh)) }
 }
 
 enum LineMetrics {

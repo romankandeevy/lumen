@@ -191,25 +191,28 @@ public struct AgentStep: Codable, Sendable, Equatable, Hashable {
         case "Write": return .init(kind: .edit, text: "Пишет \(file("file_path"))")
         case "NotebookEdit": return .init(kind: .edit, text: "Правит \(file("notebook_path"))")
         case "Bash":
-            let cmd = (input["description"] as? String) ?? (input["command"] as? String) ?? ""
-            return .init(kind: .run, text: "Запускает: " + String(cmd.prefix(80)))
+            // своё описание команды — им и пишем; иначе сама команда. Без двоеточий: «Запускает swift test»
+            if let d = (input["description"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !d.isEmpty {
+                return .init(kind: .run, text: d.prefix(1).uppercased() + String(d.dropFirst().prefix(79)))
+            }
+            return .init(kind: .run, text: "Запускает " + String(((input["command"] as? String) ?? "").prefix(80)))
         case "Grep": return .init(kind: .search, text: "Ищет «\((input["pattern"] as? String ?? "").prefix(40))»")
         case "Glob": return .init(kind: .search, text: "Ищет файлы \((input["pattern"] as? String ?? "").prefix(40))")
         case "WebSearch": return .init(kind: .web, text: "Ищет в интернете «\((input["query"] as? String ?? "").prefix(40))»")
         case "WebFetch": return .init(kind: .web, text: "Открывает \((input["url"] as? String ?? "").prefix(60))")
         case "TodoWrite", "TaskUpdate": return .init(kind: .think, text: "Обновляет план")
-        case "TaskCreate": return .init(kind: .think, text: "Добавляет в план: \((input["subject"] as? String ?? "").prefix(60))")
+        case "TaskCreate": return .init(kind: .think, text: "Добавляет в план «\((input["subject"] as? String ?? "").prefix(60))»")
         case "ToolSearch", "TaskList", "TaskGet": return .init(kind: .think, text: "Готовит инструменты")
         case "Task", "Agent": return .init(kind: .think, text: "Отдаёт часть работы помощнику")
         case "remember", "mcp__lumen__remember": return .init(kind: .think, text: "Запоминает")
         case "recall", "mcp__lumen__recall": return .init(kind: .think, text: "Вспоминает")
         case "load_skill", "mcp__lumen__load_skill": return .init(kind: .think, text: "Берёт навык \(input["name"] as? String ?? "")")
-        case "read_skill_file", "mcp__lumen__read_skill_file": return .init(kind: .read, text: "Читает навык: \(input["path"] as? String ?? "")")
-        case "mcp__lumen__delegate": return .init(kind: .other, text: "Зовёт @\(input["bot"] as? String ?? ""): \((input["task"] as? String ?? "").prefix(60))")
+        case "read_skill_file", "mcp__lumen__read_skill_file": return .init(kind: .read, text: "Читает навык \(input["path"] as? String ?? "")")
+        case "mcp__lumen__delegate": return .init(kind: .other, text: "Зовёт @\(input["bot"] as? String ?? "") — \((input["task"] as? String ?? "").prefix(60))")
         // встроенный браузер
         case "mcp__lumen__browser_navigate":
             let u = input["url"] as? String ?? ""
-            return .init(kind: .web, text: ["back": "Браузер: назад", "forward": "Браузер: вперёд", "reload": "Браузер: обновляет"][u.lowercased()]
+            return .init(kind: .web, text: ["back": "Возвращается на страницу назад", "forward": "Идёт на страницу вперёд", "reload": "Обновляет страницу"][u.lowercased()]
                          ?? "Открывает \(URL(string: u)?.host ?? String(u.prefix(60)))")
         case "mcp__lumen__browser_show": return .init(kind: .web, text: "Показывает \(file("path"))")
         case "mcp__lumen__browser_read_page", "mcp__lumen__browser_text": return .init(kind: .read, text: "Читает страницу")
@@ -228,8 +231,8 @@ public struct AgentStep: Codable, Sendable, Equatable, Hashable {
         case "mcp__lumen__browser_upload": return .init(kind: .web, text: "Загружает файлы на страницу")
         case "mcp__lumen__browser_console": return .init(kind: .read, text: "Смотрит консоль страницы")
         case "mcp__lumen__browser_network": return .init(kind: .read, text: "Смотрит запросы страницы")
-        case "mcp__lumen__browser_tabs": return .init(kind: .web, text: "Вкладки: \(input["action"] as? String ?? "список")")
-        case "mcp__lumen__browser_resize": return .init(kind: .web, text: "Вид: \(input["preset"] as? String ?? "") \(input["color_scheme"] as? String ?? "")")
+        case "mcp__lumen__browser_tabs": return .init(kind: .web, text: ["new": "Открывает вкладку", "close": "Закрывает вкладку", "select": "Переключает вкладку"][input["action"] as? String ?? ""] ?? "Смотрит вкладки")
+        case "mcp__lumen__browser_resize": return .init(kind: .web, text: "Меняет размер страницы")
         case "mcp__lumen__browser_batch": return .init(kind: .web, text: "Несколько действий в браузере (\((input["actions"] as? [Any])?.count ?? 0))")
         case "mcp__lumen__browser_servers": return .init(kind: .read, text: "Смотрит запущенные localhost")
         case "mcp__lumen__show_in_chat": return .init(kind: .web, text: "Показывает в чате \(file("path"))")

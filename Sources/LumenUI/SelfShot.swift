@@ -35,19 +35,17 @@ extension AppModel {
         let panelWasOpen = prefs.contextOpen
         shots.append(("chat-panel", { [self] in update { $0.contextOpen = true }; tab = .chat; if let c = conversations.first(where: { $0.kind == .chat }) { openChat(c) } }))
         shots.append(("chat-panel-restore", { [self] in update { $0.contextOpen = panelWasOpen } }))
-        // темы: светлая и своя — чат и «Внешний вид»; в конце вернуть как было
-        let theme = prefs.theme, custom = prefs.customTheme
+        // темы: свет и своя тема — чат и «Тема»; в конце вернуть как было
+        let was = (prefs.themeID, prefs.appearance, prefs.userThemes)
         let firstChat = conversations.first(where: { $0.kind == .chat })
-        shots.append(("theme-light-chat", { [self] in update { $0.theme = .light }; tab = .chat; if let firstChat { openChat(firstChat) } }))
-        shots.append(("theme-light-settings", { [self] in page = .settings(.look) }))
+        shots.append(("theme-light-chat", { [self] in update { $0.themeID = "lumen"; $0.appearance = .light }; tab = .chat; if let firstChat { openChat(firstChat) } }))
+        shots.append(("theme-light-settings", { [self] in page = .settings(.theme) }))
         shots.append(("theme-custom-chat", { [self] in
-            update { $0.theme = .custom; $0.customTheme = CustomTheme(dark: true, hue: 245, tint: 0.7) }
+            update { $0.userThemes.append(UserTheme(id: "user-shot", name: "Проба", hue: 245, tint: 0.7)); $0.themeID = "user-shot"; $0.appearance = .dark }
             page = .chat; if let firstChat { openChat(firstChat) }
         }))
-        shots.append(("theme-custom-light-settings", { [self] in
-            update { $0.customTheme = CustomTheme(dark: false, hue: 150, tint: 0.5) }; page = .settings(.look)
-        }))
-        shots.append(("theme-restore", { [self] in update { $0.theme = theme; $0.customTheme = custom } }))
+        shots.append(("theme-custom-light-settings", { [self] in update { $0.appearance = .light }; page = .settings(.theme) }))
+        shots.append(("theme-restore", { [self] in update { $0.themeID = was.0; $0.appearance = was.1; $0.userThemes = was.2 } }))
         for s in SettingsView.Section.visible(self) {
             shots.append(("settings-\(s)", { [self] in searchOpen = false; page = .settings(s) }))
         }

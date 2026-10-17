@@ -175,14 +175,6 @@ struct GraphView: View {
                 controls.padding(12)
                 if let local = model.local { localBanner(local).frame(maxWidth: .infinity).padding(.top, 12) }
                 if let s = model.selected, s < model.graph.nodes.count { card(s).frame(maxWidth: .infinity, alignment: .trailing).padding(12) }
-                if let h = model.hover, let f = model.graph.nodes[h].fact, model.selected != h {
-                    Text(f.text).tw(12, lh: 16).padding(.horizontal, 12).padding(.vertical, 8)
-                        .background(p.popover.opacity(0.92), in: RoundedRectangle(cornerRadius: R.lg))
-                        .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
-                        .frame(maxWidth: 420, alignment: .leading)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading).padding(12)
-                        .allowsHitTesting(false)
-                }
                 Text("Колесо — зум · тяни фон или узел · двойной щелчок — окрестность")
                     .tw(11, lh: 14).foregroundStyle(p.mutedFg)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing).padding(12)
@@ -269,11 +261,11 @@ struct GraphView: View {
                 }
             }
 
-            // подписи: у сущностей всегда, у фактов — при приближении, наведении или «Подписи»
+            // подписи: у сущностей всегда, у фактов — при приближении или «Подписи»; текст факта — в карточке сбоку, не при наведении
             for i in graph.nodes.indices where visible.contains(i) {
                 let n = graph.nodes[i]
                 let isFact = n.group == .fact || n.group == .decision
-                guard !isFact || labels || k > 2.2 || i == focus else { continue }
+                guard !isFact || labels || k > 2.2 else { continue }
                 let on = lit(i)
                 let size: CGFloat = isFact ? 10.5 : (n.group == .me ? 13.5 : 12.5)
                 let name = isFact && n.name.count > 34 ? String(n.name.prefix(33)) + "…" : n.name

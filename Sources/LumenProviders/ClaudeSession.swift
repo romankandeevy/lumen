@@ -1,4 +1,5 @@
 import Foundation
+import LumenCore
 
 /// Один живой процесс `claude -p` со stream-json на входе и выходе (§2.2, спайк 1).
 /// Процесс живёт, пока открыт разговор: ходы идут без холодного старта.
@@ -28,6 +29,28 @@ public final class ClaudeSession: @unchecked Sendable {
         public var mcpConfig: String?
         /// Файл настроек с хуками из «Кастомизации» (`--settings`; работает и при `--setting-sources ""`)
         public var settings: String?
+        /// Плагины Claude Code, выключенные в этой сессии: с ними приходят их навыки, агенты, хуки и коннекторы,
+        /// а в Lumen — только своё (Рома, 17.10). По умолчанию — список, который Lumen снял с `claude plugin list`.
+        public var pluginsOff: [String] = Config.claudePlugins()
+        /// Встроенный плагин Claude Code со своим навыком — его в списке `plugin list` нет
+        static let builtinPlugins = ["cc-plugin-plugin-authoring@builtin"]
+
+        public static func claudePlugins(_ paths: AppPaths = .standard) -> [String] {
+            let saved = (try? Data(contentsOf: paths.claudePlugins)).flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
+            return saved + builtinPlugins.filter { !saved.contains($0) }
+        }
+
+        /// `--settings`: хуки из файла «Кастомизации» плюс выключенные плагины — одной строкой JSON
+        static func settings(file: String?, pluginsOff: [String]) -> String? {
+            var dict: [String: Any] = [:]
+            if let file, let d = FileManager.default.contents(atPath: file),
+               let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] { dict = o }
+            else if let file { return file } // не JSON-файл — как есть
+            if !pluginsOff.isEmpty { dict["enabledPlugins"] = Dictionary(uniqueKeysWithValues: pluginsOff.map { ($0, false) }) }
+            guard !dict.isEmpty, let d = try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys]) else { return nil }
+            return String(decoding: d, as: UTF8.self)
+        }
+
         /// `--permission-mode`; с вопросами (не dontAsk/bypass) разрешения спрашиваются у Lumen через stdio
         public var permissionMode = "dontAsk"
         public var asksHost: Bool { permissionMode != "dontAsk" && permissionMode != "bypassPermissions" }
@@ -81,7 +104,7 @@ public final class ClaudeSession: @unchecked Sendable {
             if !userSettings { a += ["--setting-sources", "", "--strict-mcp-config"] }
 
             if let mcpConfig { a += ["--mcp-config", mcpConfig] }
-            if let settings { a += ["--settings", settings] }
+            if let s = Self.settings(file: settings, pluginsOff: pluginsOff) { a += ["--settings", s] }
             a += resume ? ["--resume", sessionID] : ["--session-id", sessionID]
             if resume, let resumeAt { a += ["--resume-session-at", resumeAt] }
             return a

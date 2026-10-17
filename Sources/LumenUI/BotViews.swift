@@ -70,7 +70,7 @@ struct BotsView: View {
                     }
                     VStack(alignment: .leading, spacing: 0) {
                         GroupTitle(text: "Все", aside: app.bots.isEmpty ? nil : Plural.bots(app.bots.count))
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 250), spacing: 12)], spacing: 12) {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 12) {
                             ForEach(app.bots) { b in BotCard(app: app, bot: b) }
                             NewBotTile { app.page = .botEditor(nil) }
                         }
@@ -155,8 +155,6 @@ private struct BotCard: View {
             .padding(.top, 12)
             Spacer(minLength: 16)
             HStack(spacing: 8) {
-                LButton(title: "Открыть", kind: .outline, small: true) { app.openBot(bot.id) }
-                    .frame(maxWidth: .infinity)
                 LButton(title: copied ? "Скопировано" : "Позвать", icon: copied ? "check" : "at-sign", kind: .ghost, small: true) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString("@\(bot.id) ", forType: .string)

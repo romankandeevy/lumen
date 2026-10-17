@@ -204,7 +204,7 @@ private func writeSession(dir: URL, id: String, cwd: String) throws -> URL {
     var s = next(.idle, ["type": "user", "timestamp": ts, "message": ["content": "сделай"]])
     #expect(s == .working(ISO8601DateFormatter().date(from: ts)!, step: "Думает…"))
     let tool = next(s, ["type": "assistant", "timestamp": ts, "message": ["content": [["type": "tool_use", "name": "Bash", "input": ["description": "Showing tokens page"]]]]])
-    #expect(tool == .working(ISO8601DateFormatter().date(from: ts)!, step: "Запускает: Showing tokens page"))
+    #expect(tool == .working(ISO8601DateFormatter().date(from: ts)!, step: "Showing tokens page"))
     s = next(s, ["type": "custom-title", "customTitle": "x"])          // служебное — не меняет
     #expect(s.active(now: now) != .idle)
     s = next(s, ["type": "system", "subtype": "api_error", "timestamp": ts])

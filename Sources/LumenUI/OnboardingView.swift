@@ -156,8 +156,8 @@ struct OnboardingView: View {
         VStack(alignment: .leading, spacing: 0) {
             heading("Как мне выглядеть?", "Обе тёмные.")
             HStack(spacing: 12) {
-                ThemeCard(app: app, theme: .lumen, name: "Люмен", note: "тёплый свет", compact: true)
-                ThemeCard(app: app, theme: .mono, name: "Монохром", note: "как Пульт", compact: true)
+                ThemeCard(app: app, family: Palette.Family.builtIn[0], note: "тёплый свет", compact: true)
+                ThemeCard(app: app, family: Palette.Family.builtIn[1], note: "как Пульт", compact: true)
             }
             .padding(.top, 24)
         }
@@ -215,18 +215,19 @@ struct LumenLight: View {
 /// В знакомстве: rounded-2xl border p-4 на фоне самой темы, сфера 28 и подпись.
 struct ThemeCard: View {
     @Bindable var app: AppModel
-    let theme: Theme
-    let name: String
-    let note: String
+    let family: Palette.Family
+    var note: String?
     var compact = false
 
     @Environment(\.palette) private var current
     @State private var hover = false
 
     var body: some View {
-        let t = Palette.of(theme, custom: app.prefs.customTheme)
-        let active = app.prefs.theme == theme
-        Button { app.update { $0.theme = theme } } label: {
+        // миниатюра — при том свете, что сейчас у окна
+        let t = family.palette(dark: !current.isLight)
+        let active = app.prefs.themeID == family.id
+        let name = family.name, note = note ?? family.note
+        Button { app.update { $0.themeID = family.id } } label: {
             Group {
                 if compact {
                     VStack(alignment: .leading, spacing: 0) {

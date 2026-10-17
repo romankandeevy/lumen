@@ -10,7 +10,7 @@ public struct RootView: View {
     }
 
     public var body: some View {
-        let p = Palette.of(app.prefs.theme, custom: app.prefs.customTheme)
+        let p = app.palette
         GeometryReader { g in
         HStack(spacing: 0) {
             if !app.prefs.sidebarHidden { Sidebar(app: app).transition(.move(edge: .leading)) }
@@ -48,7 +48,7 @@ public struct RootView: View {
         .animation(.easeOut(duration: 0.2), value: app.prefs.sidebarHidden)
         .animation(.easeOut(duration: 0.2), value: app.browserOpen)
         // агент открыл страницу или показал макет — браузер выезжает сам
-        .onChange(of: app.browser.wantsOpen) { if !app.browserOpen { app.browserOpen = true } }
+        .onChange(of: app.browser.wantsOpen) { if !app.browserOpen && app.prefs.browserAutoOpen { app.browserOpen = true } }
         .task { app.startBrowser() }
         // панель спрятана — её кнопки остаются рядом с кнопками окна, как в Claude
         .overlay(alignment: .topLeading) {
@@ -85,6 +85,7 @@ public struct RootView: View {
             if ProcessInfo.processInfo.environment["LUMEN_SELFSHOT"] == nil { await app.nameOldConversations() }
         }
         .environment(\.palette, p)
+        .environment(\.chatText, ChatText(font: app.prefs.chatFont, scale: app.prefs.textScale))
         .environment(\.lessMotion, app.prefs.reducedMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
         .preferredColorScheme(p.scheme)
         .tint(p.glow)
@@ -109,7 +110,6 @@ struct Sidebar: View {
     }
 
 
-    @State private var importing = false
     @Environment(\.palette) private var p
 
     @State private var collapsed: Set<String> = []
@@ -134,14 +134,9 @@ struct Sidebar: View {
                     NavRow(title: app.tab == .agent ? "Новая задача" : "Новый чат", icon: "square-pen", active: false) {
                         app.tab == .agent ? app.newAgentTask() : app.newChat()
                     }
-                    NavRow(title: "Поиск", icon: "search", active: app.searchOpen, trailing: "⌘K") { app.searchOpen = true }
-                    if app.tab == .agent {
-                        NavRow(title: "Импорт из Claude Code", icon: "download", active: false) { importing = true }
-                    }
                     NavRow(title: "Кастомизация", icon: "wrench", active: skillsActive,
                            trailing: customizeCount == 0 ? nil : "\(customizeCount)") { app.page = .skills }
                     NavRow(title: "Память", icon: "brain", active: app.page == .memory, trailing: "\(app.memoryCount)") { app.page = .memory }
-                    NavRow(title: "Характер", icon: "sparkles", active: app.page == .persona) { app.page = .persona }
                     NavRow(title: "Артефакты", icon: "layout-grid", active: app.page == .artifacts) { app.page = .artifacts }
                 }
                 .padding(.horizontal, 12).padding(.top, 12)
@@ -184,7 +179,7 @@ struct Sidebar: View {
                 .scrollIndicators(.never)
             }
 
-            Button { app.page = .settings(.look) } label: { profile }
+            Button { app.page = .settings(.general) } label: { profile }
                 .buttonStyle(.plain)
                 .help("Настройки")
                 .padding(12)
@@ -200,7 +195,6 @@ struct Sidebar: View {
         // bg-sidebar/70 + backdrop-blur-sm
         .background(p.sidebar.opacity(0.7).ignoresSafeArea())
         .overlay(alignment: .trailing) { p.border.frame(width: 1).ignoresSafeArea() }
-        .sheet(isPresented: $importing) { ImportClaudeSheet(app: app) { importing = false }.environment(\.palette, p) }
         .onChange(of: app.chat.conversation?.projectID) { _, id in if let id { collapsed.remove("p:" + id) } }
     }
 
@@ -428,7 +422,8 @@ struct ChatRow: View {
     private var running: Bool { app.chat.isRunning(c.id) }
 
     var body: some View {
-        Button { app.openChat(c) } label: {
+        // не Button: на macOS кнопка забирает движение мыши себе, и перетащить строку нельзя
+        Group {
             HStack(alignment: c.kind == .agent ? .top : .center, spacing: 8) {
                 if c.kind == .agent {
                     // как в макете: ноутбук (на этом Маке) или крутилка, пока работает
@@ -446,7 +441,7 @@ struct ChatRow: View {
                         Text(AppModel.folderName(URL(fileURLWithPath: c.folder ?? ""))).font(.geist(11)).foregroundStyle(p.mutedFg).lineLimit(1)
                     }
                     Spacer(minLength: 4)
-                    Text(when).font(.geist(11)).foregroundStyle(p.mutedFg).opacity(hover ? 0 : 1)
+                    Text(when).font(.geist(11)).foregroundStyle(p.mutedFg).opacity(hover || dotsHover ? 0 : 1)
                 } else {
                     if renaming {
                         renameField
@@ -456,9 +451,9 @@ struct ChatRow: View {
                     }
                     Spacer(minLength: 4)
                     if running {
-                        LiveDot(color: p.glow)
+                        LiveDot(color: p.glow).opacity(hover || dotsHover ? 0 : 1)
                     } else {
-                        Text(when).font(.geist(11)).foregroundStyle(p.mutedFg).opacity(hover ? 0 : 1)
+                        Text(when).font(.geist(11)).foregroundStyle(p.mutedFg).opacity(hover || dotsHover ? 0 : 1)
                     }
                 }
             }
@@ -471,8 +466,8 @@ struct ChatRow: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
         .onHover { hover = $0 }
+        .onTapGesture { if !renaming { app.openChat(c) } }
         .simultaneousGesture(TapGesture(count: 2).onEnded { app.renamingID = c.id })
         // «…» при наведении, как в Claude — меню без двойного щелчка
         .overlay(alignment: .trailing) {
@@ -647,10 +642,12 @@ struct BotsSidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            NewButton(title: "Создать бота") { app.page = .botEditor(nil) }
-                .padding(.bottom, 12)
-            NavRow(title: "Все боты", icon: "layout-grid", active: app.page == .bots) { app.page = .bots }
-                .padding(.bottom, 12)
+            // как «Новый чат» у Чата и Агента: строки рядом, без подложки
+            VStack(spacing: 2) {
+                NavRow(title: "Создать бота", icon: "plus", active: app.page == .botEditor(nil)) { app.page = .botEditor(nil) }
+                NavRow(title: "Все боты", icon: "layout-grid", active: app.page == .bots) { app.page = .bots }
+            }
+            .padding(.bottom, 16)
             if !app.bots.isEmpty {
                 HStack {
                     Text("Группы").tw(12, lh: 16).foregroundStyle(p.mutedFg)
@@ -707,7 +704,7 @@ private struct BotRow: View {
             .padding(.horizontal, 10).padding(.vertical, 6)
             .background(active ? p.foreground.opacity(0.07) : (hover ? p.foreground.opacity(0.04) : .clear), in: RoundedRectangle(cornerRadius: R.lg))
             .overlay(alignment: .leading) {
-                if active { Capsule().fill(p.glow).frame(width: 2, height: 16).offset(x: -2) }
+                if active { GlowBar() }
             }
             .contentShape(Rectangle())
         }

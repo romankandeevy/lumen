@@ -43,6 +43,11 @@ public final class AppModel {
         return live.active() != .idle
     }
     var orb: Orb.State = .idle
+    /// macOS сейчас в тёмном оформлении — для света «Как в системе»
+    var systemDark = AppModel.readSystemDark()
+    static func readSystemDark() -> Bool { UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark" }
+    /// Цвета окна: тема при выбранном свете
+    var palette: Palette { Palette.resolve(prefs, systemDark: systemDark) }
 
     // MARK: окно
     enum Page: Equatable {
@@ -184,6 +189,10 @@ public final class AppModel {
         // без выбранной папки агент работает во всех моих файлах (домашняя папка); папку можно выбрать потом
         agentFolder = prefs.recentFolders.lazy.map { URL(fileURLWithPath: $0) }
             .first { FileManager.default.fileExists(atPath: $0.path) } ?? Self.home
+        // свет «Как в системе»: macOS переключилась — переключаемся и мы
+        DistributedNotificationCenter.default().addObserver(forName: Notification.Name("AppleInterfaceThemeChangedNotification"), object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.systemDark = AppModel.readSystemDark() }
+        }
         updater = Updater.make()
         updater?.beta = { [weak self] in self?.prefs.betaUpdates ?? false }
     }
@@ -461,6 +470,7 @@ public final class AppModel {
             $0.onboarded = true
             $0.backend = backend
             $0.theme = theme
+            // тема выбрана в знакомстве карточкой (themeID) — свет у знакомства тёмный
         }
         flash()
     }
@@ -494,6 +504,8 @@ public final class AppModel {
                 claude = .tooOld(v)
                 return
             }
+            // плагины Claude Code — выключить в сессиях Lumen (их навыки и агенты здесь не нужны)
+            if let ids = await cli.plugins(), let d = try? JSONEncoder().encode(ids) { try? d.write(to: paths.claudePlugins) }
             let auth = try await cli.authStatus()
             claude = auth.loggedIn ? .signedIn(v, auth) : .signedOut(v)
             if auth.loggedIn { await refreshUsage() }

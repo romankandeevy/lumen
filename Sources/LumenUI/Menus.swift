@@ -180,7 +180,7 @@ struct SearchLayer: View {
         }
         .onAppear { focused = true }
         .onKeyPress(.escape) { app.searchOpen = false; return .handled }
-        .onChange(of: query) { hits = (try? app.store.searchConversations(query, limit: 12)) ?? [] }
+        .onChange(of: query) { hits = (try? app.store.searchConversations(query, limit: 30)) ?? [] }
     }
 
     private var list: some View {
@@ -190,7 +190,7 @@ struct SearchLayer: View {
                                 .frame(maxWidth: .infinity).padding(.vertical, 24)
                         }
                         ForEach(results, id: \.0.id) { c, snippet in
-                            SearchRow(c: c, snippet: snippet) { open(c) }
+                            SearchRow(c: c, bot: c.botID.flatMap { id in app.bots.first { $0.id == id } }, snippet: snippet) { open(c) }
                         }
                     }
                     .padding(6)
@@ -198,11 +198,12 @@ struct SearchLayer: View {
 
     /// Сначала совпадения в названии, потом — в тексте (с найденным местом)
     private var results: [(Conversation, String?)] {
-        var out: [(Conversation, String?)] = byTitle.map { ($0, nil) }
+        // совпало и в названии, и в тексте — показать найденное место тоже
+        var out: [(Conversation, String?)] = byTitle.map { c in (c, hits.first { $0.conversationID == c.id }?.snippet) }
         for h in hits where !out.contains(where: { $0.0.id == h.conversationID }) {
             if let c = app.conversations.first(where: { $0.id == h.conversationID }) { out.append((c, h.snippet)) }
         }
-        return Array(out.prefix(12))
+        return Array(out.prefix(30))
     }
 
     private func open(_ c: Conversation) {
@@ -212,6 +213,8 @@ struct SearchLayer: View {
 
     private struct SearchRow: View {
         let c: Conversation
+        /// Разговор с ботом — его аватар вместо значка чата
+        let bot: Bot?
         let snippet: String?
         let action: () -> Void
 
@@ -221,7 +224,10 @@ struct SearchLayer: View {
         var body: some View {
             Button(action: action) {
                 HStack(alignment: .top, spacing: 10) {
-                    Icon(c.kind == .agent ? "square-terminal" : "message-square", 16).foregroundStyle(p.mutedFg).padding(.top, 2)
+                    Group {
+                        if let bot { BotAvatar(bot: bot, size: 18) } else { Icon(c.kind == .agent ? "square-terminal" : (c.kind == .bot ? "bot" : "message-square"), 16) }
+                    }
+                    .foregroundStyle(p.mutedFg).frame(width: 18, height: 18).padding(.top, 1)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(c.title).tw(14, lh: 20).lineLimit(1)
                         if let snippet { Text(snippet).tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(2) }

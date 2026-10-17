@@ -19,6 +19,8 @@ public enum ClaudeHistory {
         public var group: Desktop.Group?
         /// Откуда запускали: claude-desktop — приложение Claude, cli — терминал
         public var entrypoint: String?
+        /// Модель, усилие и режим разговора в приложении Claude — импорт берёт их оттуда
+        public var settings: Desktop.Settings?
 
         public init(id: String, file: URL, cwd: String, title: String, firstPrompt: String, updatedAt: Date, bytes: Int,
                     group: Desktop.Group? = nil, entrypoint: String? = nil) {
@@ -53,6 +55,24 @@ public enum ClaudeHistory {
             public var groupID: String?
             /// Прежние сессии claude этого разговора (откат, продолжение): их место заняла текущая
             public var priors: [String] = []
+            public var settings = Settings()
+        }
+        /// Как разговор настроен в приложении Claude: модель, усилие, режим разрешений
+        public struct Settings: Sendable, Hashable {
+            public var model: ChatModel?
+            public var effort: Effort?
+            public var mode: AgentMode?
+            public init(model: ChatModel? = nil, effort: Effort? = nil, mode: AgentMode? = nil) {
+                self.model = model
+                self.effort = effort
+                self.mode = mode
+            }
+
+            /// Режим разрешений claude → режим Lumen («default» в Claude — «Спрашивать»)
+            public static func mode(_ s: String?) -> AgentMode? {
+                guard let s else { return nil }
+                return s == "default" ? .manual : AgentMode(rawValue: s)
+            }
         }
         /// Живые сессии приложения по id сессии claude
         public var entries: [String: Entry] = [:]
@@ -117,7 +137,10 @@ public enum ClaudeHistory {
                               let sid = o["sessionId"] as? String, let cli = o["cliSessionId"] as? String else { continue }
                         d.entries[cli] = Entry(title: (o["title"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
                                                archived: o["isArchived"] as? Bool == true || archived.contains(sid),
-                                               groupID: assignments[sid], priors: o["priorCliSessionIds"] as? [String] ?? [])
+                                               groupID: assignments[sid], priors: o["priorCliSessionIds"] as? [String] ?? [],
+                                               settings: Settings(model: (o["model"] as? String).flatMap(ChatModel.init(rawValue:)),
+                                                                  effort: (o["effort"] as? String).flatMap(Effort.init(rawValue:)),
+                                                                  mode: Settings.mode(o["permissionMode"] as? String)))
                     }
                 }
             }
@@ -183,6 +206,7 @@ public enum ClaudeHistory {
                         if e.archived { continue }
                         if !e.title.isEmpty { s.title = e.title }
                         s.group = desktop.group(e.groupID)
+                        s.settings = e.settings
                     } else if s.entrypoint == "claude-desktop" {
                         continue
                     }
@@ -392,6 +416,9 @@ public enum ClaudeHistory {
                     case let n where n.hasSuffix("update_plan"):
                         plan = Self.desktopPlan(input, plan)
                         planFresh = false
+                    // итог хода в приложении Claude закрывает и список дел — план сделан
+                    case let n where n.hasSuffix("wrap_up"):
+                        plan = plan.map { var i = $0; i.state = .done; return i }
                     default: break
                     }
                 default: break

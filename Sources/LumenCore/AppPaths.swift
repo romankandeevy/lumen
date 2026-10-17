@@ -32,6 +32,8 @@ public struct AppPaths: Sendable {
     public var attachments: URL { root.appendingPathComponent("attachments", isDirectory: true) }
     /// Сокет встроенного браузера: lumen-mcp передаёт сюда действия агентов
     public var browserSocket: URL { run.appendingPathComponent("browser.sock") }
+    /// Плагины Claude Code (их навыки, агенты, хуки, коннекторы): Lumen выключает их в своих сессиях — список id
+    public var claudePlugins: URL { run.appendingPathComponent("claude-plugins.json") }
 
     public func create() throws {
         // до 1.1 навыки лежали в Lumen/skills — переезжают в customize/skills

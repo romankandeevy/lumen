@@ -43,6 +43,30 @@ final class Updater: NSObject, SPUUpdaterDelegate {
 
     func check() { controller.checkForUpdates(nil) }
 
+    /// Есть ли новая версия — тихо, без окна Sparkle: для «О программе»
+    private(set) var available: String?
+    private(set) var probing = false
+    func probe() {
+        guard canCheck, !probing else { return }
+        probing = true
+        controller.updater.checkForUpdateInformation()
+    }
+
+    var build: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—" }
+
+    nonisolated func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        let v = item.displayVersionString
+        Task { @MainActor in self.available = v; self.probing = false }
+    }
+
+    nonisolated func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
+        Task { @MainActor in self.available = nil; self.probing = false }
+    }
+
+    nonisolated func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: (any Error)?) {
+        Task { @MainActor in self.probing = false }
+    }
+
     nonisolated func allowedChannels(for updater: SPUUpdater) -> Set<String> {
         MainActor.assumeIsolated { beta() ? ["beta"] : [] }
     }

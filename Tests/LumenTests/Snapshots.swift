@@ -543,6 +543,29 @@ enum Snap {
         size: CGSize(width: 900, height: 320))
 
     app.update { $0.hiddenModes = [.bypassPermissions] }
-    app.page = .settings(.look)
+    app.page = .settings(.general)
     try await Snap.save(RootView(app: app), "72-settings-modes", size: CGSize(width: 1180, height: 1300))
+}
+
+/// 1.4: настройки группами, тема со светом, о программе, удаление, проект как в Claude, код, «/»
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotLook14() async throws {
+    Snap.registerFonts()
+    let app = try Snap.app()
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .subscription, theme: .lumen)
+    for s in [SettingsView.Section.theme, .general, .fonts, .about, .uninstall, .importClaude, .persona] {
+        app.page = .settings(s)
+        try await Snap.save(RootView(app: app), "80-settings-\(s)")
+    }
+    app.update { $0.appearance = .light }
+    app.page = .settings(.theme)
+    try await Snap.save(RootView(app: app), "81-settings-theme-light")
+    app.update { $0.appearance = .dark }
+    let pr = app.createProject(folder: nil)
+    app.updateProject(pr) { $0.name = "Swift"; $0.instructions = "Я хочу устроиться летом на стажировку разработчиком." }
+    _ = try app.store.save(ProjectFile(projectID: pr.id, name: "about.md", text: String(repeating: "текст ", count: 400)))
+    _ = try app.store.save(ProjectFile(projectID: pr.id, name: "Как проходит интервью.txt", text: String(repeating: "x", count: 6900)))
+    app.page = .project(pr.id)
+    try await Snap.save(RootView(app: app), "82-project")
+    let code = ChatMessage(conversationID: "x", role: .assistant, text: "Вот скрипт:\n\n```python\nimport random\n\nsecret = random.randint(1, 100)\n# угадай\nwhile True:\n    guess = int(input(\"Число: \"))\n    if guess == secret:\n        print(f\"Угадал за {secret}!\")\n        break\n```\n\nЗапусти его.")
+    try await Snap.save(RichText(text: code.text).padding(20).environment(\.palette, Palette.lumen).background(Palette.lumen.background), "83-code", size: CGSize(width: 700, height: 420))
 }

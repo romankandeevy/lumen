@@ -37,6 +37,13 @@ public struct ClaudeCLI: Sendable {
         }
     }
 
+    /// Установленные плагины Claude Code (id вида `vercel@claude-plugins-official`) — Lumen их выключает у себя
+    public func plugins() async -> [String]? {
+        guard let out = try? await Shell.run(binary, ["plugin", "list", "--json"]),
+              let list = try? JSONSerialization.jsonObject(with: Data(out.stdout.utf8)) as? [[String: Any]] else { return nil }
+        return list.compactMap { $0["id"] as? String }
+    }
+
     public func authStatus() async throws -> AuthStatus {
         let out = try await Shell.run(binary, ["auth", "status", "--json"])
         guard let data = out.stdout.data(using: .utf8),

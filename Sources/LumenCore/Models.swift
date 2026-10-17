@@ -33,6 +33,31 @@ public struct CustomTheme: Codable, Sendable, Equatable {
     }
 }
 
+/// Свет приложения: светлое, тёмное или как в системе. Тема держит цвета для обоих, свет выбирает, какие
+public enum Appearance: String, Codable, Sendable, CaseIterable {
+    case light, dark, system
+}
+
+/// Своя тема, созданная человеком: имя, оттенок 0…360 и насколько им окрашен фон 0…1. Светлая и тёмная версии — сами
+public struct UserTheme: Codable, Sendable, Equatable, Identifiable, Hashable {
+    public var id: String
+    public var name: String
+    public var hue: Double
+    public var tint: Double
+
+    public init(id: String = "user-" + UUID().uuidString.lowercased().prefix(8), name: String, hue: Double, tint: Double) {
+        self.id = id
+        self.name = name
+        self.hue = hue
+        self.tint = tint
+    }
+}
+
+/// Шрифт текста переписки (Настройки → Шрифты и масштаб)
+public enum ChatFont: String, Codable, Sendable, CaseIterable {
+    case geist, system, serif, mono
+}
+
 /// Ширина переписки: чат, агент и боты (`chatWidthClass` в макете)
 public enum ChatWidth: String, Codable, Sendable, CaseIterable {
     case normal, wide, full
@@ -61,6 +86,17 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var theme: Theme
     /// Настройки своей темы (используются, когда theme == .custom)
     public var customTheme = CustomTheme()
+    /// Выбранная тема: встроенная («lumen», «mono», …) или своя (id из `userThemes`)
+    public var themeID = "lumen"
+    /// Свет: светлый, тёмный или как в системе — тема подстраивается
+    public var appearance = Appearance.dark
+    /// Свои темы
+    public var userThemes: [UserTheme] = []
+    /// Текст переписки: шрифт и масштаб (1 = 15 pt)
+    public var chatFont = ChatFont.geist
+    public var textScale: Double = 1
+    /// Браузер выезжает сам, когда агент открывает страницу или показывает макет
+    public var browserAutoOpen = true
     /// Правая панель блоками, как в Claude: порядок, убранные и свёрнутые блоки
     public var panelOrder: [String] = ["plan", "session", "memory", "context", "usage"]
     public var panelHidden: [String] = []
@@ -120,6 +156,26 @@ public struct Preferences: Codable, Sendable, Equatable {
         backend = try c.decodeIfPresent(Backend.self, forKey: .backend) ?? .subscription
         theme = (try? c.decodeIfPresent(Theme.self, forKey: .theme)) ?? .lumen
         customTheme = (try? c.decodeIfPresent(CustomTheme.self, forKey: .customTheme)) ?? CustomTheme()
+        userThemes = (try? c.decodeIfPresent([UserTheme].self, forKey: .userThemes)) ?? []
+        chatFont = (try? c.decodeIfPresent(ChatFont.self, forKey: .chatFont)) ?? .geist
+        textScale = (try? c.decodeIfPresent(Double.self, forKey: .textScale)) ?? 1
+        browserAutoOpen = (try? c.decodeIfPresent(Bool.self, forKey: .browserAutoOpen)) ?? true
+        if let id = try? c.decodeIfPresent(String.self, forKey: .themeID) {
+            themeID = id
+            appearance = (try? c.decodeIfPresent(Appearance.self, forKey: .appearance)) ?? .dark
+        } else {
+            // до 1.3.8 тема и свет были одним выбором: «Светлая» — это Люмен при свете, «Своя» — своя тема
+            switch theme {
+            case .lumen: themeID = "lumen"; appearance = .dark
+            case .mono: themeID = "mono"; appearance = .dark
+            case .light: themeID = "lumen"; appearance = .light
+            case .custom:
+                let t = UserTheme(id: "user-mine", name: "Моя тема", hue: customTheme.hue, tint: customTheme.tint)
+                userThemes.append(t)
+                themeID = t.id
+                appearance = customTheme.dark ? .dark : .light
+            }
+        }
         panelOrder = (try? c.decodeIfPresent([String].self, forKey: .panelOrder)) ?? ["plan", "session", "memory", "context", "usage"]
         panelHidden = (try? c.decodeIfPresent([String].self, forKey: .panelHidden)) ?? []
         panelCollapsed = (try? c.decodeIfPresent([String].self, forKey: .panelCollapsed)) ?? []

@@ -42,11 +42,12 @@ extension AppModel {
             }
             let exists = FileManager.default.fileExists(atPath: cwd)
             var c = Conversation(id: id, title: s.title, kind: .agent, folder: exists ? cwd : home, backend: .subscription,
-                                 model: t.model.flatMap { $0.isGPT ? nil : $0 } ?? defaultAgentModel,
-                                 effort: prefs.agentEffort ?? .high, cliSessionID: s.id,
+                                 model: s.settings?.model ?? t.model.flatMap { $0.isGPT ? nil : $0 } ?? defaultAgentModel,
+                                 effort: s.settings?.effort ?? prefs.agentEffort ?? .high, cliSessionID: s.id,
                                  createdAt: t.createdAt, updatedAt: s.updatedAt)
             c.plan = t.plan
-            c.mode = prefs.agentMode
+            // режим — как в приложении Claude; скрытый в поле ввода режим тоже ставится, раз он был там
+            c.mode = s.settings?.mode ?? prefs.agentMode
             if let g = s.group {
                 c.projectID = projectNamed(g.name, folder: exists ? cwd : nil).id
             } else if exists && cwd != home {
@@ -353,15 +354,32 @@ extension AppModel {
               let anchor = msgs[ownIdx].cliAnchor else { return }
         let old = msgs[(ownIdx + 1)...].filter { $0.via?.isClaudeCode == true }
         let seen = claudeTouched[c.id]
-        let found: (String, Date, ClaudeHistory.Transcript?)? = await Task.detached {
+        let found: (String, Date, ClaudeHistory.Transcript?)?
+        let settings: ClaudeHistory.Desktop.Settings?
+        (found, settings) = await Task.detached {
             // приложение Claude могло продолжить разговор в новой сессии (откат, продолжение)
-            let target = ClaudeHistory.Desktop.load()?.successor(of: sid) ?? sid
+            let desktop = ClaudeHistory.Desktop.load()
+            let target = desktop?.successor(of: sid) ?? sid
+            let settings = desktop?.entries[target]?.settings
             guard let file = ClaudeHistory.file(for: target),
                   let mtime = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
-                  mtime != seen else { return nil }
+                  mtime != seen else { return (nil, settings) }
             let s = ClaudeHistory.Session(id: target, file: file, cwd: c.folder ?? "", title: c.title, firstPrompt: "", updatedAt: mtime, bytes: 0)
-            return (target, mtime, try? ClaudeHistory.transcript(s, conversationID: c.id, after: anchor, skipLumen: true))
+            return ((target, mtime, try? ClaudeHistory.transcript(s, conversationID: c.id, after: anchor, skipLumen: true)), settings)
         }.value
+        // в приложении Claude поменяли модель, усилие или режим — у нас то же
+        if let settings, !chat.isRunning(c.id), var cur = conversations.first(where: { $0.id == c.id }) {
+            let before = cur
+            if let m = settings.model { cur.model = m }
+            if let e = settings.effort { cur.effort = e }
+            if let mode = settings.mode { cur.mode = mode }
+            if cur != before {
+                try? store.save(cur)
+                reloadConversations()
+                // процесс claude запущен со старыми флагами — следующий ход поднимет его заново (--resume)
+                chat.caughtUp(cur, sessionChanged: true)
+            }
+        }
         guard let (target, mtime, t) = found, !chat.isRunning(c.id) else { return }
         let first = seen == nil
         claudeTouched[c.id] = mtime
