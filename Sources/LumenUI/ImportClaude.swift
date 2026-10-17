@@ -91,6 +91,14 @@ extension AppModel {
                     fixed.insert(c.id)
                 }
             }
+            // приписка агенту «(Вложения сохранены: …)» в пузыре человека — убрать, вложения по путям
+            for var m in (try? store.messages(in: c.id)) ?? [] where m.role == .user && m.text.contains("(Вложения сохранены: ") {
+                let (t, a) = Attachment.splitSavedNote(m.text)
+                m.text = t
+                if m.attachments.isEmpty { m.attachments = a }
+                try? store.patch(m)
+                fixed.insert(c.id)
+            }
             // картинки в старых сообщениях
             let msgs = (try? store.messages(in: c.id)) ?? []
             guard msgs.contains(where: { $0.role == .user && $0.text.contains("[картинка]") }),
@@ -471,8 +479,11 @@ extension AppModel {
             let s = ClaudeHistory.Session(id: target, file: file, cwd: c.folder ?? "", title: c.title, firstPrompt: "", updatedAt: mtime, bytes: 0)
             return ((target, mtime, try? ClaudeHistory.transcript(s, conversationID: c.id, after: anchor, skipLumen: true)), settings)
         }.value
-        // в приложении Claude поменяли модель, усилие или режим — у нас то же
-        if let settings, !chat.isRunning(c.id), var cur = conversations.first(where: { $0.id == c.id }) {
+        // в приложении Claude ПОМЕНЯЛИ модель, усилие или режим — у нас то же. Только смену: иначе выбор в Lumen
+        // перебивался бы каждые 3 с и модель после начала разговора было не сменить (Рома, 17.10)
+        let changed = settings != nil && claudeSettingsSeen[c.id] != nil && claudeSettingsSeen[c.id] != settings
+        if let settings { claudeSettingsSeen[c.id] = settings }
+        if changed, let settings, !chat.isRunning(c.id), var cur = conversations.first(where: { $0.id == c.id }) {
             let before = cur
             if let m = settings.model { cur.model = m }
             if let e = settings.effort { cur.effort = e }

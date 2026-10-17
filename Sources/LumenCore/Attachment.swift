@@ -77,6 +77,25 @@ public struct Attachment: Codable, Sendable, Equatable, Hashable, Identifiable {
         return blocks
     }
 
+    /// Служебная приписка агенту «(Вложения сохранены: имя — путь; …)» — человеку не нужна. Отрезает её и
+    /// возвращает вложения по путям из неё (те, что ещё лежат на диске)
+    public static func splitSavedNote(_ text: String) -> (text: String, attachments: [Attachment]) {
+        guard let r = text.range(of: "(Вложения сохранены: ", options: .backwards), text.hasSuffix(")") else { return (text, []) }
+        let list = text[r.upperBound..<text.index(before: text.endIndex)]
+        var out: [Attachment] = []
+        for item in list.components(separatedBy: "; ") {
+            guard let dash = item.range(of: " — ") else { continue }
+            let name = String(item[..<dash.lowerBound]), path = String(item[dash.upperBound...])
+            guard let attrs = try? FileManager.default.attributesOfItem(atPath: path) else { continue }
+            let ext = URL(fileURLWithPath: path).pathExtension.lowercased()
+            let image = ["png", "jpg", "jpeg", "gif", "webp", "heic"].contains(ext)
+            out.append(Attachment(name: name, kind: image ? .image : (ext == "pdf" ? .pdf : .file),
+                                  mime: image ? "image/" + (ext == "jpg" ? "jpeg" : ext) : (ext == "pdf" ? "application/pdf" : "application/octet-stream"),
+                                  path: path, size: attrs[.size] as? Int ?? 0))
+        }
+        return (String(text[..<r.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines), out)
+    }
+
     /// Текстовые файлы и не-картинки — в текст запроса (для ChatGPT, у которого картинки идут отдельно)
     public static func inlineText(_ attachments: [Attachment]) -> String {
         attachments.filter { $0.kind != .image }.compactMap { $0.contentBlock()?["text"] as? String }.joined(separator: "\n\n")

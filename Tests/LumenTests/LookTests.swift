@@ -93,3 +93,13 @@ import Testing
     #expect(a.path == b.path && a.kind == .image)
     #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path).count == 1)
 }
+
+/// Приписка агенту с путями вложений не показывается человеку, а вложения берутся по путям
+@Test func savedAttachmentsNoteIsHidden() throws {
+    let f = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".jpg")
+    try Data([1, 2, 3]).write(to: f)
+    let (t, a) = Attachment.splitSavedNote("можно перевод чуть выделить\n\n(Вложения сохранены: Картинка.jpg — \(f.path); Нет.jpg — /нет/такого.jpg)")
+    #expect(t == "можно перевод чуть выделить")
+    #expect(a.count == 1 && a[0].kind == .image && a[0].path == f.path)
+    #expect(Attachment.splitSavedNote("просто текст (в скобках)").text == "просто текст (в скобках)")
+}

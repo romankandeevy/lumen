@@ -270,6 +270,8 @@ public enum ClaudeHistory {
         var isSummary: Bool
         /// Картинки из сообщения (base64 в записи claude) — сохраняются в папку вложений Lumen
         var images: [(mime: String, data: Data)] = []
+        /// Вложения, что Lumen уже сохранил (ход, начатый в Lumen)
+        var saved: [Attachment] = []
     }
 
     /// Картинка из разговора Claude — файлом во вложениях Lumen. Имя — по содержимому: при каждой
@@ -309,8 +311,13 @@ public enum ClaudeHistory {
         let service = ["<command-name>", "<command-message>", "<local-command-stdout>", "<local-command-stderr>",
                        "[Request interrupted", "<bash-input>", "<bash-stdout>", "<task-notification>",
                        "<side-sessions-event", "<ci-monitor-event", "<agent-message"]
-        if service.contains(where: { text.hasPrefix($0) }) || (text.isEmpty && images.isEmpty) { return nil }
-        return Prompt(text: text, isSummary: false, images: images)
+        // ход Lumen: приписка агенту с путями вложений — убрать, вложения взять по путям
+        let (shown, saved) = Attachment.splitSavedNote(text)
+        text = shown
+        if service.contains(where: { text.hasPrefix($0) }) || (text.isEmpty && images.isEmpty && saved.isEmpty) { return nil }
+        var p = Prompt(text: text, isSummary: false, images: images)
+        p.saved = saved
+        return p
     }
 
     /// Без служебных вставок Claude Code: напоминаний системы и т. п.
@@ -387,7 +394,8 @@ public enum ClaudeHistory {
                                                 note: "Разговор сжат", createdAt: date ?? Date()))
                 } else {
                     var m = ChatMessage(conversationID: conversationID, role: .user, text: p.text, createdAt: date ?? Date())
-                    m.attachments = p.images.compactMap { saveImage($0.mime, $0.data, to: AppPaths.standard.attachments) }
+                    // свои вложения Lumen уже лежат файлами; картинки из Claude — сохранить
+                    m.attachments = p.saved.isEmpty ? p.images.compactMap { saveImage($0.mime, $0.data, to: AppPaths.standard.attachments) } : p.saved
                     messages.append(m)
                     planFresh = true
                 }

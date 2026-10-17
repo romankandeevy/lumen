@@ -43,6 +43,8 @@ public final class AppModel {
         return live.active() != .idle
     }
     var orb: Orb.State = .idle
+    /// Что последним видели в приложении Claude про модель, усилие и режим разговора — применяем только смену
+    var claudeSettingsSeen: [String: ClaudeHistory.Desktop.Settings] = [:]
     /// Разделённый экран: какую долю ширины занимает левый разговор
     var splitFraction = 0.5
     /// macOS сейчас в тёмном оформлении — для света «Как в системе»

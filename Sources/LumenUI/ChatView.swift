@@ -419,10 +419,11 @@ struct MessageRow: View {
             }
             if editing {
                 editor
-            } else if !message.text.isEmpty {
+            } else if !Attachment.splitSavedNote(message.text).text.isEmpty {
             HStack(spacing: 0) {
                 Spacer(minLength: 0)
-                Text(message.text)
+                // приписка агенту с путями вложений — не для человека
+                Text(Attachment.splitSavedNote(message.text).text)
                     .chatTw(14, lh: 22.75)
                     .textSelection(.enabled)
                     .padding(.horizontal, 16).padding(.vertical, 10)
@@ -1053,6 +1054,12 @@ struct Composer: View {
                 .onSubmit(send)
                 .onChange(of: draft) { absorbMention(); if slashIndex >= slashItems.count { slashIndex = 0 } }
                 // ⌫ в пустом поле — убрать чип; стрелки и Tab — по меню «/»
+                // Enter — отправить, Shift+Enter — новая строка
+                .onKeyPress(.return, phases: .down) { press in
+                    guard press.modifiers.contains(.shift) else { return .ignored }
+                    draft += "\n"
+                    return .handled
+                }
                 .onKeyPress(.delete) {
                     guard draft.isEmpty else { return .ignored }
                     if pickedSkill != nil { pickedSkill = nil; return .handled }
@@ -1118,14 +1125,11 @@ struct Composer: View {
         }
         .zIndex(1)
         .onPasteCommand(of: [.fileURL, .png, .tiff, .jpeg]) { providers in app.attach(providers) { attachments.append($0) } }
-        .frame(maxWidth: big ? .infinity : Self.width)
-        .padding(.horizontal, big ? 0 : 20).padding(.bottom, big ? 0 : 20).padding(.top, big ? 0 : 4)
+        // ширина — как у колонки переписки (Рома, 17.10): поле стоит ровно под текстом, с теми же полями по бокам.
+        // Без белой полосы-градиента над полем: она закрывала последние строки ответа
+        .frame(maxWidth: big ? .infinity : CGFloat(app.prefs.chatWidth.points) - 88)
+        .padding(.horizontal, big ? 0 : 44).padding(.bottom, big ? 0 : 20).padding(.top, big ? 0 : 8)
         .frame(maxWidth: .infinity)
-        // from-background to-transparent над полем
-        .background(alignment: .top) {
-            LinearGradient(colors: [p.background.opacity(0), p.background], startPoint: .top, endPoint: .bottom)
-                .frame(height: 40).offset(y: -40).allowsHitTesting(false)
-        }
         .onAppear { focused = true }
         // щелчок по участнику группы справа — «@id » в начало поля
         .onChange(of: chat.mentionRequest) { _, m in
