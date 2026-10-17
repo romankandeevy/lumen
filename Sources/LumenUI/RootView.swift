@@ -141,23 +141,30 @@ struct Sidebar: View {
                         if !pinned.isEmpty {
                             section("pinned", "Закреплённые", pinned)
                         }
-                        // проекты — разделами, как группы в Claude
+                        // проекты — с папками, внутри их разговоры
+                        if !app.projects.isEmpty {
+                            SidebarSectionHeader(app: app, title: "Проекты", collapsed: nil, project: nil, toggle: {},
+                                                 plus: { app.createProject(folder: app.tab == .agent ? app.agentFolder : nil) })
+                        }
                         ForEach(app.projects) { pr in
                             let items = mine.filter { $0.projectID == pr.id && !$0.pinned }
                             section("p:" + pr.id, pr.name, items, project: pr)
                         }
+                        if !app.projects.isEmpty { Color.clear.frame(height: 8) }
                         let recent = mine.filter { $0.projectID == nil && !$0.pinned }
-                        section("recent", "Недавние", recent, plus: { app.tab == .agent ? app.newAgentTask() : app.newChat() })
-                        Button { app.createProject(folder: app.tab == .agent ? app.agentFolder : nil) } label: {
-                            HStack(spacing: 6) {
-                                Icon("plus", 12)
-                                Text("Новый проект").tw(12, lh: 16)
+                        section("recent", app.tab == .agent ? "Сессии" : "Недавние", recent, plus: { app.tab == .agent ? app.newAgentTask() : app.newChat() })
+                        if app.projects.isEmpty {
+                            Button { app.createProject(folder: app.tab == .agent ? app.agentFolder : nil) } label: {
+                                HStack(spacing: 6) {
+                                    Icon("folder-plus", 14)
+                                    Text("Новый проект").tw(12, lh: 16)
+                                }
+                                .foregroundStyle(p.mutedFg)
+                                .padding(.horizontal, 10).padding(.vertical, 6)
+                                .contentShape(Rectangle())
                             }
-                            .foregroundStyle(p.mutedFg)
-                            .padding(.horizontal, 10).padding(.vertical, 6)
-                            .contentShape(Rectangle())
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
                     .padding(.horizontal, 12).padding(.top, 16).padding(.bottom, 12)
                 }
@@ -189,16 +196,21 @@ struct Sidebar: View {
     private func section(_ key: String, _ title: String, _ items: [Conversation], project: Project? = nil,
                          plus: (() -> Void)? = nil) -> some View {
         let isCollapsed = collapsed.contains(key)
-        SidebarSectionHeader(app: app, title: title, collapsed: project == nil ? nil : isCollapsed, project: project,
-                             toggle: { if isCollapsed { collapsed.remove(key) } else { collapsed.insert(key) } },
-                             plus: plus ?? project.map { pr in { app.newChat(in: pr, agent: app.tab == .agent) } })
+        if let project {
+            // проект — строкой с папкой, как раньше; внутри — его разговоры
+            ProjectRow(app: app, project: project, open: !isCollapsed, count: items.count) {
+                if isCollapsed { collapsed.remove(key) } else { collapsed.insert(key) }
+            }
+        } else {
+            SidebarSectionHeader(app: app, title: title, collapsed: nil, project: nil, toggle: {}, plus: plus)
+        }
         if !isCollapsed {
-            ForEach(items) { c in ChatRow(app: app, c: c) }
+            ForEach(items) { c in ChatRow(app: app, c: c).padding(.leading, project == nil ? 0 : 14) }
             if items.isEmpty && project != nil {
-                Text("Пусто").tw(12, lh: 16).foregroundStyle(p.mutedFg.opacity(0.7)).padding(.horizontal, 10).padding(.vertical, 4)
+                Text("Пусто").tw(12, lh: 16).foregroundStyle(p.mutedFg.opacity(0.7)).padding(.leading, 38).padding(.vertical, 4)
             }
         }
-        Color.clear.frame(height: 14)
+        Color.clear.frame(height: project == nil ? 14 : 6)
     }
 
     private var sessions: [Conversation] {
@@ -385,23 +397,48 @@ struct ChatRow: View {
     private var running: Bool { app.chat.isRunning(c.id) }
 
     var body: some View {
-        // как в Claude: только название; справа — точка, пока идёт ответ; при наведении «…»
         Button { app.openChat(c) } label: {
-            HStack(spacing: 8) {
-                if renaming {
-                    renameField
+            HStack(alignment: c.kind == .agent ? .top : .center, spacing: 8) {
+                if c.kind == .agent {
+                    // как в макете: ноутбук (на этом Маке) или крутилка, пока работает
+                    Group {
+                        if running { LiveDot(color: p.glow) } else { Icon("laptop", 14) }
+                    }
+                    .foregroundStyle(p.mutedFg).frame(width: 20, height: 18)
+                    VStack(alignment: .leading, spacing: 0) {
+                        if renaming {
+                            renameField
+                        } else {
+                            Text(c.title).font(.geist(14)).lineLimit(1)
+                                .foregroundStyle(active || hover ? p.foreground : p.foreground.opacity(0.8))
+                        }
+                        Text(AppModel.folderName(URL(fileURLWithPath: c.folder ?? ""))).font(.geist(11)).foregroundStyle(p.mutedFg).lineLimit(1)
+                    }
+                    Spacer(minLength: 4)
+                    Text(when).font(.geist(11)).foregroundStyle(p.mutedFg).opacity(hover ? 0 : 1)
                 } else {
-                    Text(c.title).font(.geist(14)).lineLimit(1)
-                        .foregroundStyle(active || hover ? p.foreground : p.foreground.opacity(0.8))
+                    if renaming {
+                        renameField
+                    } else {
+                        Text(c.title).font(.geist(14)).lineLimit(1)
+                            .foregroundStyle(active || hover ? p.foreground : p.foreground.opacity(0.8))
+                    }
+                    Spacer(minLength: 4)
+                    if running {
+                        LiveDot(color: p.glow)
+                    } else {
+                        Text(when).font(.geist(11)).foregroundStyle(p.mutedFg).opacity(hover ? 0 : 1)
+                    }
                 }
-                Spacer(minLength: 4)
-                if running && !hover { LiveDot(color: p.glow) }
             }
-            .padding(.horizontal, 10).frame(height: 30)
-            .background(active ? p.foreground.opacity(0.08) : (hover ? p.foreground.opacity(0.05) : .clear),
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .frame(minHeight: 32)
+            .background(active ? p.foreground.opacity(0.07) : (hover ? p.foreground.opacity(0.05) : .clear),
                         in: RoundedRectangle(cornerRadius: R.lg))
+            .overlay(alignment: .leading) {
+                if active { GlowBar() }
+            }
             .contentShape(Rectangle())
-            .help(c.kind == .agent ? "\(c.title) · \(AppModel.folderName(URL(fileURLWithPath: c.folder ?? ""))) · \(when)" : "\(c.title) · \(when)")
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }

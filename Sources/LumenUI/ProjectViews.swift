@@ -79,11 +79,16 @@ struct ProjectRow: View {
         .onHover { hover = $0 }
         .overlay(alignment: .trailing) {
             if hover || dotsHover {
-                GeometryReader { g in
-                    let f = g.frame(in: .global)
-                    DotsButton { app.showProjectMenu(project, at: CGPoint(x: f.minX, y: f.maxY + 4)) }
+                HStack(spacing: 2) {
+                    // «+» — новый разговор прямо в проекте
+                    SmallPlus(help: "Новый разговор в «\(project.name)»") { app.newChat(in: project, agent: app.tab == .agent) }
+                    GeometryReader { g in
+                        let f = g.frame(in: .global)
+                        DotsButton { app.showProjectMenu(project, at: CGPoint(x: f.minX, y: f.maxY + 4)) }
+                    }
+                    .frame(width: 26, height: 26)
                 }
-                .frame(width: 26, height: 26).onHover { dotsHover = $0 }.padding(.trailing, 4)
+                .onHover { dotsHover = $0 }.padding(.trailing, 4)
             }
         }
         .onRightClick { point in app.showProjectMenu(project, at: point) }
