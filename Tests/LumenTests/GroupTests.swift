@@ -25,6 +25,8 @@ private func msg(_ id: Int64, _ role: ChatMessage.Role, _ text: String, bot: Str
     let log = [msg(1, .user, "@coder сделай"), msg(2, .assistant, "готово, @tester проверь", bot: "coder")]
     #expect(Set(GroupRoom.responders(log: log, members: all).map(\.id)) == ["coder", "tester"])
     #expect(GroupRoom.addressed(log: log, members: all) == ["coder"])
+    #expect(GroupRoom.addressed(log: [msg(1, .user, "Каждый назовите свой цвет")], members: all).count == 3)
+    #expect(GroupRoom.addressed(log: [msg(1, .user, "что думаете?")], members: all).isEmpty)
     // первым каждый раунд говорит другой
     #expect(GroupRoom.rotate(all, round: 1).map(\.id) == ["coder", "tester", "designer"])
     #expect(GroupRoom.isPass("(pass)") && GroupRoom.isPass(" «(pass)». ") && GroupRoom.isPass("") && !GroupRoom.isPass("pass the salt"))
@@ -82,5 +84,29 @@ private func msg(_ id: Int64, _ role: ChatMessage.Role, _ text: String, bot: Str
         while app.chat.busy { try await Task.sleep(for: .milliseconds(200)) }
         let last = app.chat.messages.last
         #expect(last?.botID == "blue", "\(app.chat.messages.suffix(3).map(\.text))")
+    }
+
+    /// Пока группа отвечает, можно написать ещё — раунды начинаются заново с новым сообщением
+    @MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["LUMEN_LIVE"] == "1")) func liveGroupAcceptsInterjection() async throws {
+        pointToMCP()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-grpint-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let app = try AppModel(paths: AppPaths(root: root))
+        await app.refreshClaude()
+        app.finishOnboarding(name: "Тест", address: .ty, backend: .subscription, theme: .lumen)
+        app.saveBot(Bot(id: "red", name: "Красный", role: "Любит красный", instructions: "Отвечай очень коротко.", model: .haiku, effort: .low))
+        app.saveBot(Bot(id: "blue", name: "Синий", role: "Любит синий", instructions: "Отвечай очень коротко.", model: .haiku, effort: .low))
+        let g = app.saveGroup(BotGroup(name: "Цвета", members: ["red", "blue"]))
+        app.openGroup(g.id)
+        app.chat.send("Расскажите по очереди про свой цвет.")
+        try await Task.sleep(for: .seconds(1))
+        #expect(app.chat.busy)
+        app.chat.send("@blue стоп, лучше скажи: сколько будет 2+2? Только число.")
+        while app.chat.busy { try await Task.sleep(for: .milliseconds(200)) }
+        let all = app.chat.messages
+        print("DBG", all.map { "\($0.role)/\($0.botID ?? "-"): \($0.text.prefix(50))" })
+        #expect(all.filter { $0.role == .user }.count == 2)
+        let afterSecond = all.drop { !($0.role == .user && $0.text.contains("2+2")) }
+        #expect(afterSecond.contains { $0.botID == "blue" && $0.text.contains("4") })
     }
 }

@@ -75,31 +75,6 @@ struct GroupRow: View {
     }
 }
 
-/// Пустой разговор группы: участники и как тут всё устроено
-struct GroupEmpty: View {
-    @Bindable var app: AppModel
-    let group: BotGroup
-    @Binding var draft: String
-
-    @Environment(\.palette) private var p
-
-    var body: some View {
-        let members = app.groupMembers(group)
-        VStack(spacing: 0) {
-            GroupAvatars(bots: members, size: 48)
-            Text(group.name).tw(24, .semibold, lh: 32).tracking(-0.48).padding(.top, 24)
-            Text(members.map { "@\($0.id)" }.joined(separator: " · ")).tw(14, lh: 20).foregroundStyle(p.mutedFg).padding(.top, 8)
-            Text("Пиши всем — ответят по очереди те, кому есть что сказать. «@id …» — ответит только он. Боты сами зовут друг друга.")
-                .tw(12, lh: 16).foregroundStyle(p.mutedFg.opacity(0.8)).multilineTextAlignment(.center)
-                .frame(maxWidth: 460).padding(.top, 6)
-            FlowChips(items: ["Обсудите, с чего начать", "Каждый — по одной идее", "@\(members.first?.id ?? "бот") начни"]) { draft = $0 }
-                .padding(.top, 24)
-        }
-        .frame(maxWidth: 704)
-        .padding(.horizontal, 24)
-    }
-}
-
 /// Создать или изменить группу: название, участники (2–6), цвет
 struct GroupEditor: View {
     @Bindable var app: AppModel
@@ -191,5 +166,111 @@ struct GroupEditor: View {
 
     private func cancel() {
         if let existing { app.openGroup(existing.id) } else { app.page = .bots }
+    }
+}
+
+/// Справа в группе: участники (кто сейчас пишет), убрать, позвать одного, добавить любого бота
+struct GroupPanel: View {
+    @Bindable var app: AppModel
+    let group: BotGroup
+
+    @Environment(\.palette) private var p
+    @Environment(\.windowWidth) private var windowWidth
+
+    var body: some View {
+        let members = app.groupMembers(group)
+        let others = app.bots.filter { !group.members.contains($0.id) }
+        let speaking = app.chat.turns.values.first { $0.conversation.groupID == group.id }?.bot
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 10) {
+                    GroupAvatars(bots: members, size: 40)
+                    Text(group.name).tw(16, .semibold, lh: 22)
+                    Text("Отвечают по очереди, сами зовут друг друга. «@id …» — ответит только он, «@все» — все.")
+                        .tw(12, lh: 16).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Участники · \(members.count)").tw(12, .medium, lh: 16).foregroundStyle(p.mutedFg)
+                    ForEach(members) { b in
+                        MemberRow(bot: b, speaking: speaking == b.id, inGroup: true) {
+                            app.chat.mention(b.id)
+                        } toggle: {
+                            var g = group
+                            g.members.removeAll { $0 == b.id }
+                            app.saveGroup(g)
+                        }
+                    }
+                }
+                if !others.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Добавить").tw(12, .medium, lh: 16).foregroundStyle(p.mutedFg)
+                        ForEach(others) { b in
+                            MemberRow(bot: b, speaking: false, inGroup: false, full: group.members.count >= BotGroup.maxMembers) {
+                                app.openBot(b.id)
+                            } toggle: {
+                                var g = group
+                                g.members.append(b.id)
+                                app.saveGroup(g)
+                            }
+                        }
+                    }
+                }
+                HStack(spacing: 8) {
+                    LButton(title: "Новый бот", icon: "plus", kind: .outline, small: true) { app.page = .botEditor(nil) }
+                    LButton(title: "Изменить", icon: "pencil", kind: .ghost, small: true) { app.page = .groupEditor(group.id) }
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .scrollIndicators(.never)
+        .frame(width: CGFloat(ResizeHandle.clamp(app.panelWidth, min: 280, window: Double(windowWidth))))
+        .background(p.sidebar.opacity(0.5))
+        .overlay(alignment: .leading) { p.border.frame(width: 1) }
+        .overlay(alignment: .leading) {
+            ResizeHandle(side: .leading, width: $app.panelWidth, minWidth: 280) { app.update { $0.panelWidth = app.panelWidth } }.offset(x: -4)
+        }
+        .foregroundStyle(p.foreground)
+    }
+
+    private struct MemberRow: View {
+        let bot: Bot
+        let speaking: Bool
+        let inGroup: Bool
+        var full = false
+        let open: () -> Void
+        let toggle: () -> Void
+
+        @Environment(\.palette) private var p
+        @State private var hover = false
+
+        var body: some View {
+            HStack(spacing: 10) {
+                BotAvatar(bot: bot, size: 26)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(bot.name).tw(13, .medium, lh: 18).lineLimit(1)
+                    Text(speaking ? "пишет…" : "@\(bot.id)").tw(11, lh: 14)
+                        .foregroundStyle(speaking ? BotColor.accent(bot.hue) : p.mutedFg).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                if speaking { LiveDot(color: BotColor.accent(bot.hue)) }
+                Button(action: toggle) {
+                    Icon(inGroup ? "x" : "plus", 13).foregroundStyle(hover ? p.foreground : p.mutedFg)
+                        .frame(width: 26, height: 26)
+                        .background(hover ? p.foreground.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: R.md))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(full)
+                .opacity(inGroup && !hover ? 0 : 1)
+                .help(inGroup ? "Убрать из группы" : (full ? "В группе уже \(BotGroup.maxMembers)" : "Добавить в группу"))
+            }
+            .padding(.horizontal, 8).padding(.vertical, 6)
+            .background(hover ? p.foreground.opacity(0.04) : .clear, in: RoundedRectangle(cornerRadius: R.lg))
+            .contentShape(Rectangle())
+            .onTapGesture(perform: open)
+            .onHover { hover = $0 }
+            .opacity(full ? 0.5 : 1)
+        }
     }
 }

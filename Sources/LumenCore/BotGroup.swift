@@ -65,11 +65,18 @@ public enum GroupRoom {
         return members.filter { ids.contains($0.id) }
     }
 
-    /// К кому человек обратился прямо (@id или @все) — им промолчать нельзя
+    /// К кому человек обратился прямо (@id, @все или «каждый / все / оба / по очереди») — им промолчать нельзя
     public static func addressed(log: [ChatMessage], members: [Bot]) -> Set<String> {
         guard let last = log.last(where: { $0.role == .user }) else { return [] }
         let r = mentions(last.text, members: members)
-        return r.everyone ? Set(members.map(\.id)) : r.ids
+        if r.everyone || (r.ids.isEmpty && addressesEveryone(last.text)) { return Set(members.map(\.id)) }
+        return r.ids
+    }
+
+    /// «Каждый назовите…», «все скажите», «вы оба», «по очереди» — значит, ответить должен каждый
+    public static func addressesEveryone(_ text: String) -> Bool {
+        let t = " " + text.lowercased() + " "
+        return ["кажд", " все ", " все,", " всем ", " вы все", " оба ", " обе ", "по очереди", "everyone", "each of you"].contains { t.contains($0) }
     }
 
     /// Каждый раунд первым говорит другой

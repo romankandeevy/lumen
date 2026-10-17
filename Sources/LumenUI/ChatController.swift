@@ -37,6 +37,8 @@ final class ChatController {
         @ObservationIgnored var needBreak = false
         /// Последняя метка ответа в сессии claude
         @ObservationIgnored var anchor: String?
+        /// Группа: человек написал, пока боты отвечали
+        @ObservationIgnored var newInput = false
         /// Lumen позвал бота, и его ответ уже показан отдельным сообщением
         @ObservationIgnored var botShown = false
         /// Текст Lumen до вызова бота — уже сохранён отдельным сообщением над ответом бота
@@ -168,6 +170,10 @@ final class ChatController {
         send(text, attachments: user.attachments)
     }
 
+    /// В группе: щелчок по участнику — «@id » в поле ввода
+    var mentionRequest: String?
+    func mention(_ id: String) { mentionRequest = "@\(id) " }
+
     /// Глава: сообщение попадает в оглавление разговора
     func toggleChapter(_ m: ChatMessage) {
         guard let i = messages.firstIndex(where: { $0.id == m.id }) else { return }
@@ -228,7 +234,16 @@ final class ChatController {
 
     func send(_ raw: String, attachments: [Attachment] = []) {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty || !attachments.isEmpty, !busy else { return }
+        guard !text.isEmpty || !attachments.isEmpty else { return }
+        // группа уже отвечает — сообщение в комнату, раунды начнутся заново с ним после текущего бота
+        if busy, let c = conversation, c.kind == .group, let tr = turns[c.id] {
+            var u = ChatMessage(conversationID: c.id, role: .user, text: text)
+            u.attachments = attachments
+            if let saved = try? app.store.save(u) { messages.append(saved) }
+            tr.newInput = true
+            return
+        }
+        guard !busy else { return }
         var c: Conversation
         if let existing = conversation {
             c = existing
@@ -295,13 +310,17 @@ final class ChatController {
         let members = app.groupMembers(g)
         guard !members.isEmpty else { await finish(c, text: "", error: "В группе нет ботов — добавь их в настройках группы."); return }
         var sent = 0
+        // человек написал посреди раундов — начинаем раунды заново с его сообщением
+        repeat {
+        turns[c.id]?.newInput = false
+        sent = 0
         rounds: for round in 0..<BotGroup.maxRounds {
             let start = (try? app.store.messages(in: c.id)) ?? []
             let speakers = GroupRoom.rotate(GroupRoom.responders(log: start, members: members), round: round)
             let addressed = round == 0 ? GroupRoom.addressed(log: start, members: members) : []
             var spoke = false
             for bot in speakers {
-                if isStopped(c) || sent >= BotGroup.maxMessages { break rounds }
+                if isStopped(c) || sent >= BotGroup.maxMessages || turns[c.id]?.newInput == true { break rounds }
                 let log = (try? app.store.messages(in: c.id)) ?? []
                 let delta = GroupRoom.delta(log, after: g.seen[bot.id], viewer: bot, userName: app.profile.name, members: members)
                 guard !delta.isEmpty else { continue }
@@ -328,6 +347,7 @@ final class ChatController {
             // раунд, где все промолчали, — комната затихла
             if !spoke { break }
         }
+        } while turns[c.id]?.newInput == true && !isStopped(c)
         turns[c.id]?.message = nil
     }
 

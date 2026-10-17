@@ -26,7 +26,7 @@ struct ChatView: View {
             content
             if app.prefs.contextOpen {
                 Group {
-                    if let bot { BotPassport(app: app, bot: bot) } else { ContextPanel(app: app) }
+                    if let group { GroupPanel(app: app, group: group) } else if let bot { BotPassport(app: app, bot: bot) } else { ContextPanel(app: app) }
                 }
                 .transition(.move(edge: .trailing))
             }
@@ -38,15 +38,13 @@ struct ChatView: View {
         VStack(spacing: 0) {
             header
             if chat.messages.isEmpty && !chat.busy {
+                // как в Claude: на пустом экране приветствие и поле ввода — по центру; в разговоре поле внизу
                 Group {
-                    // новая задача агента — вариант A: поле по центру, своё нижнее поле не нужно
-                    if let group { GroupEmpty(app: app, group: group, draft: $draft) } else if let bot { botEmpty(bot) } else if agent { AgentHome(app: app, draft: $draft, attachments: $attachments, backend: backend) } else { empty }
+                    if agent { AgentHome(app: app, draft: $draft, attachments: $attachments, backend: backend) } else { startScreen }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 transcript
-            }
-            if !(agent && chat.messages.isEmpty && !chat.busy) {
                 Composer(app: app, draft: $draft, attachments: $attachments, backend: backend, agent: agent)
             }
         }
@@ -134,41 +132,60 @@ struct ChatView: View {
         .overlay(alignment: .bottom) { p.border.frame(height: 1) }
     }
 
-    /// `ChatEmpty`: сфера 72, «Привет, Рома. О чём поговорим?», сколько фактов помнит, подсказки
-    private var empty: some View {
+    /// Пустой экран как в Claude: крупное приветствие, под ним сразу поле ввода, ниже — подсказки
+    private var startScreen: some View {
         VStack(spacing: 0) {
-            Orb(state: app.orb, size: 72)
-            Text(app.profile.name.isEmpty ? "О чём поговорим?" : "Привет, \(app.profile.name). О чём поговорим?")
-                .tw(24, .semibold, lh: 32).tracking(-0.48)
-                .multilineTextAlignment(.center)
-                .padding(.top, 32)
-            Text("Помню \(Plural.facts(app.memoryCount)) о тебе, проектах и людях.")
-                .tw(14, lh: 20).foregroundStyle(p.mutedFg)
-                .padding(.top, 8)
-            // Lumen сам предлагает, чем заняться — из памяти и недавних разговоров
+            Spacer(minLength: 24)
+            greeting
+                .padding(.bottom, 28)
+            Composer(app: app, draft: $draft, attachments: $attachments, backend: backend, agent: false)
+            startChips
+                .padding(.top, 4)
+                .frame(maxWidth: Composer.width)
+            Spacer(minLength: 24)
+            Spacer(minLength: 24)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder private var greeting: some View {
+        if let group {
+            VStack(spacing: 10) {
+                HStack(spacing: 16) {
+                    GroupAvatars(bots: app.groupMembers(group), size: 40)
+                    Text(group.name).font(.system(size: 38, weight: .regular, design: .serif)).lineLimit(1)
+                }
+                Text("Пиши всем — ответят по очереди. «@id …» — ответит только он.")
+                    .tw(13, lh: 18).foregroundStyle(p.mutedFg)
+            }
+        } else if let bot {
+            VStack(spacing: 10) {
+                HStack(spacing: 16) {
+                    BotAvatar(bot: bot, size: 44)
+                    Text(bot.name).font(.system(size: 38, weight: .regular, design: .serif)).lineLimit(1)
+                }
+                if !bot.role.isEmpty { Text(bot.role).tw(13, lh: 18).foregroundStyle(p.mutedFg) }
+            }
+        } else {
+            HStack(spacing: 16) {
+                Orb(state: app.orb, size: 44)
+                Text(app.profile.name.isEmpty ? "Привет" : "Привет, \(app.profile.name)")
+                    .font(.system(size: 40, weight: .regular, design: .serif)).lineLimit(1)
+            }
+        }
+    }
+
+    @ViewBuilder private var startChips: some View {
+        if let group {
+            let first = app.groupMembers(group).first?.id ?? "бот"
+            FlowChips(items: ["Обсудите, с чего начать", "Каждый — по одной идее", "@\(first) начни"]) { draft = $0 }
+        } else if let bot {
+            if !bot.starters.isEmpty { FlowChips(items: bot.starters) { draft = $0 } }
+        } else {
             FlowChips(items: app.suggestions) { draft = $0 }
-                .padding(.top, 24)
                 .animation(.easeOut(duration: 0.3), value: app.suggestions)
                 .task { app.refreshSuggestionsIfNeeded() }
         }
-        .frame(maxWidth: 704)
-        .padding(.horizontal, 24)
-    }
-
-    /// Пустой разговор бота: знак, роль, его подсказки
-    private func botEmpty(_ b: Bot) -> some View {
-        VStack(spacing: 0) {
-            BotAvatar(bot: b, size: 64)
-            Text(b.name).tw(24, .semibold, lh: 32).tracking(-0.48).padding(.top, 24)
-            Text(b.role).tw(14, lh: 20).foregroundStyle(p.mutedFg).multilineTextAlignment(.center).padding(.top, 8)
-            Text("Это его единственный разговор. Позвать из любого чата: @\(b.id) и задача.")
-                .tw(12, lh: 16).foregroundStyle(p.mutedFg.opacity(0.8)).padding(.top, 4)
-            if !b.starters.isEmpty {
-                FlowChips(items: b.starters) { draft = $0 }.padding(.top, 24)
-            }
-        }
-        .frame(maxWidth: 704)
-        .padding(.horizontal, 24)
     }
 
     private var transcript: some View {
@@ -715,7 +732,9 @@ struct Composer: View {
     private var mentionHits: [Bot] {
         guard chat.conversation?.kind != .bot, draft.hasPrefix("@"), !draft.contains(" "), !draft.contains("\n") else { return [] }
         let q = draft.dropFirst().lowercased()
-        return app.bots.filter { q.isEmpty || $0.id.hasPrefix(q) || $0.name.lowercased().contains(q) }
+        // в группе — только её участники
+        let pool = chat.conversation?.kind == .group ? (app.group(chat.conversation?.groupID).map(app.groupMembers) ?? []) : app.bots
+        return pool.filter { q.isEmpty || $0.id.hasPrefix(q) || $0.name.lowercased().contains(q) }
     }
     private var inBot: Bool { chat.conversation?.kind == .bot }
     private var currentBot: Bot? { inBot ? app.bot(chat.conversation?.botID) : nil }
@@ -774,12 +793,11 @@ struct Composer: View {
 
     private func botEffortPicker(_ b: Bot) -> some View {
         PickerButton(open: $botEffortOpen) {
-            EffortBars(level: b.effort.level)
-            Text(b.effort.name).font(.geist(12))
+            Text(b.effort.name).font(.geist(12)).foregroundStyle(p.mutedFg)
         } panel: {
             PopoverPanel(title: "Сколько думать") {
                 ForEach(Effort.allCases) { e in
-                    PopoverOption(name: e.name, note: e.note, active: e == b.effort) { EffortBars(level: e.level) } action: {
+                    PopoverOption(name: e.name, note: e.note, active: e == b.effort) { EmptyView() } action: {
                         var nb = b
                         nb.effort = e
                         app.saveBot(nb)
@@ -828,7 +846,6 @@ struct Composer: View {
                 .textFieldStyle(.plain)
                 .font(.geist(big ? 15 : 14))
                 .lineSpacing(big ? 6 : 3)
-                .help("Enter — отправить, ⌥Enter — новая строка")
                 .lineLimit(big ? 4...14 : 2...12)
                 .focused($focused)
                 .onSubmit(send)
@@ -872,10 +889,20 @@ struct Composer: View {
                 .frame(height: 40).offset(y: -40).allowsHitTesting(false)
         }
         .onAppear { focused = true }
+        // щелчок по участнику группы справа — «@id » в начало поля
+        .onChange(of: chat.mentionRequest) { _, m in
+            guard let m else { return }
+            if !draft.hasPrefix(m) { draft = m + draft }
+            focused = true
+            chat.mentionRequest = nil
+        }
     }
 
+    private var inGroup: Bool { chat.conversation?.kind == .group }
+
     private func send() {
-        guard !chat.busy, canSend, ready else { return }
+        // в группе можно писать, пока боты отвечают: новое сообщение подхватят со следующего хода
+        guard !chat.busy || inGroup, canSend, ready else { return }
         chat.send(draft, attachments: attachments)
         draft = ""
         attachments = []
@@ -921,7 +948,6 @@ struct Composer: View {
     /// `ModelPicker`: Sparkles text-glow + название text-xs medium + стрелка
     private var modelPicker: some View {
         PickerButton(open: $modelOpen) {
-            Icon("sparkles", 14).foregroundStyle(p.glow)
             Text(model.name).font(.geist(12, .medium))
         } panel: {
             PopoverPanel(title: "Модель") {
@@ -973,13 +999,12 @@ struct Composer: View {
     /// `EffortPicker`: столбики уровня + название text-xs
     private var effortPicker: some View {
         PickerButton(open: $effortOpen) {
-            EffortBars(level: effort.level)
-            Text(effort.name).font(.geist(12))
+            Text(effort.name).font(.geist(12)).foregroundStyle(p.mutedFg)
         } panel: {
             PopoverPanel(title: "Сколько думать") {
                 ForEach(Effort.allCases) { e in
                     PopoverOption(name: e.name, note: e.note, active: e == effort) {
-                        EffortBars(level: e.level)
+                        EmptyView()
                     } action: {
                         chat.set(effort: e)
                         effortOpen = false
@@ -991,7 +1016,7 @@ struct Composer: View {
     }
 
     @ViewBuilder private var sendButton: some View {
-        if chat.busy {
+        if chat.busy && !(inGroup && canSend) {
             Button { chat.stop() } label: {
                 HStack(spacing: 6) {
                     Icon("square", 12)

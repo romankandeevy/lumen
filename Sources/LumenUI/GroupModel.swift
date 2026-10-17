@@ -60,6 +60,8 @@ extension AppModel {
         if chat.conversation?.id != c.id { chat.open(c) }
         tab = .bots
         page = .group(id)
+        // участники видны справа сразу
+        if !prefs.contextOpen { update { $0.contextOpen = true } }
     }
 
     /// Сессия участника в группе: свой процесс claude на пару «группа + бот», постоянный id —
