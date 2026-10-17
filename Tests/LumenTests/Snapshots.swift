@@ -194,6 +194,15 @@ enum Snap {
     try await Snap.save(RootView(app: app), "46-split", size: CGSize(width: 1500, height: 820))
     app.closeSplit()
 
+    // строка проекта под мышью: «+» и «…» в ряд, название обрезается до них
+    let longP = Project(name: "Изучение английского языка для путешествий", folder: folders[0].path)
+    try app.store.save(longP)
+    app.reloadProjects()
+    ProjectRow.snapHover = true
+    try await Snap.save(VStack { ProjectRow(app: app, project: longP, open: false, count: 3) {} }.padding(12).frame(width: 260)
+        .environment(\.palette, Palette.of(.lumen)).background(Palette.of(.lumen).sidebar), "47-project-hover", size: CGSize(width: 260, height: 56))
+    ProjectRow.snapHover = false
+
     // браузер сбоку: пустой, с подсказкой про входы в аккаунты (страницу WebKit рисует сам, в снимок она не попадает)
     app.browserOpen = true
     try await Snap.save(RootView(app: app), "41-browser", size: CGSize(width: 1440, height: 820))

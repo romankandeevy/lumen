@@ -48,9 +48,11 @@ struct ProjectRow: View {
     let toggle: () -> Void
 
     @Environment(\.palette) private var p
-    @State private var hover = false
+    @State private var hover = ProjectRow.snapHover
 
     @State private var dotsHover = false
+    /// Для снимков экрана: строка нарисуется наведённой
+    nonisolated(unsafe) static var snapHover = false
 
     private var active: Bool { app.page == .project(project.id) }
 
@@ -67,8 +69,10 @@ struct ProjectRow: View {
                     Text(project.name).font(.geist(14)).lineLimit(1)
                         .foregroundStyle(active || hover ? p.foreground : p.foreground.opacity(0.8))
                     Spacer(minLength: 4)
-                    if count > 0 && !hover { Text("\(count)").font(.geist(11)).foregroundStyle(p.mutedFg) }
+                    if count > 0 && !(hover || dotsHover) { Text("\(count)").font(.geist(11)).foregroundStyle(p.mutedFg) }
                 }
+                // при наведении название уступает место «+» и «…» — обрезается до них, а не уходит под них
+                .padding(.trailing, hover || dotsHover ? 50 : 0)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -79,9 +83,9 @@ struct ProjectRow: View {
         .onHover { hover = $0 }
         .overlay(alignment: .trailing) {
             if hover || dotsHover {
-                HStack(spacing: 2) {
-                    // «+» — новый разговор прямо в проекте
-                    SmallPlus(help: "Новый разговор в «\(project.name)»") { app.newChat(in: project, agent: app.tab == .agent) }
+                HStack(spacing: 0) {
+                    // «+» — новый разговор прямо в проекте; того же размера, что «…», — стоят ровно в ряд
+                    SmallPlus(help: "Новый разговор в «\(project.name)»", side: 26) { app.newChat(in: project, agent: app.tab == .agent) }
                     GeometryReader { g in
                         let f = g.frame(in: .global)
                         DotsButton { app.showProjectMenu(project, at: CGPoint(x: f.minX, y: f.maxY + 4)) }
@@ -98,6 +102,8 @@ struct ProjectRow: View {
 /// Маленький «+» рядом с подписью группы
 struct SmallPlus: View {
     let help: String
+    /// Размер кнопки: 20 у подписи раздела, 26 рядом с «…»
+    var side: CGFloat = 20
     let action: () -> Void
 
     @Environment(\.palette) private var p
@@ -106,8 +112,8 @@ struct SmallPlus: View {
     var body: some View {
         Button(action: action) {
             Icon("plus", 14).foregroundStyle(hover ? p.foreground : p.mutedFg)
-                .frame(width: 20, height: 20)
-                .background(hover ? p.foreground.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: R.sm))
+                .frame(width: side, height: side)
+                .background(hover ? p.foreground.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: side > 20 ? R.md : R.sm))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
