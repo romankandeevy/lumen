@@ -258,8 +258,10 @@ struct PanelBlock<Content: View>: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
                 Button {
+                    // прочитать до правки: внутри app.update настройки заняты на запись — чтение там роняет приложение
+                    let was = collapsed
                     withAnimation(.easeOut(duration: 0.15)) {
-                        app.update { pr in if collapsed { pr.panelCollapsed.removeAll { $0 == id } } else { pr.panelCollapsed.append(id) } }
+                        app.update { pr in if was { pr.panelCollapsed.removeAll { $0 == id } } else { pr.panelCollapsed.append(id) } }
                     }
                 } label: {
                     HStack(spacing: 6) {

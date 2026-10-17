@@ -3,6 +3,7 @@ import Testing
 @testable import LumenCore
 @testable import LumenProviders
 @testable import LumenStorage
+@testable import LumenUI
 
 // MARK: абзацы и шаги, как в Claude Code
 
@@ -313,4 +314,15 @@ private func writeSession(dir: URL, id: String, cwd: String) throws -> URL {
     let t = try ClaudeHistory.transcript(s, conversationID: "c")
     #expect(!t.messages.contains { $0.text.contains("No response requested") || $0.text.contains("task-notification") }, "\(t.messages.map(\.text))")
     #expect(t.plan.map(\.text) == ["Шаг"])
+}
+
+/// 17.10 Lumen падал при сворачивании блока правой панели: внутри app.update читались app.prefs
+@MainActor @Test func readingPrefsInsideUpdateDoesNotCrash() throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-upd-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    app.update { pr in
+        if app.prefs.panelCollapsed.contains("log") { pr.panelCollapsed.removeAll { $0 == "log" } } else { pr.panelCollapsed.append("log") }
+    }
+    #expect(app.prefs.panelCollapsed.contains("log"))
 }

@@ -427,7 +427,10 @@ public final class AppModel {
     // MARK: настройки
 
     func update(_ change: (inout Preferences) -> Void) {
-        change(&prefs)
+        // правка над копией: если внутри кто-то читает app.prefs, это не конфликт доступа (так Lumen падал 17.10)
+        var next = prefs
+        change(&next)
+        prefs = next
         try? store.set("preferences", prefs)
     }
 
