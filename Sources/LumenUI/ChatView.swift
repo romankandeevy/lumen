@@ -234,9 +234,11 @@ struct ChatView: View {
                         MessageRow(message: s, chat: chat, streaming: true)
                     }
                     // план — в самой переписке, после последнего сообщения: листается вместе с чатом и не закрывает экран
-                    // ход кончился — план уходит; остаётся, только если в нём есть ещё не начатые шаги (агент ждёт ответа)
+                    // план — только пока идёт ход (здесь или в приложении Claude) и в нём есть несделанное.
+                    // Ход кончился — план уходит, даже если агент не отметил шаги; весь сделан — тоже уходит,
+                    // и новый ход в Claude не показывает старый план, пока не составит свой (Рома, 17.10)
                     if let c = chat.conversation, c.kind != .chat, !c.plan.isEmpty,
-                       chat.busy || app.claudeBusy(c.id) || c.plan.contains(where: { $0.state == .todo }) {
+                       chat.busy || app.claudeBusy(c.id), c.plan.contains(where: { $0.state != .done }) {
                         PlanCard(items: c.plan).padding(.leading, 36)
                     }
                     // разговор сейчас идёт в приложении Claude — видно здесь (по записям сессии, а не по времени файла)
