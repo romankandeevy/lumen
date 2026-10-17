@@ -156,6 +156,23 @@ enum Snap {
     app.openChat(pc)
     try await Snap.save(RootView(app: app), "42-plan-card")
 
+    // картинки агента: маленькие превью и «+N», как в Claude Code
+    var shots: [LumenCore.Attachment] = []
+    for (i, color) in [NSColor.systemBlue, .systemOrange, .systemPink, .systemTeal, .systemPurple, .systemGreen, .systemYellow].enumerated() {
+        let img = NSImage(size: NSSize(width: 640, height: 400), flipped: false) { r in
+            color.withAlphaComponent(0.6).setFill(); r.fill()
+            NSColor.white.setFill(); NSRect(x: 40, y: 40, width: 560, height: 60).fill()
+            return true
+        }
+        if let a = app.importImage(img, name: "Снимок \(i + 1).png") { shots.append(a) }
+    }
+    var withShots = ChatMessage(conversationID: pc.id, role: .assistant, text: "Снял все экраны галереи — смотри превью.",
+                                steps: [.init(kind: .web, text: "Открывает localhost", at: 0)])
+    withShots.attachments = shots
+    try app.store.save(withShots)
+    app.chat.reloadMessages()
+    try await Snap.save(RootView(app: app), "43-agent-shots")
+
     // браузер сбоку: пустой, с подсказкой про входы в аккаунты (страницу WebKit рисует сам, в снимок она не попадает)
     app.browserOpen = true
     try await Snap.save(RootView(app: app), "41-browser", size: CGSize(width: 1440, height: 820))

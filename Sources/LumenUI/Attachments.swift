@@ -236,3 +236,86 @@ struct MessageAttachments: View {
 
     private func open(_ a: Attachment) { NSWorkspace.shared.open(a.url) }
 }
+
+/// Картинки и файлы, которые показал агент, — как в Claude Code: маленькие превью в строку, при наведении — крупнее
+/// на том же месте, много — первые четыре и «+N». Нажатие открывает файл.
+struct AttachmentThumbs: View {
+    let items: [Attachment]
+
+    @Environment(\.palette) private var p
+    @State private var hovered: String?
+    @State private var all = false
+
+    static let visible = 4
+
+    var body: some View {
+        let shown = all ? items : Array(items.prefix(Self.visible))
+        let more = items.count - shown.count
+        FlowWrap(spacing: 6) {
+            ForEach(shown) { a in thumb(a) }
+            if more > 0 {
+                Button { withAnimation(.easeOut(duration: 0.15)) { all = true } } label: {
+                    Text("+\(more)").tw(12, .medium, lh: 16).foregroundStyle(p.mutedFg)
+                        .frame(width: 44, height: 36)
+                        .background(p.foreground.opacity(0.06), in: RoundedRectangle(cornerRadius: R.md))
+                        .overlay(RoundedRectangle(cornerRadius: R.md).strokeBorder(p.border))
+                }
+                .buttonStyle(.plain)
+                .help("Показать все \(items.count)")
+            }
+        }
+    }
+
+    @ViewBuilder private func thumb(_ a: Attachment) -> some View {
+        Button { NSWorkspace.shared.open(a.url) } label: {
+            Group {
+                if a.kind == .image, let img = ThumbCache.image(a.url) {
+                    Image(nsImage: img).resizable().aspectRatio(contentMode: .fill)
+                } else {
+                    Icon(a.kind == .pdf ? "file-text" : "file", 16).foregroundStyle(p.mutedFg)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity).background(p.card)
+                }
+            }
+            .frame(width: 52, height: 36)
+            .clipShape(RoundedRectangle(cornerRadius: R.md))
+            .overlay(RoundedRectangle(cornerRadius: R.md).strokeBorder(p.border))
+        }
+        .buttonStyle(.plain)
+        .help(a.name)
+        .onHover { hovered = $0 ? a.id : (hovered == a.id ? nil : hovered) }
+        // крупнее при наведении — над превью, мышь его не ловит
+        .overlay(alignment: .bottomLeading) {
+            if hovered == a.id, a.kind == .image, let img = ThumbCache.image(a.url) {
+                let side: CGFloat = 300
+                let ratio = img.size.width / max(img.size.height, 1)
+                Image(nsImage: img).resizable().aspectRatio(contentMode: .fit)
+                    .frame(width: ratio >= 1 ? side : side * ratio, height: ratio >= 1 ? side / ratio : side)
+                    .clipShape(RoundedRectangle(cornerRadius: R.lg))
+                    .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
+                    .shadow(color: .black.opacity(0.4), radius: 16, y: 6)
+                    .offset(y: -44)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+                    .zIndex(10)
+            }
+        }
+        .zIndex(hovered == a.id ? 10 : 0)
+        .animation(.easeOut(duration: 0.12), value: hovered)
+    }
+}
+
+/// Уменьшенные копии картинок для превью: десятки снимков страниц не держат в памяти целиком
+enum ThumbCache {
+    nonisolated(unsafe) private static let cache = NSCache<NSURL, NSImage>()
+
+    static func image(_ url: URL) -> NSImage? {
+        if let i = cache.object(forKey: url as NSURL) { return i }
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                                                   kCGImageSourceThumbnailMaxPixelSize: 720,
+                                                                   kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary) else { return nil }
+        let img = NSImage(cgImage: cg, size: NSSize(width: CGFloat(cg.width) / 2, height: CGFloat(cg.height) / 2))
+        cache.setObject(img, forKey: url as NSURL)
+        return img
+    }
+}
