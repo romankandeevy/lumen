@@ -24,8 +24,8 @@ public final class AppModel {
     // MARK: окно
     enum Page: Equatable {
         case chat, memory, project(String), settings(SettingsView.Section)
-        /// Все боты, разговор с ботом, конструктор (nil — новый бот)
-        case bots, bot(String), botEditor(String?)
+        /// Все боты, разговор с ботом, конструктор (nil — новый бот); группа ботов и её редактор
+        case bots, bot(String), botEditor(String?), group(String), groupEditor(String?)
         /// Кастомизация (навыки, коннекторы, хуки) и редактор навыка (nil — новый)
         case skills, skillEditor(String?)
     }
@@ -43,8 +43,9 @@ public final class AppModel {
     var menu: MenuState?
     /// Проекты (ProjectModel.swift) и проект, название которого сейчас правят
     var projects: [Project] = []
-    /// Боты (BotModel.swift)
+    /// Боты (BotModel.swift) и группы ботов (GroupModel.swift)
     var bots: [Bot] = []
+    var groups: [BotGroup] = []
     /// Навыки (SkillModel.swift) и сколько раз модель их брала
     var skills: [Skill] = []
     var skillUses: [String: Int] = [:]
@@ -141,6 +142,7 @@ public final class AppModel {
         memories = (try? store.memories()) ?? []
         projects = (try? store.projects()) ?? []
         bots = (try? store.bots()) ?? []
+        groups = (try? store.groups()) ?? []
         skills = SkillLibrary(root: paths.skills).all()
         connectors = MCPFile.load(paths.mcp)
         hooks = HooksFile.load(paths.hooks)

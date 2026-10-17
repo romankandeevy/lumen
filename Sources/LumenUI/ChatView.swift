@@ -19,6 +19,7 @@ struct ChatView: View {
     private var folder: URL? { chat.conversation?.folder.map { URL(fileURLWithPath: $0) } ?? app.agentFolder }
     /// Открыт постоянный разговор бота
     private var bot: Bot? { chat.conversation?.kind == .bot ? app.bot(chat.conversation?.botID) : nil }
+    private var group: BotGroup? { chat.conversation?.kind == .group ? app.group(chat.conversation?.groupID) : nil }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -39,7 +40,7 @@ struct ChatView: View {
             if chat.messages.isEmpty && !chat.busy {
                 Group {
                     // новая задача агента — вариант A: поле по центру, своё нижнее поле не нужно
-                    if let bot { botEmpty(bot) } else if agent { AgentHome(app: app, draft: $draft, attachments: $attachments, backend: backend) } else { empty }
+                    if let group { GroupEmpty(app: app, group: group, draft: $draft) } else if let bot { botEmpty(bot) } else if agent { AgentHome(app: app, draft: $draft, attachments: $attachments, backend: backend) } else { empty }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -75,7 +76,9 @@ struct ChatView: View {
     /// h-14 border-b px-5 gap-3: знак 28 со сферой 18, заголовок text-sm medium, подпись text-xs
     private var header: some View {
         HStack(spacing: 12) {
-            if let bot {
+            if let group {
+                GroupAvatars(bots: app.groupMembers(group), size: 24)
+            } else if let bot {
                 BotAvatar(bot: bot, size: 28)
             } else if agent {
                 Icon("folder", 16).foregroundStyle(p.glow)
@@ -85,7 +88,11 @@ struct ChatView: View {
                 Orb(state: app.orb, size: 18).frame(width: 28, height: 28)
             }
             VStack(alignment: .leading, spacing: 0) {
-                if let bot {
+                if let group {
+                    Text(group.name).tw(14, .medium, lh: 20).lineLimit(1)
+                    Text("Группа · " + app.groupMembers(group).map { "@\($0.id)" }.joined(separator: ", "))
+                        .tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(1)
+                } else if let bot {
                     Text(bot.name).tw(14, .medium, lh: 20).lineLimit(1)
                     HStack(spacing: 6) {
                         Text("@\(bot.id)").foregroundStyle(BotColor.accent(bot.hue))
@@ -98,7 +105,7 @@ struct ChatView: View {
                 } else {
                     Text(agent ? "Новая задача" : "Новый чат").tw(14, .medium, lh: 20).lineLimit(1)
                 }
-                if bot != nil {
+                if bot != nil || group != nil {
                 } else if agent {
                     HStack(spacing: 6) {
                         Text(folder.map { AppModel.isHome($0) ? "Агент во всех моих файлах" : "Агент в папке \($0.lastPathComponent)" } ?? "Агент во всех моих файлах")
@@ -114,6 +121,7 @@ struct ChatView: View {
             }
             Spacer()
             if let bot { IconButton(icon: "pencil", help: "Изменить бота") { app.page = .botEditor(bot.id) } }
+            if let group { IconButton(icon: "pencil", help: "Изменить группу") { app.page = .groupEditor(group.id) } }
             IconButton(icon: "panel-right", help: bot == nil ? "Контекст: память, окно, расход" : "Паспорт бота: что может и что отрезано",
                        active: app.prefs.contextOpen) {
                 app.update { $0.contextOpen.toggle() }
@@ -815,7 +823,7 @@ struct Composer: View {
                 .overlay(alignment: .bottom) { p.border.frame(height: 1) }
             }
             if !attachments.isEmpty { AttachmentStrip(items: $attachments) }
-            TextField(big ? "Опиши задачу: что сделать, починить или проверить" : (agent ? "Что сделать в проекте?" : (currentBot.map { "Задача для «\($0.name)»" } ?? "Просто напиши")),
+            TextField(big ? "Опиши задачу: что сделать, починить или проверить" : (agent ? "Что сделать в проекте?" : (currentBot.map { "Задача для «\($0.name)»" } ?? (chat.conversation?.kind == .group ? "Написать группе · @id — ответит один" : "Просто напиши"))),
                       text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.geist(big ? 15 : 14))

@@ -21,7 +21,8 @@ public struct RootView: View {
                 case .project(let id): ProjectView(app: app, projectID: id)
                 case .settings: SettingsView(app: app)
                 case .bots: BotsView(app: app)
-                case .bot: ChatView(app: app)
+                case .bot, .group: ChatView(app: app)
+                case .groupEditor(let id): GroupEditor(app: app, groupID: id).id(id ?? "new")
                 case .botEditor(let id): BotEditor(app: app, botID: id).id(id ?? "new")
                 case .skills: SkillsView(app: app)
                 case .skillEditor(let name): SkillEditor(app: app, name: name).id(name ?? "new")
@@ -519,8 +520,22 @@ struct BotsSidebar: View {
             NavRow(title: "Все боты", icon: "layout-grid", active: app.page == .bots) { app.page = .bots }
                 .padding(.bottom, 12)
             if !app.bots.isEmpty {
+                HStack {
+                    Text("Группы").tw(12, lh: 16).foregroundStyle(p.mutedFg)
+                    Spacer()
+                    IconButton(icon: "plus", help: "Создать группу ботов") { app.page = .groupEditor(nil) }
+                }
+                .padding(.horizontal, 10).padding(.bottom, 4)
+                if app.groups.isEmpty {
+                    Button { app.page = .groupEditor(nil) } label: {
+                        IconLabel(text: "Собрать группу из ботов", icon: "users", size: 14).tw(13, lh: 18).foregroundStyle(p.mutedFg)
+                            .padding(.horizontal, 10).padding(.vertical, 6).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                ForEach(app.groups) { g in GroupRow(app: app, group: g) }
                 Text("Боты").tw(12, lh: 16).foregroundStyle(p.mutedFg)
-                    .padding(.horizontal, 10).padding(.bottom, 4)
+                    .padding(.horizontal, 10).padding(.bottom, 4).padding(.top, 12)
                 ForEach(app.bots) { b in BotRow(app: app, bot: b) }
             }
         }

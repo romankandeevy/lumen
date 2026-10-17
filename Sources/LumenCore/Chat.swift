@@ -159,7 +159,7 @@ public enum AgentMode: String, Codable, Sendable, CaseIterable, Identifiable {
 }
 
 /// Чат — просто разговор; агент — работа в папке проекта
-public enum ConversationKind: String, Codable, Sendable { case chat, agent, bot }
+public enum ConversationKind: String, Codable, Sendable { case chat, agent, bot, group }
 
 /// Шаг агента: что он делал (читал, правил, запускал) — из вызовов инструментов
 public struct AgentStep: Codable, Sendable, Equatable, Hashable {
@@ -346,6 +346,8 @@ public struct Conversation: Codable, Sendable, Equatable, Identifiable, Hashable
     public var projectID: String?
     /// Постоянный разговор этого бота (kind = .bot)
     public var botID: String?
+    /// Разговор группы ботов (kind = .group) — id группы
+    public var groupID: String?
     /// Режим агента в этом разговоре
     public var mode: AgentMode?
     public var createdAt: Date

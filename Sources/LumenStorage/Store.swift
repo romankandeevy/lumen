@@ -220,6 +220,17 @@ public final class Store: Sendable {
                 t.add(column: "chapter", .boolean).notNull().defaults(to: false)
             }
         }
+        m.registerMigration("v17-groups") { db in
+            try db.create(table: "botGroup") { t in
+                t.primaryKey("id", .text)
+                t.column("name", .text).notNull()
+                t.column("hue", .double).notNull()
+                t.column("members", .jsonText).notNull()
+                t.column("seen", .jsonText).notNull()
+                t.column("createdAt", .datetime).notNull()
+            }
+            try db.alter(table: "conversation") { t in t.add(column: "groupID", .text).indexed() }
+        }
         return m
     }
 
@@ -251,6 +262,28 @@ public final class Store: Sendable {
     }
 
     /// Бот уходит вместе со своим разговором; его ответы в других чатах остаются
+    // MARK: группы ботов
+
+    public func groups() throws -> [BotGroup] {
+        try db.read { db in try BotGroup.order(Column("createdAt")).fetchAll(db) }
+    }
+
+    public func save(_ g: BotGroup) throws {
+        try db.write { db in try g.save(db) }
+    }
+
+    /// Группа и её разговор
+    public func deleteGroup(_ id: String) throws {
+        try db.write { db in
+            let convs = try String.fetchAll(db, sql: "SELECT id FROM conversation WHERE groupID = ?", arguments: [id])
+            for c in convs {
+                try db.execute(sql: "DELETE FROM message WHERE conversationID = ?", arguments: [c])
+                try db.execute(sql: "DELETE FROM conversation WHERE id = ?", arguments: [c])
+            }
+            try db.execute(sql: "DELETE FROM botGroup WHERE id = ?", arguments: [id])
+        }
+    }
+
     public func deleteBot(_ id: String) throws {
         try db.write { db in
             let convs = try String.fetchAll(db, sql: "SELECT id FROM conversation WHERE botID = ? AND kind = 'bot'", arguments: [id])
@@ -463,6 +496,10 @@ public final class Store: Sendable {
         guard !ids.isEmpty else { return [] }
         return try db.read { db in try MemoryFact.fetchAll(db, keys: ids) }
     }
+}
+
+extension BotGroup: FetchableRecord, PersistableRecord {
+    public static let databaseTableName = "botGroup"
 }
 
 extension Bot: FetchableRecord, PersistableRecord {

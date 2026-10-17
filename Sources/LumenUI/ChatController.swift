@@ -258,7 +258,7 @@ final class ChatController {
         }
         if isNew { app.reloadConversations() }
         // «@tester …» в обычном чате — задачу выполняет бот, ответ приходит сюда же (техплан §4.6)
-        let delegate = c.kind == .bot ? nil : app.mention(in: text)
+        let delegate = c.kind == .bot || c.kind == .group ? nil : app.mention(in: text)
 
         let tr = Turn(c)
         tr.bot = delegate?.0.id ?? (c.kind == .bot ? c.botID : nil)
@@ -267,7 +267,9 @@ final class ChatController {
         let history = messages
         tr.task = Task { [weak self] in
             guard let self else { return }
-            if let (bot, task) = delegate {
+            if c.kind == .group {
+                await self.runGroup(c, attachments: attachments)
+            } else if let (bot, task) = delegate {
                 await self.runDelegation(c, bot: bot, task: task, attachments: attachments)
             } else if c.model.isGPT {
                 await self.runCodex(c, text: self.unseenContext(history, c) + text, attachments: attachments)
@@ -281,6 +283,102 @@ final class ChatController {
             self.settleOrb()
             self.app.reloadConversations()
         }
+    }
+
+    // MARK: группа ботов (как в Hermes Agent: раунды по кругу, «(pass)», @ — кто отвечает)
+
+    private func runGroup(_ c: Conversation, attachments: [Attachment]) async {
+        guard var g = app.group(c.groupID), let cli = app.cli else {
+            await finish(c, text: "", error: app.cli == nil ? "Claude Code не найден." : "Группа не найдена.")
+            return
+        }
+        let members = app.groupMembers(g)
+        guard !members.isEmpty else { await finish(c, text: "", error: "В группе нет ботов — добавь их в настройках группы."); return }
+        var sent = 0
+        rounds: for round in 0..<BotGroup.maxRounds {
+            let start = (try? app.store.messages(in: c.id)) ?? []
+            let speakers = GroupRoom.rotate(GroupRoom.responders(log: start, members: members), round: round)
+            let addressed = round == 0 ? GroupRoom.addressed(log: start, members: members) : []
+            var spoke = false
+            for bot in speakers {
+                if isStopped(c) || sent >= BotGroup.maxMessages { break rounds }
+                let log = (try? app.store.messages(in: c.id)) ?? []
+                let delta = GroupRoom.delta(log, after: g.seen[bot.id], viewer: bot, userName: app.profile.name, members: members)
+                guard !delta.isEmpty else { continue }
+                let prompt = GroupRoom.prompt(group: g, viewer: bot, members: members, delta: delta)
+                // вложения — только тому, кто видит их впервые
+                let fresh = log.filter { ($0.id ?? 0) > (g.seen[bot.id] ?? 0) }.flatMap(\.attachments)
+                var reply = await memberTurn(c, bot: bot, prompt: prompt, attachments: fresh, cli: cli, resume: g.seen[bot.id] != nil)
+                g.seen[bot.id] = log.last?.id ?? 0
+                if let r = reply, GroupRoom.isPass(r), addressed.contains(bot.id), !isStopped(c) {
+                    reply = await memberTurn(c, bot: bot, prompt: GroupRoom.addressedNudge, attachments: [], cli: cli, resume: true)
+                }
+                if let r = reply, !GroupRoom.isPass(r) {
+                    var m = ChatMessage(conversationID: c.id, role: .assistant, text: r.trimmingCharacters(in: .whitespacesAndNewlines), model: bot.model)
+                    m.botID = bot.id
+                    if let saved = try? app.store.save(m) {
+                        if conversation?.id == c.id { messages.append(saved) }
+                        g.seen[bot.id] = saved.id
+                    }
+                    sent += 1
+                    spoke = true
+                }
+                g = app.saveGroup(g)
+            }
+            // раунд, где все промолчали, — комната затихла
+            if !spoke { break }
+        }
+        turns[c.id]?.message = nil
+    }
+
+    /// Ход одного участника: его процесс claude в этой группе; текст печатается в чат от его имени.
+    /// «(pass)» на экран не попадает. nil — не ответил (ошибка, стоп).
+    private func memberTurn(_ c: Conversation, bot: Bot, prompt: String, attachments: [Attachment], cli: ClaudeCLI, resume: Bool,
+                            retried: Bool = false) async -> String? {
+        guard let tr = turns[c.id] else { return nil }
+        let mc = app.memberConversation(c, bot: bot)
+        tr.bot = bot.id
+        tr.thinking = true
+        tr.message = nil
+        tr.received = ""
+        tr.delegate = mc.id
+        defer { tr.delegate = nil }
+        var text = ""
+        var shown = false
+        var result: ClaudeEvent.TurnResult?
+        do {
+            let session = try cliSession(for: mc, cli: cli, resume: resume)
+            let turn = attachments.isEmpty ? try session.send(prompt)
+                : try session.send(content: Attachment.userContent(text: prompt, attachments: attachments, agent: true))
+            for await ev in turn {
+                switch ev {
+                case .textDelta(let t):
+                    text += t
+                    // пока это может оказаться «(pass)» — не показываем
+                    let head = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    if !shown, BotGroup.pass.hasPrefix(head) || "pass".hasPrefix(head) { continue }
+                    if !shown { shown = true; appendStreaming(text, c) } else { appendStreaming(t, c) }
+                case .finished(let r): result = r
+                default: break
+                }
+            }
+            if result?.ok != true, !retried, (session.errorOutput + (result?.text ?? "")).localizedCaseInsensitiveContains("no conversation found") {
+                sessions[mc.id] = nil
+                return await memberTurn(c, bot: bot, prompt: prompt, attachments: attachments, cli: cli, resume: false, retried: true)
+            }
+        } catch {
+            app.log("Участник @\(bot.id) не запустился: \(error.localizedDescription)", conversation: c)
+            return nil
+        }
+        await drainReveal(c, instant: isStopped(c))
+        tr.message = nil
+        tr.received = ""
+        guard result?.ok == true else {
+            if !isStopped(c) { app.log("Участник @\(bot.id) не ответил: \(result?.text ?? "")", conversation: c) }
+            sessions[mc.id] = nil
+            return isStopped(c) && !text.isEmpty ? text : nil
+        }
+        return text.isEmpty ? (result?.text ?? "") : text
     }
 
     /// Lumen сам позвал бота (чат по ключу API): бот работает в своём разговоре, ответ уходит Lumen инструментом

@@ -587,7 +587,18 @@ struct BotEditor: View {
                 }
             }
             HStack(spacing: 8) {
-                GlowField(placeholder: "Например: проверяет сборки моих Mac-приложений и пишет, что сломалось", text: $phrase) { describe() }
+                // в несколько строк: длинное описание видно целиком, курсор не уезжает за край
+                TextField(text: $phrase, axis: .vertical) {
+                    Text("Например: проверяет сборки моих Mac-приложений и пишет, что сломалось").foregroundStyle(p.mutedFg.opacity(0.7))
+                }
+                .textFieldStyle(.plain)
+                .font(.geist(16))
+                .lineLimit(1...5)
+                .onSubmit { describe() }
+                .padding(.horizontal, 16).padding(.vertical, 11)
+                .frame(minHeight: 44)
+                .background(p.input.opacity(0.3), in: RoundedRectangle(cornerRadius: R.lg))
+                .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.glow.opacity(0.35)))
                 LButton(title: drafting ? "Настраиваю…" : "Настроить", icon: "sparkles", kind: .primary, busy: drafting) { describe() }
                     .disabled(phrase.trimmingCharacters(in: .whitespaces).isEmpty || drafting || app.cli == nil)
             }
