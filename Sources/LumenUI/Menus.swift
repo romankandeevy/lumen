@@ -161,7 +161,7 @@ struct SearchLayer: View {
             VStack(spacing: 0) {
                 HStack(spacing: 10) {
                     Icon("search", 16).foregroundStyle(p.mutedFg)
-                    TextField("Найти в разговорах: слово, проект, файл", text: $query)
+                    TextField("Найти в названиях и тексте всех разговоров", text: $query)
                         .textFieldStyle(.plain).font(.geist(15)).focused($focused)
                         .onSubmit { if let first = results.first { open(first.0) } }
                 }
@@ -170,7 +170,7 @@ struct SearchLayer: View {
                 // по высоте найденного, но не выше 380 — дальше прокрутка
                 // высота по найденному (строка 36, со строкой найденного места 56), не выше 380
                 ScrollView { list }
-                    .frame(height: min(380, results.isEmpty ? 68 : results.reduce(12) { $0 + ($1.1 == nil ? 36 : 56) + 2 }))
+                    .frame(height: min(420, results.isEmpty ? 68 : results.reduce(60) { $0 + ($1.1 == nil ? 36 : 56) + 2 }))
             }
             .frame(width: 560)
             .background(p.popover, in: RoundedRectangle(cornerRadius: R.xl))
@@ -189,11 +189,24 @@ struct SearchLayer: View {
                             Text("Такого в разговорах не было.").tw(14, lh: 20).foregroundStyle(p.mutedFg)
                                 .frame(maxWidth: .infinity).padding(.vertical, 24)
                         }
-                        ForEach(results, id: \.0.id) { c, snippet in
+                        // два раздела: совпало в названии и нашлось в самой переписке
+                        let typed = !query.trimmingCharacters(in: .whitespaces).isEmpty
+                        let titled = results.filter { r in byTitle.contains { $0.id == r.0.id } }
+                        let inText = results.filter { r in !byTitle.contains { $0.id == r.0.id } }
+                        if typed && !titled.isEmpty { header("Названия") }
+                        ForEach(titled, id: \.0.id) { c, snippet in
+                            SearchRow(c: c, bot: c.botID.flatMap { id in app.bots.first { $0.id == id } }, snippet: snippet) { open(c) }
+                        }
+                        if typed && !inText.isEmpty { header("В переписке") }
+                        ForEach(inText, id: \.0.id) { c, snippet in
                             SearchRow(c: c, bot: c.botID.flatMap { id in app.bots.first { $0.id == id } }, snippet: snippet) { open(c) }
                         }
                     }
                     .padding(6)
+    }
+
+    private func header(_ t: String) -> some View {
+        Text(t).tw(11, .medium, lh: 14).foregroundStyle(p.mutedFg).padding(.horizontal, 10).padding(.top, 6).padding(.bottom, 2)
     }
 
     /// Сначала совпадения в названии, потом — в тексте (с найденным местом)

@@ -338,6 +338,8 @@ struct DiffSheet: View {
     }
 
     private func color(_ l: Substring) -> Color {
+        // «Маркеры различий: +/−» — без цвета, только знаки
+        if p.diffSigns { return l.hasPrefix("@@") ? p.mutedFg : p.foreground.opacity(0.85) }
         if l.hasPrefix("+++") || l.hasPrefix("---") || l.hasPrefix("diff ") || l.hasPrefix("index ") { return p.mutedFg }
         if l.hasPrefix("+") { return Color(hex: 0x6EE7B7) }
         if l.hasPrefix("-") { return Palette.destructive }
@@ -346,6 +348,7 @@ struct DiffSheet: View {
     }
 
     private func bg(_ l: Substring) -> Color {
+        if p.diffSigns { return .clear }
         if l.hasPrefix("+") && !l.hasPrefix("+++") { return Color(hex: 0x6EE7B7).opacity(0.06) }
         if l.hasPrefix("-") && !l.hasPrefix("---") { return Palette.destructive.opacity(0.06) }
         return .clear

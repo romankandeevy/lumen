@@ -9,13 +9,17 @@ public struct Palette: Sendable {
     /// Свет Люмена: акцент — не заливка, а свечение
     let glow, glowCore, glowSoftBase, borderBase: Color
 
-    var border: Color { borderBase.opacity(0.08) }
-    var input: Color { borderBase.opacity(0.11) }
-    var sidebarBorder: Color { borderBase.opacity(0.07) }
+    var border: Color { borderBase.opacity(0.08 * borderScale) }
+    var input: Color { borderBase.opacity(0.11 * borderScale) }
+    var sidebarBorder: Color { borderBase.opacity(0.07 * borderScale) }
     var glowSoft: Color { glowSoftBase.opacity(isMono ? 0.12 : 0.18) }
     var glowFaint: Color { glowSoftBase.opacity(isMono ? 0.04 : 0.07) }
     let isMono: Bool
     var isLight = false
+    /// Контраст из настроек: во сколько раз заметнее линии
+    var borderScale = 1.0
+    /// Разница правок — только знаками +/−, без цвета строк
+    var diffSigns = false
 
     /// Текст и значки на светящейся заливке (кнопка отправки, отметка): на тёмной теме — чёрные, на светлой — белые
     var onGlow: Color { isLight ? .white : .black }
@@ -118,10 +122,57 @@ public struct Palette: Sendable {
         }
     }
 
-    /// Цвета окна: выбранная тема при выбранном свете (системный — как сейчас в macOS)
+    /// Тема для света: при раздельных режимах у тёмного своя
+    static func themeID(_ prefs: Preferences, dark: Bool) -> String {
+        dark && prefs.separateModes ? (prefs.darkThemeID ?? prefs.themeID) : prefs.themeID
+    }
+
+    static func overridesKey(_ id: String, dark: Bool) -> String { id + (dark ? "|dark" : "|light") }
+
+    /// Цвета окна: выбранная тема при выбранном свете (системный — как сейчас в macOS), поверх — свои цвета и контраст
     static func resolve(_ prefs: Preferences, systemDark: Bool) -> Palette {
         let dark = prefs.appearance == .system ? systemDark : prefs.appearance == .dark
-        return Family.find(prefs.themeID, prefs).palette(dark: dark)
+        let id = themeID(prefs, dark: dark)
+        var p = Family.find(id, prefs).palette(dark: dark)
+        if let o = prefs.themeOverrides[overridesKey(id, dark: dark)] { p = p.with(o) }
+        return p.with(contrast: prefs.contrast, diffSigns: prefs.diffMarkers == .signs)
+    }
+
+    /// Свои цвета: акцент — свет; фон — фон, а карточки и панели выводятся из него; текст — текст и подписи
+    func with(_ o: ThemeOverrides) -> Palette {
+        let bg = o.background.flatMap(Color.init(hexString:)) ?? background
+        let fg = o.foreground.flatMap(Color.init(hexString:)) ?? foreground
+        let glowC = o.accent.flatMap(Color.init(hexString:)) ?? glow
+        let newBg = o.background != nil, newFg = o.foreground != nil
+        var p = Palette(
+            background: bg, foreground: fg,
+            card: newBg ? bg.mixed(with: fg, 0.035) : card,
+            secondary: newBg ? bg.mixed(with: fg, 0.1) : secondary,
+            muted: newBg ? bg.mixed(with: fg, 0.08) : muted,
+            mutedFg: newFg || newBg ? fg.mixed(with: bg, 0.42) : mutedFg,
+            sidebar: newBg ? bg.mixed(with: isLight ? .white : .black, isLight ? 0.4 : 0.35) : sidebar,
+            sidebarAccent: newBg ? bg.mixed(with: fg, 0.07) : sidebarAccent,
+            primary: newFg ? fg : primary, primaryFg: newBg ? bg : primaryFg,
+            popover: newBg ? bg.mixed(with: fg, 0.05) : popover,
+            glow: glowC, glowCore: o.accent != nil ? glowC.mixed(with: .white, 0.7) : glowCore,
+            glowSoftBase: o.accent != nil ? glowC : glowSoftBase,
+            borderBase: newFg ? fg : borderBase, isMono: isMono, isLight: isLight)
+        p.borderScale = borderScale
+        p.diffSigns = diffSigns
+        return p
+    }
+
+    /// Контраст 0…100 (50 — как задумано): резче или мягче линии и подписи
+    func with(contrast: Double, diffSigns: Bool) -> Palette {
+        let k = (contrast - 50) / 50 // −1…1
+        let muted = k > 0 ? mutedFg.mixed(with: foreground, 0.55 * k) : mutedFg.mixed(with: background, 0.35 * -k)
+        var p = Palette(background: background, foreground: foreground, card: card, secondary: secondary, muted: self.muted,
+                        mutedFg: muted, sidebar: sidebar, sidebarAccent: sidebarAccent, primary: primary, primaryFg: primaryFg,
+                        popover: popover, glow: glow, glowCore: glowCore, glowSoftBase: glowSoftBase, borderBase: borderBase,
+                        isMono: isMono, isLight: isLight)
+        p.borderScale = max(0.4, 1 + k * 1.2)
+        p.diffSigns = diffSigns
+        return p
     }
 
     static func of(_ t: Theme, custom: CustomTheme = CustomTheme()) -> Palette {
@@ -135,6 +186,30 @@ public struct Palette: Sendable {
 }
 
 extension Color {
+    /// «#1E1A15» или «1E1A15»; не цвет — nil
+    init?(hexString s: String) {
+        let t = s.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "#", with: "")
+        guard t.count == 6, let v = UInt32(t, radix: 16) else { return nil }
+        self.init(hex: v)
+    }
+
+    /// «#RRGGBB»
+    var hexString: String {
+        let c = NSColor(self).usingColorSpace(.sRGB) ?? .black
+        return String(format: "#%02X%02X%02X", Int((c.redComponent * 255).rounded()), Int((c.greenComponent * 255).rounded()),
+                      Int((c.blueComponent * 255).rounded()))
+    }
+
+    /// Смесь: t = 0 — этот цвет, 1 — другой
+    func mixed(with other: Color, _ t: Double) -> Color {
+        let a = NSColor(self).usingColorSpace(.sRGB) ?? .black, b = NSColor(other).usingColorSpace(.sRGB) ?? .black
+        let k = CGFloat(min(1, max(0, t)))
+        return Color(.sRGB, red: Double(a.redComponent + (b.redComponent - a.redComponent) * k),
+                     green: Double(a.greenComponent + (b.greenComponent - a.greenComponent) * k),
+                     blue: Double(a.blueComponent + (b.blueComponent - a.blueComponent) * k),
+                     opacity: Double(a.alphaComponent + (b.alphaComponent - a.alphaComponent) * k))
+    }
+
     init(hex: UInt32) {
         self.init(.sRGB, red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255,
                   blue: Double(hex & 0xFF) / 255)
@@ -153,6 +228,8 @@ private struct ChatTextKey: EnvironmentKey {
 struct ChatText: Equatable {
     var font = ChatFont.geist
     var scale: Double = 1
+    /// Размер кода в блоках кода
+    var code: Double = 12.5
 }
 
 private struct ReducedMotionKey: EnvironmentKey {
@@ -180,7 +257,11 @@ extension EnvironmentValues {
 // MARK: шрифт Geist (как в макете), лежит в Resources/Fonts
 
 extension Font {
+    /// Масштаб шрифтов интерфейса (Настройки → Тема → Расширенные): 1 = базовые 14 pt
+    nonisolated(unsafe) static var uiScale: CGFloat = 1
+
     static func geist(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        let size = size * uiScale
         let name: String
         switch weight {
         case .medium: name = "Geist-Medium"
@@ -237,8 +318,8 @@ struct Icon: View {
 extension View {
     /// Шрифт Geist и высота строки: `.tw(14, lh: 20)` = text-sm, `.tw(15, lh: 24.75)` = text-[0.9375rem] leading-[1.65]
     func tw(_ size: CGFloat, _ weight: Font.Weight = .regular, lh: CGFloat) -> some View {
-        let natural = LineMetrics.height(size, weight)
-        let extra = max(0, lh - natural)
+        let natural = LineMetrics.height(size * Font.uiScale, weight)
+        let extra = max(0, lh * Font.uiScale - natural)
         return self.font(.geist(size, weight))
             .lineSpacing(extra)
             .padding(.vertical, extra / 2)

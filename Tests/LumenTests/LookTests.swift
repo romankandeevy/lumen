@@ -53,3 +53,43 @@ import Testing
     #expect(ClaudeHistory.Desktop.Settings.mode("plan") == .plan)
     #expect(ClaudeHistory.Desktop.Settings.mode(nil) == nil)
 }
+
+/// Таблица markdown — таблицей, и текст до и после неё не теряется
+@MainActor @Test func markdownTableIsParsed() {
+    let parts = RichText.parts("Блок:\n| Урок | Сценарий |\n|---|---|\n| 1.1 | Знакомство |\n| 1.2 | **Диалог** |\nИ дальше.")
+    #expect(parts == [.prose("Блок:"), .table([["Урок", "Сценарий"], ["1.1", "Знакомство"], ["1.2", "**Диалог**"]]), .prose("И дальше.")])
+    #expect(RichText.table("| a | b |\nне таблица") == nil)
+}
+
+/// Факт памяти Claude Code: описание из фронтматтера, тип → вид факта
+@Test func claudeMemoryFileBecomesFact() {
+    let md = "---\nname: x\ndescription: Рома любит короткие ответы\nmetadata:\n  type: feedback\ntype: feedback\n---\n\nТело"
+    let f = AppModel.claudeMemoryFact(md, key: "claude-memory:x")
+    #expect(f?.text == "Рома любит короткие ответы")
+    #expect(f?.kind == .pref)
+    #expect(f?.source == "Claude Code")
+}
+
+/// Свои цвета ложатся поверх темы только для своего света; контраст меняет линии
+@MainActor @Test func overridesApplyPerLight() {
+    var p = Preferences()
+    p.themeID = "lumen"
+    p.themeOverrides[Palette.overridesKey("lumen", dark: true)] = ThemeOverrides(background: "#102030")
+    let dark = Palette.resolve(p, systemDark: false)
+    p.appearance = .light
+    let light = Palette.resolve(p, systemDark: false)
+    #expect(dark.background.hexString == "#102030")
+    #expect(light.background.hexString != "#102030")
+    p.contrast = 100
+    #expect(Palette.resolve(p, systemDark: false).borderScale > 1.5)
+}
+
+/// Картинка из разговора Claude ложится файлом один раз, сколько ни синхронизируй
+@Test func claudeImageIsSavedOnce() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let data = Data([0x89, 0x50, 0x4E, 0x47, 1, 2, 3])
+    let a = try #require(ClaudeHistory.saveImage("image/png", data, to: dir))
+    let b = try #require(ClaudeHistory.saveImage("image/png", data, to: dir))
+    #expect(a.path == b.path && a.kind == .image)
+    #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path).count == 1)
+}

@@ -108,6 +108,9 @@ struct Segmented<T: Hashable>: View {
                 } label: {
                     Text(name)
                         .font(.geist(14, active ? .medium : .regular))
+                        // узко — текст ужимается, но не переносится по слогам
+                        .lineLimit(1).minimumScaleFactor(0.75)
+                        .padding(.horizontal, 6)
                         .foregroundStyle(active ? p.foreground : p.mutedFg)
                         .frame(maxWidth: .infinity)
                         .frame(height: 36)

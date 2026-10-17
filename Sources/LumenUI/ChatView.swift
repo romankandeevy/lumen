@@ -726,12 +726,28 @@ struct RichText: View {
                         .fixedSize(horizontal: false, vertical: true)
                 case .code(let s, let lang):
                     CodeBlock(code: s, lang: lang)
+                case .table(let rows):
+                    MarkdownTable(rows: rows)
                 }
             }
         }
     }
 
-    enum Part: Equatable { case prose(String), code(String, lang: String?) }
+    enum Part: Equatable { case prose(String), code(String, lang: String?), table([[String]]) }
+
+    /// Таблица markdown: строки «| a | b |», вторая — «|---|---|». Не таблица — nil
+    static func table(_ para: String) -> [[String]]? {
+        let lines = para.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+        guard lines.count >= 2, lines.allSatisfy({ $0.hasPrefix("|") }),
+              lines[1].replacingOccurrences(of: " ", with: "").allSatisfy({ "|-:".contains($0) }) else { return nil }
+        func cells(_ l: String) -> [String] {
+            var t = l
+            if t.hasPrefix("|") { t.removeFirst() }
+            if t.hasSuffix("|") { t.removeLast() }
+            return t.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
+        }
+        return [cells(lines[0])] + lines.dropFirst(2).map(cells)
+    }
 
     static func parts(_ text: String) -> [Part] {
         var out: [Part] = []
@@ -751,7 +767,24 @@ struct RichText: View {
                 // абзацы — отдельными блоками, как <p> в макете
                 for para in chunk.components(separatedBy: "\n\n") {
                     let s = para.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !s.isEmpty { out.append(.prose(s)) }
+                    guard !s.isEmpty else { continue }
+                    // таблица может идти сразу под строкой текста, без пустой строки
+                    let lines = s.components(separatedBy: "\n")
+                    let isRow = { (l: String) in l.trimmingCharacters(in: .whitespaces).hasPrefix("|") }
+                    if let first = lines.firstIndex(where: isRow) {
+                        let end = lines[first...].firstIndex(where: { !isRow($0) }) ?? lines.endIndex
+                        if let rows = table(lines[first..<end].joined(separator: "\n")) {
+                            let before = lines[..<first].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                            let after = lines[end...].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !before.isEmpty { out.append(.prose(before)) }
+                            out.append(.table(rows))
+                            if !after.isEmpty { out.append(.prose(after)) }
+                        } else {
+                            out.append(.prose(s))
+                        }
+                    } else {
+                        out.append(.prose(s))
+                    }
                 }
             }
         }
@@ -999,7 +1032,6 @@ struct Composer: View {
                 .padding(.bottom, 4)
                 .overlay(alignment: .bottom) { p.border.frame(height: 1) }
             }
-            if !slashItems.isEmpty { slashMenu }
             if !chat.openQueue.isEmpty { queueList }
             if !attachments.isEmpty { AttachmentStrip(items: $attachments) }
             HStack(alignment: .top, spacing: 6) {
@@ -1076,6 +1108,15 @@ struct Composer: View {
                 RoundedRectangle(cornerRadius: R.xxl).fill(BotColor.faint(b.hue)).blur(radius: 18).padding(-6).allowsHitTesting(false)
             }
         }
+        // меню «/» — плавающим окном: над полем, а у большого поля новой задачи — под ним (сверху заголовок)
+        .overlay(alignment: big ? .bottom : .top) {
+            if !slashItems.isEmpty {
+                slashMenu
+                    .alignmentGuide(big ? .bottom : .top) { d in big ? d[.top] - 8 : d[.bottom] + 8 }
+                    .transition(.opacity)
+            }
+        }
+        .zIndex(1)
         .onPasteCommand(of: [.fileURL, .png, .tiff, .jpeg]) { providers in app.attach(providers) { attachments.append($0) } }
         .frame(maxWidth: big ? .infinity : Self.width)
         .padding(.horizontal, big ? 0 : 20).padding(.bottom, big ? 0 : 20).padding(.top, big ? 0 : 4)
@@ -1140,36 +1181,46 @@ struct Composer: View {
         pickedSkill = nil
     }
 
-    /// Меню «/»: «Команды» и «Навыки» разделами, значок в квадратике, выбранная строка подсвечена; ↑↓ Tab Enter
+    /// Меню «/»: «Команды» и «Навыки» разделами, значок в квадратике, выбранная строка подсвечена; ↑↓ Tab Enter.
+    /// Плавает над полем, не выше 320 и листается — выбранная строка всегда видна
     private var slashMenu: some View {
         let items = slashItems
-        return VStack(alignment: .leading, spacing: 2) {
-            ForEach(Array(items.enumerated()), id: \.element.id) { i, it in
-                if i == 0 || items[i - 1].kind != it.kind {
-                    Text(it.kind == .action ? "Команды" : "Навыки").tw(11, .medium, lh: 14).foregroundStyle(p.mutedFg)
-                        .padding(.horizontal, 8).padding(.top, i == 0 ? 2 : 8).padding(.bottom, 2)
-                }
-                Button { pickSlash(it) } label: {
-                    HStack(spacing: 10) {
-                        Icon(it.icon, 14).foregroundStyle(i == slashIndex ? p.glow : p.mutedFg)
-                            .frame(width: 26, height: 26)
-                            .background(p.foreground.opacity(i == slashIndex ? 0.08 : 0.04), in: RoundedRectangle(cornerRadius: R.md))
-                        Text("/" + it.id).font(.geist(13, .medium)).foregroundStyle(p.foreground)
-                        Text(it.note).font(.geist(12)).foregroundStyle(p.mutedFg).lineLimit(1)
-                        Spacer(minLength: 0)
-                        if i == slashIndex { Text("↵").font(.geist(12)).foregroundStyle(p.mutedFg) }
+        return ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { i, it in
+                        if i == 0 || items[i - 1].kind != it.kind {
+                            Text(it.kind == .action ? "Команды" : "Навыки").tw(11, .medium, lh: 14).foregroundStyle(p.mutedFg)
+                                .padding(.horizontal, 10).padding(.top, i == 0 ? 4 : 10).padding(.bottom, 4)
+                        }
+                        Button { pickSlash(it) } label: {
+                            HStack(spacing: 10) {
+                                Icon(it.icon, 14).foregroundStyle(i == slashIndex ? p.glow : p.mutedFg)
+                                    .frame(width: 26, height: 26)
+                                    .background(p.foreground.opacity(i == slashIndex ? 0.08 : 0.04), in: RoundedRectangle(cornerRadius: R.md))
+                                Text("/" + it.id).font(.geist(13, .medium)).foregroundStyle(p.foreground).lineLimit(1).layoutPriority(1)
+                                Text(it.note).font(.geist(12)).foregroundStyle(p.mutedFg).lineLimit(1)
+                                Spacer(minLength: 0)
+                                if i == slashIndex { Text("↵").font(.geist(12)).foregroundStyle(p.mutedFg) }
+                            }
+                            .padding(.horizontal, 6).padding(.vertical, 3)
+                            .background(i == slashIndex ? p.foreground.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: R.lg))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .id(it.id)
+                        .onHover { if $0 { slashIndex = i } }
                     }
-                    .padding(.horizontal, 6).padding(.vertical, 4)
-                    .background(i == slashIndex ? p.foreground.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: R.lg))
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .onHover { if $0 { slashIndex = i } }
+                .padding(6)
             }
+            .scrollIndicators(.automatic)
+            .frame(height: min(320, CGFloat(items.count) * 33 + CGFloat(Set(items.map(\.kind)).count) * 26 + 12))
+            .onChange(of: slashIndex) { _, i in if items.indices.contains(i) { proxy.scrollTo(items[i].id) } }
         }
-        .padding(.bottom, 6)
-        .frame(maxHeight: 300)
-        .overlay(alignment: .bottom) { p.border.frame(height: 1) }
+        .background(p.popover, in: RoundedRectangle(cornerRadius: R.xl))
+        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.foreground.opacity(0.1)))
+        .shadow(color: .black.opacity(0.25), radius: 18, y: 6)
     }
 
     /// `FolderPicker`: папка проекта; у начатой сессии папка уже не меняется
@@ -1622,5 +1673,36 @@ struct SplitDropZone: View {
                 return true
             } isTargeted: { over = $0 }
         }
+    }
+}
+
+/// Таблица из ответа: шапка жирным, строки через тонкие линии, ячейки с разметкой; широкая — листается вбок
+struct MarkdownTable: View {
+    let rows: [[String]]
+
+    @Environment(\.palette) private var p
+
+    var body: some View {
+        let cols = rows.map(\.count).max() ?? 0
+        ScrollView(.horizontal, showsIndicators: false) {
+            Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { i, row in
+                    GridRow {
+                        ForEach(0..<cols, id: \.self) { j in
+                            Text(RichText.markdown(j < row.count ? row[j] : ""))
+                                .chatTw(14, lh: 21).fontWeight(i == 0 ? .semibold : .regular)
+                                .textSelection(.enabled)
+                                .frame(minWidth: 60, maxWidth: 320, alignment: .leading)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.horizontal, 12).padding(.vertical, 8)
+                        }
+                    }
+                    .background(i == 0 ? p.foreground.opacity(0.04) : .clear)
+                    if i < rows.count - 1 { Divider().overlay(p.border).gridCellUnsizedAxes(.horizontal) }
+                }
+            }
+        }
+        .background(p.card.opacity(0.5), in: RoundedRectangle(cornerRadius: R.lg))
+        .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
     }
 }

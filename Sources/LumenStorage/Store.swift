@@ -412,6 +412,11 @@ public final class Store: Sendable {
         }
     }
 
+    /// Поправить сообщение, не поднимая разговор наверх списка (починка старого, а не новое)
+    public func patch(_ message: ChatMessage) throws {
+        try db.write { db in var m = message; try m.save(db) }
+    }
+
     // MARK: настройки
 
     public func value<T: Codable>(_ key: String, as type: T.Type) throws -> T? {

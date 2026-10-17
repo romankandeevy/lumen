@@ -43,9 +43,19 @@ public final class AppModel {
         return live.active() != .idle
     }
     var orb: Orb.State = .idle
+    /// Разделённый экран: какую долю ширины занимает левый разговор
+    var splitFraction = 0.5
     /// macOS сейчас в тёмном оформлении — для света «Как в системе»
     var systemDark = AppModel.readSystemDark()
     static func readSystemDark() -> Bool { UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark" }
+    /// «Меньше движения»: всегда, никогда или как в macOS
+    var lessMotion: Bool {
+        switch prefs.motion {
+        case .on: true
+        case .off: false
+        case .system: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        }
+    }
     /// Цвета окна: тема при выбранном свете
     var palette: Palette { Palette.resolve(prefs, systemDark: systemDark) }
 
@@ -174,6 +184,8 @@ public final class AppModel {
         fixDelegatedMessages()
         memories = (try? store.memories()) ?? []
         projects = (try? store.projects()) ?? []
+        // раньше «+» у «Проектов» мог создать второй проект той же папки
+        mergeDuplicateProjects()
         bots = (try? store.bots()) ?? []
         groups = (try? store.groups()) ?? []
         skills = SkillLibrary(root: paths.skills).all()

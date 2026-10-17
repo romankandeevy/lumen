@@ -8,6 +8,7 @@ struct CodeBlock: View {
     let lang: String?
 
     @Environment(\.palette) private var p
+    @Environment(\.chatText) private var chatText
     @State private var copied = false
     @State private var hover = false
 
@@ -22,7 +23,7 @@ struct CodeBlock: View {
             .padding(.leading, 14).padding(.trailing, 6).padding(.top, 6)
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(Highlighter.highlight(code, lang: lang, palette: p))
-                    .font(.system(size: 12.5, design: .monospaced)).lineSpacing(4)
+                    .font(.system(size: chatText.code, design: .monospaced)).lineSpacing(4)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: true, vertical: true)
                     .padding(.horizontal, 14).padding(.top, 4).padding(.bottom, 14)

@@ -11,18 +11,25 @@ public struct RootView: View {
 
     public var body: some View {
         let p = app.palette
+        let _ = { Font.uiScale = CGFloat(app.prefs.uiFontSize / 14) }()
         GeometryReader { g in
         HStack(spacing: 0) {
             if !app.prefs.sidebarHidden { Sidebar(app: app).transition(.move(edge: .leading)) }
             Group {
                 switch app.page {
                 case .chat:
-                    HStack(spacing: 0) {
-                        ChatView(app: app)
-                        if let s = app.split {
-                            ChatView(app: app, controller: s)
-                                .overlay(alignment: .leading) { p.border.frame(width: 1) }
-                                .transition(.move(edge: .trailing).combined(with: .opacity))
+                    GeometryReader { geo in
+                        HStack(spacing: 0) {
+                            ChatView(app: app)
+                            if let s = app.split {
+                                // разделитель тянется: доли половин — от четверти до трёх четвертей
+                                ChatView(app: app, controller: s)
+                                    .frame(width: geo.size.width * (1 - app.splitFraction))
+                                    .overlay(alignment: .leading) {
+                                        SplitDivider(fraction: $app.splitFraction, total: geo.size.width)
+                                    }
+                                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                            }
                         }
                     }
                     .animation(.easeOut(duration: 0.2), value: app.split == nil)
@@ -79,14 +86,18 @@ public struct RootView: View {
         .task { if app.claude == .checking { await app.refreshClaude() } }
         .task { if app.codex == .checking { await app.refreshCodex() } }
         .task { await app.selfShotIfAsked() }
+        // перенесённые разговоры: названия, проекты и картинки — как в приложении Claude
+        .task { if ProcessInfo.processInfo.environment["LUMEN_SELFSHOT"] == nil { await app.refreshFromClaude() } }
         .task {
             // после проверки claude — назвать старые разговоры по-человечески (один раз)
             while app.claude == .checking { try? await Task.sleep(for: .milliseconds(300)) }
             if ProcessInfo.processInfo.environment["LUMEN_SELFSHOT"] == nil { await app.nameOldConversations() }
         }
         .environment(\.palette, p)
-        .environment(\.chatText, ChatText(font: app.prefs.chatFont, scale: app.prefs.textScale))
-        .environment(\.lessMotion, app.prefs.reducedMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+        .environment(\.chatText, ChatText(font: app.prefs.chatFont, scale: app.prefs.textScale, code: app.prefs.codeFontSize))
+        .environment(\.lessMotion, app.lessMotion)
+        // размер шрифта интерфейса поменяли — всё окно перерисовывается с новым размером
+        .id(app.prefs.uiFontSize)
         .preferredColorScheme(p.scheme)
         .tint(p.glow)
         .frame(minWidth: 900, minHeight: 620)
@@ -131,7 +142,9 @@ struct Sidebar: View {
             } else {
                 // как в Claude: сверху — действия строками с иконками
                 VStack(spacing: 2) {
-                    NavRow(title: app.tab == .agent ? "Новая задача" : "Новый чат", icon: "square-pen", active: false) {
+                    // открыт пустой новый чат (или новая задача) — пункт горит, как открытый разговор
+                    NavRow(title: app.tab == .agent ? "Новая задача" : "Новый чат", icon: "square-pen",
+                           active: app.page == .chat && app.chat.conversation == nil) {
                         app.tab == .agent ? app.newAgentTask() : app.newChat()
                     }
                     NavRow(title: "Кастомизация", icon: "wrench", active: skillsActive,
@@ -159,8 +172,7 @@ struct Sidebar: View {
                             section("p:" + pr.id, pr.name, items, project: pr)
                         }
                         if !app.projects.isEmpty { Color.clear.frame(height: 8) }
-                        let recent = mine.filter { $0.projectID == nil && !$0.pinned }
-                        section("recent", app.tab == .agent ? "Сессии" : "Недавние", recent, plus: { app.tab == .agent ? app.newAgentTask() : app.newChat() }, drop: .loose)
+                        // проектов нет — «Новый проект» там, где был бы их раздел: над разговорами
                         if app.projects.isEmpty {
                             Button { app.createProject(folder: app.tab == .agent ? app.agentFolder : nil) } label: {
                                 HStack(spacing: 6) {
@@ -172,7 +184,10 @@ struct Sidebar: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
+                            .padding(.bottom, 10)
                         }
+                        let recent = mine.filter { $0.projectID == nil && !$0.pinned }
+                        section("recent", app.tab == .agent ? "Сессии" : "Недавние", recent, plus: { app.tab == .agent ? app.newAgentTask() : app.newChat() }, drop: .loose)
                     }
                     .padding(.horizontal, 12).padding(.top, 16).padding(.bottom, 12)
                 }
@@ -206,33 +221,39 @@ struct Sidebar: View {
     private func section(_ key: String, _ title: String, _ items: [Conversation], project: Project? = nil,
                          plus: (() -> Void)? = nil, drop: SectionDrop? = nil) -> some View {
         let isCollapsed = collapsed.contains(key)
-        if let project {
-            // проект — строкой с папкой, как раньше; внутри — его разговоры; брось разговор — переложится сюда
-            ProjectRow(app: app, project: project, open: !isCollapsed, count: items.count) {
-                if isCollapsed { collapsed.remove(key) } else { collapsed.insert(key) }
+        // бросать можно на весь раздел — заголовок и его разговоры, а не только на надпись
+        VStack(alignment: .leading, spacing: 0) {
+            if let project {
+                // проект — строкой с папкой; внутри — его разговоры
+                ProjectRow(app: app, project: project, open: !isCollapsed, count: items.count) {
+                    if isCollapsed { collapsed.remove(key) } else { collapsed.insert(key) }
+                }
+            } else {
+                SidebarSectionHeader(app: app, title: app.draggingChat != nil && drop == .pin && items.isEmpty ? "Отпусти — закрепить" : title,
+                                     collapsed: nil, project: nil, toggle: {}, plus: plus)
             }
-            .dropTarget(app) { c in
+            if !isCollapsed {
+                ForEach(items) { c in ChatRow(app: app, c: c).padding(.leading, project == nil ? 0 : 14) }
+                if items.isEmpty && project != nil {
+                    Text("Пусто").tw(12, lh: 16).foregroundStyle(p.mutedFg.opacity(0.7)).padding(.leading, 38).padding(.vertical, 4)
+                }
+            }
+            // пока тянут разговор — у раздела запас снизу, чтобы попасть было легко
+            if app.draggingChat != nil && (drop != nil || project != nil) { Color.clear.frame(height: 18) }
+        }
+        .dropTarget(app, enabled: project != nil || drop != nil) { c in
+            if let project {
                 if c.pinned { app.togglePin(c) }
                 app.move(c, to: project.id)
                 collapsed.remove(key)
+                return
             }
-        } else {
-            SidebarSectionHeader(app: app, title: app.draggingChat != nil && drop == .pin && items.isEmpty ? "Закреплённые — отпусти, чтобы закрепить" : title,
-                                 collapsed: nil, project: nil, toggle: {}, plus: plus)
-                .dropTarget(app, enabled: drop != nil) { c in
-                    switch drop {
-                    case .pin: if !c.pinned { app.togglePin(c) }
-                    case .loose:
-                        if c.pinned { app.togglePin(c) }
-                        if c.projectID != nil { app.move(c, to: nil) }
-                    case nil: break
-                    }
-                }
-        }
-        if !isCollapsed {
-            ForEach(items) { c in ChatRow(app: app, c: c).padding(.leading, project == nil ? 0 : 14) }
-            if items.isEmpty && project != nil {
-                Text("Пусто").tw(12, lh: 16).foregroundStyle(p.mutedFg.opacity(0.7)).padding(.leading, 38).padding(.vertical, 4)
+            switch drop {
+            case .pin: if !c.pinned { app.togglePin(c) }
+            case .loose:
+                if c.pinned { app.togglePin(c) }
+                if c.projectID != nil { app.move(c, to: nil) }
+            case nil: break
             }
         }
         Color.clear.frame(height: project == nil ? 14 : 6)
@@ -714,6 +735,43 @@ private struct BotRow: View {
     }
 }
 
+
+/// Граница разделённого экрана: линия, при наведении — курсор «влево-вправо», тянется
+struct SplitDivider: View {
+    @Binding var fraction: Double
+    let total: CGFloat
+
+    @Environment(\.palette) private var p
+    @State private var start: Double?
+    @State private var hover = false
+
+    var body: some View {
+        p.border.frame(width: 1)
+            .overlay {
+                Rectangle().fill(p.foreground.opacity(hover || start != nil ? 0.25 : 0)).frame(width: 2)
+            }
+            .frame(width: 12)
+            .contentShape(Rectangle())
+            .onHover { inside in
+                hover = inside
+                if inside { NSCursor.resizeLeftRight.push() } else if start == nil { NSCursor.pop() }
+            }
+            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                .onChanged { v in
+                    let s = start ?? fraction
+                    if start == nil { start = s }
+                    var t = Transaction()
+                    t.disablesAnimations = true
+                    withTransaction(t) { fraction = min(0.75, max(0.25, s + Double(v.translation.width / max(total, 1)))) }
+                }
+                .onEnded { _ in
+                    start = nil
+                    if !hover { NSCursor.pop() }
+                })
+            .offset(x: -6)
+            .help("Потяни, чтобы поделить экран иначе")
+    }
+}
 
 /// Место, куда бросают разговор из списка: подсвечивается, пока над ним
 private struct ChatDropTarget: ViewModifier {

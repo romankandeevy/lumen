@@ -147,7 +147,7 @@ public enum ClaudeHistory {
             return d
         }
 
-        func group(_ id: String?) -> Group? { id.flatMap { id in groups.first { $0.id == id } } }
+        public func group(_ id: String?) -> Group? { id.flatMap { id in groups.first { $0.id == id } } }
 
         /// Разговор приложения продолжился в новой сессии claude — её id
         public func successor(of id: String) -> String? {
@@ -268,6 +268,22 @@ public enum ClaudeHistory {
     struct Prompt {
         var text: String
         var isSummary: Bool
+        /// Картинки из сообщения (base64 в записи claude) — сохраняются в папку вложений Lumen
+        var images: [(mime: String, data: Data)] = []
+    }
+
+    /// Картинка из разговора Claude — файлом во вложениях Lumen. Имя — по содержимому: при каждой
+    /// синхронизации та же картинка ложится в тот же файл, а не копится
+    static func saveImage(_ mime: String, _ data: Data, to dir: URL) -> Attachment? {
+        let ext = mime.split(separator: "/").last.map { $0 == "jpeg" ? "jpg" : String($0) } ?? "png"
+        var h: UInt64 = 1469598103934665603
+        for b in data { h = (h ^ UInt64(b)) &* 1099511628211 }
+        let url = dir.appendingPathComponent("claude-\(String(h, radix: 16)).\(ext)")
+        if !FileManager.default.fileExists(atPath: url.path) {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            guard (try? data.write(to: url)) != nil else { return nil }
+        }
+        return Attachment(name: "Картинка.\(ext)", kind: .image, mime: mime, path: url.path, size: data.count)
     }
 
     /// Реплика человека из строки: строка-текст или блоки text (не результаты инструментов, не служебное)
@@ -277,20 +293,24 @@ public enum ClaudeHistory {
         // ход начал не человек (уведомление о фоновой задаче, событие сессии, CI) — не его реплика
         if let kind = (o["origin"] as? [String: Any])?["kind"] as? String, kind != "human" { return nil }
         var text: String
+        var images: [(mime: String, data: Data)] = []
         if let s = m["content"] as? String {
             text = s
         } else if let blocks = m["content"] as? [[String: Any]] {
             if blocks.contains(where: { $0["type"] as? String == "tool_result" }) { return nil }
             text = blocks.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined(separator: "\n\n")
-            if blocks.contains(where: { $0["type"] as? String == "image" }) { text += text.isEmpty ? "[картинка]" : "\n\n[картинка]" }
+            for b in blocks where b["type"] as? String == "image" {
+                guard let src = b["source"] as? [String: Any], let b64 = src["data"] as? String, let data = Data(base64Encoded: b64) else { continue }
+                images.append((src["media_type"] as? String ?? "image/png", data))
+            }
         } else { return nil }
         if text.hasPrefix("This session is being continued from a previous conversation") { return Prompt(text: text, isSummary: true) }
         text = clean(text)
         let service = ["<command-name>", "<command-message>", "<local-command-stdout>", "<local-command-stderr>",
                        "[Request interrupted", "<bash-input>", "<bash-stdout>", "<task-notification>",
                        "<side-sessions-event", "<ci-monitor-event", "<agent-message"]
-        if text.isEmpty || service.contains(where: { text.hasPrefix($0) }) { return nil }
-        return Prompt(text: text, isSummary: false)
+        if service.contains(where: { text.hasPrefix($0) }) || (text.isEmpty && images.isEmpty) { return nil }
+        return Prompt(text: text, isSummary: false, images: images)
     }
 
     /// Без служебных вставок Claude Code: напоминаний системы и т. п.
@@ -366,7 +386,9 @@ public enum ClaudeHistory {
                     messages.append(ChatMessage(conversationID: conversationID, role: .assistant, text: "",
                                                 note: "Разговор сжат", createdAt: date ?? Date()))
                 } else {
-                    messages.append(ChatMessage(conversationID: conversationID, role: .user, text: p.text, createdAt: date ?? Date()))
+                    var m = ChatMessage(conversationID: conversationID, role: .user, text: p.text, createdAt: date ?? Date())
+                    m.attachments = p.images.compactMap { saveImage($0.mime, $0.data, to: AppPaths.standard.attachments) }
+                    messages.append(m)
                     planFresh = true
                 }
                 continue

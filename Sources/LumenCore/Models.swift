@@ -53,6 +53,25 @@ public struct UserTheme: Codable, Sendable, Equatable, Identifiable, Hashable {
     }
 }
 
+/// Свои цвета поверх темы (hex «#RRGGBB»): акцент, фон, текст. Свои для светлого и тёмного света
+public struct ThemeOverrides: Codable, Sendable, Equatable, Hashable {
+    public var accent: String?
+    public var background: String?
+    public var foreground: String?
+    public init(accent: String? = nil, background: String? = nil, foreground: String? = nil) {
+        self.accent = accent
+        self.background = background
+        self.foreground = foreground
+    }
+    public var isEmpty: Bool { accent == nil && background == nil && foreground == nil }
+}
+
+/// «Меньше движения»: как в системе, всегда или никогда
+public enum MotionPref: String, Codable, Sendable, CaseIterable { case system, on, off }
+
+/// Как показывать разницу правок: цветом строк или только знаками +/−
+public enum DiffMarkers: String, Codable, Sendable, CaseIterable { case color, signs }
+
 /// Шрифт текста переписки (Настройки → Шрифты и масштаб)
 public enum ChatFont: String, Codable, Sendable, CaseIterable {
     case geist, system, serif, mono
@@ -97,6 +116,18 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var textScale: Double = 1
     /// Браузер выезжает сам, когда агент открывает страницу или показывает макет
     public var browserAutoOpen = true
+    /// Свои цвета поверх темы: ключ — «id темы|light» или «id темы|dark»
+    public var themeOverrides: [String: ThemeOverrides] = [:]
+    /// Раздельные темы для светлого и тёмного света: тёмный берёт `darkThemeID`
+    public var separateModes = false
+    public var darkThemeID: String?
+    /// Размер шрифта интерфейса (база 14) и кода (база 12.5)
+    public var uiFontSize: Double = 14
+    public var codeFontSize: Double = 12.5
+    public var motion = MotionPref.system
+    /// Контраст 0…100: 50 — как задумано, больше — резче линии и подписи
+    public var contrast: Double = 50
+    public var diffMarkers = DiffMarkers.color
     /// Правая панель блоками, как в Claude: порядок, убранные и свёрнутые блоки
     public var panelOrder: [String] = ["plan", "session", "memory", "context", "usage"]
     public var panelHidden: [String] = []
@@ -160,6 +191,13 @@ public struct Preferences: Codable, Sendable, Equatable {
         chatFont = (try? c.decodeIfPresent(ChatFont.self, forKey: .chatFont)) ?? .geist
         textScale = (try? c.decodeIfPresent(Double.self, forKey: .textScale)) ?? 1
         browserAutoOpen = (try? c.decodeIfPresent(Bool.self, forKey: .browserAutoOpen)) ?? true
+        themeOverrides = (try? c.decodeIfPresent([String: ThemeOverrides].self, forKey: .themeOverrides)) ?? [:]
+        separateModes = (try? c.decodeIfPresent(Bool.self, forKey: .separateModes)) ?? false
+        darkThemeID = try? c.decodeIfPresent(String.self, forKey: .darkThemeID)
+        uiFontSize = (try? c.decodeIfPresent(Double.self, forKey: .uiFontSize)) ?? 14
+        codeFontSize = (try? c.decodeIfPresent(Double.self, forKey: .codeFontSize)) ?? 12.5
+        contrast = (try? c.decodeIfPresent(Double.self, forKey: .contrast)) ?? 50
+        diffMarkers = (try? c.decodeIfPresent(DiffMarkers.self, forKey: .diffMarkers)) ?? .color
         if let id = try? c.decodeIfPresent(String.self, forKey: .themeID) {
             themeID = id
             appearance = (try? c.decodeIfPresent(Appearance.self, forKey: .appearance)) ?? .dark
@@ -180,6 +218,8 @@ public struct Preferences: Codable, Sendable, Equatable {
         panelHidden = (try? c.decodeIfPresent([String].self, forKey: .panelHidden)) ?? []
         panelCollapsed = (try? c.decodeIfPresent([String].self, forKey: .panelCollapsed)) ?? []
         reducedMotion = try c.decodeIfPresent(Bool.self, forKey: .reducedMotion) ?? false
+        // до 1.4 был только «Меньше движения» вкл/выкл
+        motion = (try? c.decodeIfPresent(MotionPref.self, forKey: .motion)) ?? (reducedMotion ? .on : .system)
         model = try c.decodeIfPresent(ChatModel.self, forKey: .model) ?? .sonnet
         effort = try c.decodeIfPresent(Effort.self, forKey: .effort) ?? .medium
         chatWidth = try c.decodeIfPresent(ChatWidth.self, forKey: .chatWidth) ?? .normal

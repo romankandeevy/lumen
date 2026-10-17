@@ -101,7 +101,9 @@ public final class ClaudeSession: @unchecked Sendable {
             let never = disallowedTools + (disallowedTools.contains("Skill") ? [] : ["Skill"])
             a += ["--disallowedTools"] + never
             if let tools { a += ["--tools", tools.joined(separator: ",")] }
-            if !userSettings { a += ["--setting-sources", "", "--strict-mcp-config"] }
+            if !userSettings { a += ["--setting-sources", ""] }
+            // коннекторы — только свои, Lumen: ни MCP из ~/.claude, ни коннекторов аккаунта claude.ai (Рома, 17.10)
+            if !userSettings || mcpConfig != nil { a += ["--strict-mcp-config"] }
 
             if let mcpConfig { a += ["--mcp-config", mcpConfig] }
             if let s = Self.settings(file: settings, pluginsOff: pluginsOff) { a += ["--settings", s] }
@@ -132,7 +134,8 @@ public final class ClaudeSession: @unchecked Sendable {
 
         process.executableURL = cli.binary
         process.arguments = config.arguments
-        process.environment = Shell.env.merging(config.extraEnv) { $1 }
+        // коннекторы аккаунта claude.ai (Gmail, Notion…) в Lumen не подключаются: у него свои
+        process.environment = Shell.env.merging(["ENABLE_CLAUDEAI_MCP_SERVERS": "false"]) { $1 }.merging(config.extraEnv) { $1 }
         if let cwd = config.cwd { process.currentDirectoryURL = cwd }
         let output = Pipe(), errors = Pipe()
         process.standardInput = input

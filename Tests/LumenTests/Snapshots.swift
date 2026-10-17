@@ -552,7 +552,7 @@ enum Snap {
     Snap.registerFonts()
     let app = try Snap.app()
     app.finishOnboarding(name: "Рома", address: .ty, backend: .subscription, theme: .lumen)
-    for s in [SettingsView.Section.theme, .general, .fonts, .about, .uninstall, .importClaude, .persona] {
+    for s in [SettingsView.Section.theme, .general, .fonts, .about, .uninstall, .data, .persona] {
         app.page = .settings(s)
         try await Snap.save(RootView(app: app), "80-settings-\(s)")
     }

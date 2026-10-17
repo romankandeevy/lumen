@@ -58,7 +58,6 @@ struct SettingsView: View {
         NavGroup(title: "Внешний вид", icon: "palette", items: [.general, .theme, .fonts, .window, .chat, .pet]),
         NavGroup(title: "Характер", icon: "sparkles", items: [.persona]),
         NavGroup(title: "Модели и оплата", icon: "key-round", items: [.models]),
-        NavGroup(title: "Импорт из Claude Code", icon: "download", items: [.importClaude]),
         NavGroup(title: "Данные", icon: "database", items: [.data]),
         NavGroup(title: "О программе", icon: "info", items: [.about, .uninstall]),
     ]
@@ -154,8 +153,7 @@ struct SettingsView: View {
         case .pet: pet
         case .persona: EmptyView()
         case .models: page("Через что Lumen думает. Можно держать оба: подписку на каждый день и ключ API про запас.") { models }
-        case .importClaude: ImportSettings(app: app)
-        case .data: page(nil) { data }
+        case .importClaude, .data: DataSettings(app: app)
         case .about: AboutSettings(app: app)
         case .uninstall: UninstallSettings(app: app)
         }
@@ -206,7 +204,8 @@ struct SettingsView: View {
                     LButton(title: "Выбрать", icon: "palette", kind: .outline, small: true) { go(.theme) }
                 }
                 row("Меньше движения", "Сфера не дышит, свет не мерцает, значки не крутятся") {
-                    LSwitch(isOn: Binding(get: { app.prefs.reducedMotion }, set: { v in app.update { $0.reducedMotion = v } }))
+                    PillPicker(value: Binding(get: { app.prefs.motion }, set: { v in app.update { $0.motion = v; $0.reducedMotion = v == .on } }),
+                               options: [(.system, "Системный"), (.on, "Вкл."), (.off, "Выкл.")])
                 }
             }
             .frame(maxWidth: 680)
@@ -354,27 +353,6 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: данные
-
-    private var data: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Всё хранится на этом Маке").font(.geist(14))
-            Text(app.paths.root.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
-                .font(.system(size: 12, design: .monospaced)).foregroundStyle(p.mutedFg)
-                .textSelection(.enabled)
-            Text("Память, история чатов, настройки. Ничего не уходит в облако, кроме самих запросов к модели. Ключ API — в Связке ключей.")
-                .font(.geist(12)).foregroundStyle(p.mutedFg)
-            HStack(spacing: 8) {
-                LButton(title: "Показать в Finder", icon: "folder", kind: .outline, small: true) { app.showDataInFinder() }
-                LButton(title: "Пройти знакомство заново", icon: "sparkles", kind: .ghost, small: true) { app.restartOnboarding() }
-            }
-            .padding(.top, 12)
-        }
-        .padding(16)
-        .frame(maxWidth: 680, alignment: .leading)
-        .background(p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xl))
-        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
-    }
 }
 
 /// Пункт слева: значок и название; у группы — шеврон и рамка, когда внутри открыт её раздел
@@ -446,40 +424,388 @@ struct LightSwitch: View {
 
 // MARK: тема
 
-/// «Тема»: свет сверху справа, ниже карточки тем по две в ряд (миниатюра окна в цветах темы при нынешнем свете),
-/// в конце — «Новая тема». Своя тема правится прямо здесь: имя, оттенок, окраска фона.
+/// «Тема» (как «Визуальный стиль» в ChatGPT): режим карточками; тема списком с выгрузкой и загрузкой;
+/// свои акцент, фон и текст поверх темы; все темы карточками и «Новая тема»; «Расширенные» — шрифты, движение,
+/// раздельные темы для света и тьмы, контраст, маркеры различий
 struct ThemeSettings: View {
     @Bindable var app: AppModel
 
     @Environment(\.palette) private var p
+    @State private var advanced = true
+    @State private var note: String?
+
+    private var dark: Bool { !p.isLight }
+    private var themeID: String { Palette.themeID(app.prefs, dark: dark) }
+    private var key: String { Palette.overridesKey(themeID, dark: dark) }
+    private var overrides: ThemeOverrides { app.prefs.themeOverrides[key] ?? ThemeOverrides() }
+
+    private func setOverride(_ f: @escaping (inout ThemeOverrides) -> Void) {
+        let k = key
+        app.update { prefs in
+            var o = prefs.themeOverrides[k] ?? ThemeOverrides()
+            f(&o)
+            prefs.themeOverrides[k] = o.isEmpty ? nil : o
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Тема").tw(20, .semibold, lh: 28).tracking(-0.2)
-                    Text("У каждой темы есть светлые и тёмные цвета. Свет справа выбирает, какие из них сейчас.")
-                        .tw(14, lh: 20).foregroundStyle(p.mutedFg).frame(maxWidth: 460, alignment: .leading)
+            Text("Тема").tw(20, .semibold, lh: 28).tracking(-0.2)
+            Text("Свет, цвета и шрифты. У каждой темы есть светлые и тёмные цвета — режим выбирает, какие сейчас.")
+                .tw(14, lh: 20).foregroundStyle(p.mutedFg).padding(.top, 4)
+
+            card {
+                line("Режим") {
+                    HStack(spacing: 10) {
+                        ModeCard(app: app, mode: .system)
+                        ModeCard(app: app, mode: .light)
+                        ModeCard(app: app, mode: .dark)
+                    }
                 }
-                Spacer(minLength: 16)
-                LightSwitch(value: Binding(get: { app.prefs.appearance }, set: { v in app.update { $0.appearance = v } }))
             }
+            .padding(.top, 20)
+
+            card {
+                if app.prefs.separateModes {
+                    line("Тема при свете", divider: true) { themeMenu(dark: false) }
+                    line("Тема в темноте", divider: true) { themeMenu(dark: true) }
+                } else {
+                    line("Тема", divider: true) {
+                        HStack(spacing: 4) {
+                            IconButton(icon: "download", help: "Загрузить тему из буфера обмена") { importTheme() }
+                            IconButton(icon: "copy", help: "Скопировать тему — можно отдать другу") { exportTheme() }
+                            themeMenu(dark: false).padding(.leading, 6)
+                        }
+                    }
+                }
+                line("Акцентный цвет", divider: true) { accentMenu }
+                line("Фон", divider: true) {
+                    ColorField(color: p.background) { c in setOverride { $0.background = c?.hexString } }
+                }
+                line("Цвет текста") {
+                    ColorField(color: p.foreground) { c in setOverride { $0.foreground = c?.hexString } }
+                }
+                if !overrides.isEmpty {
+                    HStack {
+                        Text("Свои цвета — только для «\(Palette.Family.find(themeID, app.prefs).name)» \(dark ? "в темноте" : "при свете")")
+                            .tw(12, lh: 16).foregroundStyle(p.mutedFg)
+                        Spacer()
+                        LButton(title: "Вернуть цвета темы", icon: "rotate-ccw", kind: .ghost, small: true) {
+                            let k = key
+                            app.update { $0.themeOverrides[k] = nil }
+                        }
+                    }
+                    .padding(.bottom, 10)
+                }
+            }
+            .padding(.top, 12)
+            if let note { Text(note).tw(12, lh: 16).foregroundStyle(p.mutedFg).padding(.top, 8) }
+
+            GroupTitle(text: "Все темы", aside: "щелчок — выбрать").padding(.top, 28)
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
                 ForEach(Palette.Family.all(app.prefs)) { f in ThemeCard(app: app, family: f) }
                 NewThemeCard { createTheme() }
             }
-            .padding(.top, 24)
             if let i = app.prefs.userThemes.firstIndex(where: { $0.id == app.prefs.themeID }) {
-                UserThemeEditor(app: app, index: i).padding(.top, 20)
+                UserThemeEditor(app: app, index: i).padding(.top, 16)
+            }
+
+            Button { withAnimation(.easeOut(duration: 0.15)) { advanced.toggle() } } label: {
+                HStack(spacing: 6) {
+                    Text("Расширенные").tw(15, .medium, lh: 20)
+                    Icon(advanced ? "chevron-down" : "chevron-right", 13).foregroundStyle(p.mutedFg)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 32)
+            if advanced { advancedCards.padding(.top, 12) }
+        }
+    }
+
+    // MARK: части
+
+    private func card<C: View>(@ViewBuilder _ c: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 0) { c() }
+            .padding(.horizontal, 18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(p.card.opacity(0.45), in: RoundedRectangle(cornerRadius: R.xl))
+            .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
+    }
+
+    private func line<C: View>(_ title: String, _ note: String? = nil, divider: Bool = false, @ViewBuilder _ control: () -> C) -> some View {
+        HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).tw(14, .medium, lh: 20)
+                if let note { Text(note).tw(12, lh: 16).foregroundStyle(p.mutedFg) }
+            }
+            Spacer(minLength: 16)
+            control()
+        }
+        .padding(.vertical, 14)
+        .overlay(alignment: .bottom) { if divider { p.border.frame(height: 1) } }
+    }
+
+    /// Список тем: «Aa» в цвете темы и название
+    private func themeMenu(dark: Bool) -> some View {
+        let current = Palette.Family.find(dark ? (app.prefs.darkThemeID ?? app.prefs.themeID) : app.prefs.themeID, app.prefs)
+        return Menu {
+            ForEach(Palette.Family.all(app.prefs)) { f in
+                Button(f.name) {
+                    app.update { prefs in
+                        if dark && prefs.separateModes { prefs.darkThemeID = f.id } else { prefs.themeID = f.id }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Text("Aa").font(.geist(12, .semibold)).foregroundStyle(current.palette(dark: dark || !p.isLight ? true : false).glow)
+                    .frame(width: 24, height: 24).background(p.foreground.opacity(0.06), in: Circle())
+                Text(current.name).tw(14, lh: 20)
+                Icon("chevron-down", 13).foregroundStyle(p.mutedFg)
+            }
+            .padding(.leading, 4).padding(.trailing, 12).frame(height: 34)
+            .overlay(Capsule().strokeBorder(p.border))
+            .contentShape(Capsule())
+        }
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+    }
+
+    /// Готовые акценты и свой цвет
+    private var accentMenu: some View {
+        let presets: [(String, UInt32?)] = [("Цвет темы", nil), ("Янтарный", 0xFEC766), ("Красный", 0xE5484D), ("Оранжевый", 0xF76B15),
+                                             ("Зелёный", 0x30A46C), ("Бирюзовый", 0x12A594), ("Синий", 0x3E63DD), ("Розовый", 0xD6409F),
+                                             ("Белый", 0xEDEDED), ("Чёрный", 0x1A1A1A)]
+        let name = overrides.accent.flatMap { hex in presets.first { $0.1.map { Color(hex: $0).hexString } == hex }?.0 } ?? (overrides.accent == nil ? "Цвет темы" : "Свой")
+        return HStack(spacing: 8) {
+            Menu {
+                ForEach(presets, id: \.0) { n, v in
+                    Button(n) { setOverride { $0.accent = v.map { Color(hex: $0).hexString } } }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Circle().fill(p.glow).frame(width: 16, height: 16).overlay(Circle().strokeBorder(p.foreground.opacity(0.2)))
+                    Text(name).tw(14, lh: 20)
+                    Icon("chevron-down", 13).foregroundStyle(p.mutedFg)
+                }
+                .padding(.horizontal, 12).frame(height: 34)
+                .overlay(Capsule().strokeBorder(p.border))
+                .contentShape(Capsule())
+            }
+            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+            ColorPicker("", selection: Binding(get: { p.glow }, set: { c in setOverride { $0.accent = c.hexString } }), supportsOpacity: false)
+                .labelsHidden().help("Свой цвет")
+        }
+    }
+
+    private var advancedCards: some View {
+        VStack(spacing: 12) {
+            card {
+                line("Размер шрифта интерфейса", "Базовый размер текста в Lumen", divider: true) {
+                    NumberField(value: Binding(get: { app.prefs.uiFontSize }, set: { v in app.update { $0.uiFontSize = v } }), range: 12...18)
+                }
+                line("Размер шрифта кода", "Блоки кода в чатах и разница правок") {
+                    NumberField(value: Binding(get: { app.prefs.codeFontSize }, set: { v in app.update { $0.codeFontSize = v } }), range: 10...18)
+                }
+            }
+            card {
+                line("Уменьшение движения", "Меньше анимаций — или как в настройках macOS", divider: true) {
+                    PillPicker(value: Binding(get: { app.prefs.motion }, set: { v in app.update { $0.motion = v; $0.reducedMotion = v == .on } }),
+                               options: [(.system, "Системный"), (.on, "Вкл."), (.off, "Выкл.")])
+                }
+                line("Раздельные темы для света и темноты", "Своя тема при светлом режиме и своя — при тёмном") {
+                    LSwitch(isOn: Binding(get: { app.prefs.separateModes }, set: { v in
+                        app.update { $0.separateModes = v; if v && $0.darkThemeID == nil { $0.darkThemeID = $0.themeID } }
+                    }))
+                }
+            }
+            card {
+                line("Контраст") {
+                    HStack(spacing: 12) {
+                        Slider(value: Binding(get: { app.prefs.contrast }, set: { v in app.update { $0.contrast = v.rounded() } }), in: 0...100)
+                            .frame(width: 220)
+                        Text("\(Int(app.prefs.contrast))").tw(14, lh: 20).monospacedDigit().frame(width: 28, alignment: .trailing)
+                    }
+                }
+            }
+            card {
+                line("Маркеры различий", "Как показывать правки агента: цветом строк или знаками +/−") {
+                    PillPicker(value: Binding(get: { app.prefs.diffMarkers }, set: { v in app.update { $0.diffMarkers = v } }),
+                               options: [(.color, "Цвет"), (.signs, "+/−")])
+                }
             }
         }
     }
 
-    /// Новая тема — от оттенка нынешней, сразу выбрана, дальше правится ниже
+    // MARK: выгрузка и загрузка
+
+    /// Тема в буфер обмена: название, оттенок, окраска и свои цвета — текстом JSON
+    private func exportTheme() {
+        let f = Palette.Family.find(app.prefs.themeID, app.prefs)
+        let user = app.prefs.userThemes.first { $0.id == f.id }
+        var o: [String: Any] = ["lumenTheme": 1, "name": f.name]
+        if let user { o["hue"] = user.hue; o["tint"] = user.tint } else { o["base"] = f.id }
+        for d in [false, true] {
+            if let ov = app.prefs.themeOverrides[Palette.overridesKey(f.id, dark: d)],
+               let data = try? JSONEncoder().encode(ov), let j = try? JSONSerialization.jsonObject(with: data) { o[d ? "dark" : "light"] = j }
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: o, options: [.prettyPrinted, .sortedKeys]) else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(String(decoding: data, as: UTF8.self), forType: .string)
+        flash("Тема «\(f.name)» скопирована")
+    }
+
+    /// Тема из буфера обмена (то, что скопировал «Скопировать тему»)
+    private func importTheme() {
+        guard let s = NSPasteboard.general.string(forType: .string),
+              let o = try? JSONSerialization.jsonObject(with: Data(s.utf8)) as? [String: Any], o["lumenTheme"] != nil else {
+            flash("В буфере нет темы Lumen — сначала скопируй её кнопкой рядом")
+            return
+        }
+        let name = (o["name"] as? String) ?? "Тема"
+        var id = (o["base"] as? String).flatMap { b in Palette.Family.builtIn.first { $0.id == b }?.id }
+        app.update { prefs in
+            if id == nil {
+                let t = UserTheme(name: name, hue: o["hue"] as? Double ?? 205, tint: o["tint"] as? Double ?? 0.4)
+                prefs.userThemes.append(t)
+                id = t.id
+            }
+            guard let id else { return }
+            prefs.themeID = id
+            for d in [false, true] {
+                if let j = o[d ? "dark" : "light"], let data = try? JSONSerialization.data(withJSONObject: j),
+                   let ov = try? JSONDecoder().decode(ThemeOverrides.self, from: data) { prefs.themeOverrides[Palette.overridesKey(id, dark: d)] = ov }
+            }
+        }
+        flash("Тема «\(name)» загружена")
+    }
+
+    private func flash(_ s: String) {
+        note = s
+        Task { try? await Task.sleep(for: .seconds(3)); if note == s { note = nil } }
+    }
+
+    /// Новая тема — сразу выбрана, дальше правится ниже
     private func createTheme() {
         let n = app.prefs.userThemes.count + 1
         let t = UserTheme(name: n == 1 ? "Моя тема" : "Моя тема \(n)", hue: 205, tint: 0.4)
         app.update { $0.userThemes.append(t); $0.themeID = t.id }
+    }
+}
+
+/// Карточка режима: миниатюра окна светлая, тёмная или пополам (системный)
+private struct ModeCard: View {
+    @Bindable var app: AppModel
+    let mode: Appearance
+
+    @Environment(\.palette) private var p
+
+    var body: some View {
+        let on = app.prefs.appearance == mode
+        let fam = Palette.Family.find(app.prefs.themeID, app.prefs)
+        Button { app.update { $0.appearance = mode } } label: {
+            VStack(spacing: 6) {
+                HStack(spacing: 0) {
+                    if mode != .dark { mini(fam.light) }
+                    if mode != .light { mini(fam.dark) }
+                }
+                .frame(width: 112, height: 64)
+                .clipShape(RoundedRectangle(cornerRadius: R.md))
+                .overlay(RoundedRectangle(cornerRadius: R.md).strokeBorder(on ? p.glow : p.border, lineWidth: on ? 2 : 1))
+                Text(["system": "Системный", "light": "Светлый", "dark": "Тёмный"][mode.rawValue]!)
+                    .tw(12, lh: 16).foregroundStyle(on ? p.foreground : p.mutedFg).lineLimit(1).fixedSize()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func mini(_ t: Palette) -> some View {
+        ZStack(alignment: .topLeading) {
+            t.background
+            t.sidebar.frame(width: 18)
+            VStack(alignment: .leading, spacing: 4) {
+                Capsule().fill(t.foreground.opacity(0.25)).frame(width: 34, height: 3)
+                Capsule().fill(t.foreground.opacity(0.18)).frame(width: 26, height: 3)
+                Capsule().fill(t.glow).frame(width: 20, height: 3)
+                Spacer()
+                RoundedRectangle(cornerRadius: 3).strokeBorder(t.border).frame(height: 9)
+                    .overlay(alignment: .trailing) { Circle().fill(t.glow).frame(width: 5, height: 5).padding(.trailing, 2) }
+            }
+            .padding(.leading, 24).padding(.trailing, 6).padding(.vertical, 8)
+        }
+    }
+}
+
+/// Цвет кружком и «#RRGGBB»: щелчок по кружку — палитра macOS, по тексту — ввести код
+private struct ColorField: View {
+    let color: Color
+    let set: (Color?) -> Void
+
+    @Environment(\.palette) private var p
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ColorPicker("", selection: Binding(get: { color }, set: { set($0) }), supportsOpacity: false).labelsHidden()
+            TextField("", text: $text).textFieldStyle(.plain).font(.system(size: 13, design: .monospaced))
+                .frame(width: 76).focused($focused)
+                .onSubmit { if let c = Color(hexString: text) { set(c) } else { text = color.hexString } }
+        }
+        .padding(.leading, 6).padding(.trailing, 12).frame(height: 34)
+        .overlay(Capsule().strokeBorder(p.border))
+        .onAppear { text = color.hexString }
+        .onChange(of: color.hexString) { _, h in if !focused { text = h } }
+    }
+}
+
+/// Число с «px»: поле и стрелки ±1
+private struct NumberField: View {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+
+    @Environment(\.palette) private var p
+
+    var body: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 0) {
+                Text(value.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(value))" : String(format: "%.1f", value))
+                    .tw(14, lh: 20).monospacedDigit().frame(width: 44, alignment: .leading).padding(.leading, 10)
+                VStack(spacing: 0) {
+                    Button { value = min(range.upperBound, (value + 1).rounded()) } label: { Icon("chevron-down", 10).rotationEffect(.degrees(180)) }
+                    Button { value = max(range.lowerBound, (value - 1).rounded()) } label: { Icon("chevron-down", 10) }
+                }
+                .buttonStyle(.plain).foregroundStyle(p.mutedFg).padding(.trailing, 6)
+            }
+            .frame(height: 32)
+            .background(p.input.opacity(0.3), in: RoundedRectangle(cornerRadius: R.md))
+            .overlay(RoundedRectangle(cornerRadius: R.md).strokeBorder(p.border))
+            Text("px").tw(14, lh: 20).foregroundStyle(p.mutedFg)
+        }
+    }
+}
+
+/// Выбор из двух-трёх слов «пилюлями», как «Системный · Вкл. · Выкл.» в ChatGPT
+struct PillPicker<T: Hashable>: View {
+    @Binding var value: T
+    let options: [(T, String)]
+
+    @Environment(\.palette) private var p
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(options, id: \.0) { v, name in
+                Button { value = v } label: {
+                    Text(name).tw(13, lh: 18)
+                        .foregroundStyle(value == v ? p.foreground : p.mutedFg)
+                        .padding(.horizontal, 12).frame(height: 28)
+                        .background(value == v ? p.foreground.opacity(0.09) : .clear, in: Capsule())
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 }
 
@@ -572,41 +898,163 @@ private struct UserThemeEditor: View {
     }
 }
 
-// MARK: импорт
+// MARK: данные
 
-/// «Импорт из Claude Code»: что переносится и кнопка выбора разговоров (окно со списком — то же, что было в панели)
-private struct ImportSettings: View {
+/// «Данные»: что и сколько хранится, выгрузка, журнал; ниже — всё про Claude Code: перенести разговоры,
+/// подтянуть названия, проекты и картинки, перенести память
+private struct DataSettings: View {
     @Bindable var app: AppModel
 
     @Environment(\.palette) private var p
-    @State private var open = false
+    @State private var importing = false
+    @State private var sizes: (db: Int64, files: Int64)?
+    @State private var busy: String?
+    @State private var note: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Импорт из Claude Code").tw(20, .semibold, lh: 28).tracking(-0.2)
-            Text("Перенеси разговоры из Claude Code и приложения Claude. Только те, что выберешь.")
-                .tw(14, lh: 20).foregroundStyle(p.mutedFg).padding(.top, 4)
-            VStack(alignment: .leading, spacing: 10) {
-                point("Названия и проекты — как в приложении Claude, вместе с пустыми проектами")
-                point("Модель, усилие и режим разговора — оттуда же")
-                point("Перенесённый разговор догоняет то, что пишется в Claude, пока он открыт")
+            Text("Данные").tw(20, .semibold, lh: 28).tracking(-0.2)
+            Text("Всё хранится на этом Маке. Ничего не уходит в облако, кроме самих запросов к модели; ключ API — в Связке ключей.")
+                .tw(14, lh: 20).foregroundStyle(p.mutedFg).padding(.top, 4).frame(maxWidth: 620, alignment: .leading)
+
+            card("Хранилище", icon: "database") {
+                Text(app.paths.root.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                    .font(.system(size: 12, design: .monospaced)).foregroundStyle(p.mutedFg).textSelection(.enabled)
+                HStack(spacing: 0) {
+                    stat("\(app.conversations.filter { $0.kind != .bot }.count)", "разговоров")
+                    stat("\(app.memoryCount)", "фактов памяти")
+                    stat("\(app.projects.count)", "проектов")
+                    stat("\(app.bots.count)", "ботов")
+                    stat("\(app.skills.count)", "навыков")
+                }
+                .padding(.top, 14)
+                Text(sizes.map { "База — \(Self.size($0.db)), вложения — \(Self.size($0.files))" } ?? "Считаю размер…")
+                    .tw(12, lh: 16).foregroundStyle(p.mutedFg).padding(.top, 12)
+                HStack(spacing: 8) {
+                    LButton(title: "Показать в Finder", icon: "folder", kind: .outline, small: true) { app.showDataInFinder() }
+                    LButton(title: "Выгрузить всё…", icon: "download", kind: .outline, small: true, busy: busy == "export") { export() }
+                    LButton(title: "Журнал", icon: "file-text", kind: .ghost, small: true) { NSWorkspace.shared.open(app.paths.logs) }
+                }
+                .padding(.top, 14)
             }
-            .padding(.top, 20)
-            LButton(title: "Выбрать разговоры…", icon: "download", kind: .primary) { open = true }
-                .padding(.top, 24)
-            let imported = app.conversations.filter { $0.kind == .agent && $0.cliSessionID != nil }.count
-            if imported > 0 {
-                Text("Уже перенесено: \(imported)").tw(12, lh: 16).foregroundStyle(p.mutedFg).padding(.top, 10)
+
+            card("Claude Code", icon: "square-terminal") {
+                let imported = app.conversations.filter { $0.cliSessionID != nil && $0.kind == .agent }
+                Text("Разговоры из Claude Code и приложения Claude переносятся задачами агента: та же папка и сессия, названия, проекты, модель и режим — как там. Открытый разговор догоняет то, что пишется в Claude.")
+                    .tw(13, lh: 19).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 0) {
+                    stat("\(imported.count)", "перенесено")
+                    stat("\(Set(imported.compactMap(\.projectID)).count)", "в проектах")
+                    stat("\(app.memories.filter { $0.source == "Claude Code" }.count)", "фактов из памяти")
+                }
+                .padding(.top, 14)
+                HStack(spacing: 8) {
+                    LButton(title: "Выбрать разговоры…", icon: "download", kind: .primary, small: true) { importing = true }
+                    LButton(title: "Обновить из Claude", icon: "refresh-cw", kind: .outline, small: true, busy: busy == "refresh") {
+                        busy = "refresh"
+                        Task {
+                            let n = await app.refreshFromClaude()
+                            busy = nil
+                            flash(n == 0 ? "Всё уже как в Claude" : "Поправлено разговоров: \(n) — названия, проекты, картинки")
+                        }
+                    }
+                    LButton(title: "Перенести память", icon: "brain", kind: .outline, small: true) {
+                        let n = app.importClaudeMemory()
+                        flash(n == 0 ? "Новых фактов в памяти Claude Code нет" : "Перенесено фактов: \(n)")
+                    }
+                    .help("Факты из памяти Claude Code (~/.claude/projects/*/memory) — в память Lumen")
+                }
+                .padding(.top, 14)
             }
+
+            card("Знакомство", icon: "sparkles") {
+                Text("Имя, обращение и первые настройки — как при первом запуске. Память и разговоры остаются.")
+                    .tw(13, lh: 19).foregroundStyle(p.mutedFg)
+                LButton(title: "Пройти знакомство заново", icon: "sparkles", kind: .ghost, small: true) { app.restartOnboarding() }
+                    .padding(.top, 10)
+            }
+            if let note { Text(note).tw(12, lh: 16).foregroundStyle(p.mutedFg).padding(.top, 10) }
         }
-        .sheet(isPresented: $open) { ImportClaudeSheet(app: app) { open = false }.environment(\.palette, p) }
+        .frame(maxWidth: 720, alignment: .leading)
+        .sheet(isPresented: $importing) { ImportClaudeSheet(app: app) { importing = false }.environment(\.palette, p) }
+        .task {
+            let root = app.paths
+            sizes = await Task.detached { (Self.bytes(root.database) + Self.bytes(root.root.appendingPathComponent("lumen.sqlite-wal")), Self.bytes(root.attachments)) }.value
+        }
     }
 
-    private func point(_ s: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Icon("check", 13).foregroundStyle(p.glow)
-            Text(s).tw(14, lh: 20)
+    private func card<C: View>(_ title: String, icon: String, @ViewBuilder _ c: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Icon(icon, 15).foregroundStyle(p.glow)
+                Text(title).tw(15, .medium, lh: 20)
+            }
+            .padding(.bottom, 10)
+            c()
         }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(p.card.opacity(0.45), in: RoundedRectangle(cornerRadius: R.xl))
+        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
+        .padding(.top, 16)
+    }
+
+    private func stat(_ n: String, _ label: String) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(n).tw(20, .semibold, lh: 26).monospacedDigit()
+            Text(label).tw(12, lh: 16).foregroundStyle(p.mutedFg)
+        }
+        .frame(minWidth: 110, alignment: .leading)
+    }
+
+    private func flash(_ s: String) {
+        note = s
+        Task { try? await Task.sleep(for: .seconds(4)); if note == s { note = nil } }
+    }
+
+    /// Вся папка Lumen архивом туда, куда скажет человек (ditto, как «Сжать» в Finder)
+    private func export() {
+        let panel = NSSavePanel()
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        panel.nameFieldStringValue = "Lumen-\(f.string(from: Date())).zip"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        busy = "export"
+        let root = app.paths.root
+        Task {
+            let ok = await Task.detached { () -> Bool in
+                let p = Process()
+                p.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+                p.arguments = ["-c", "-k", "--sequesterRsrc", "--keepParent", root.path, url.path]
+                guard (try? p.run()) != nil else { return false }
+                p.waitUntilExit()
+                return p.terminationStatus == 0
+            }.value
+            busy = nil
+            flash(ok ? "Выгружено: \(url.lastPathComponent)" : "Не получилось выгрузить")
+            if ok { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+        }
+    }
+
+    nonisolated static func bytes(_ url: URL) -> Int64 {
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: url.path, isDirectory: &isDir) else { return 0 }
+        if !isDir.boolValue { return Int64((try? fm.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0) }
+        var total: Int64 = 0
+        for case let f as URL in fm.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey]) ?? FileManager.DirectoryEnumerator() {
+            total += Int64((try? f.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        }
+        return total
+    }
+
+    /// «0 Б», «340 КБ», «12,4 МБ»
+    static func size(_ b: Int64) -> String {
+        let d = Double(b)
+        if d < 1000 { return "\(b) Б" }
+        if d < 1_000_000 { return "\(Int((d / 1000).rounded())) КБ" }
+        if d < 1_000_000_000 { return String(format: "%.1f МБ", d / 1_000_000).replacingOccurrences(of: ".", with: ",") }
+        return String(format: "%.1f ГБ", d / 1_000_000_000).replacingOccurrences(of: ".", with: ",")
     }
 }
 

@@ -41,6 +41,21 @@ struct PersonaView: View {
             }
             .padding(.bottom, 24)
 
+            if embedded {
+                // в настройках: всё одной колонкой, превью — под настройками
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 32) {
+                        who
+                        speech
+                        thinking
+                        rules
+                        PersonaPreview(app: app, persona: draft).frame(maxWidth: 520)
+                        soulBlock
+                    }
+                    .padding(.bottom, 32)
+                }
+                .scrollIndicators(.never)
+            } else {
             HStack(alignment: .top, spacing: 32) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 32) {
@@ -56,7 +71,8 @@ struct PersonaView: View {
                 .frame(maxWidth: .infinity)
 
                 PersonaPreview(app: app, persona: draft)
-                    .frame(width: embedded ? 340 : 400)
+                    .frame(width: 400)
+            }
             }
         }
         .padding(.horizontal, embedded ? 0 : 40).padding(.top, embedded ? 0 : 48)
@@ -184,8 +200,13 @@ struct PersonaView: View {
         .overlay(alignment: .top) { p.border.frame(height: 1) }
     }
 
-    private func grid<C: View>(@ViewBuilder _ content: () -> C) -> some View {
-        HStack(alignment: .top, spacing: 24) { content() }
+    /// Два поля в ряд; в настройках узко — друг под другом, иначе кнопки ломаются по слогам
+    @ViewBuilder private func grid<C: View>(@ViewBuilder _ content: () -> C) -> some View {
+        if embedded {
+            VStack(alignment: .leading, spacing: 18) { content() }.frame(maxWidth: 520, alignment: .leading)
+        } else {
+            HStack(alignment: .top, spacing: 24) { content() }
+        }
     }
 
     private func field<C: View>(_ label: String, hint: String? = nil, @ViewBuilder _ content: () -> C) -> some View {

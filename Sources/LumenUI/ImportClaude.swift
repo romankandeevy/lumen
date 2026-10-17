@@ -9,12 +9,18 @@ extension AppModel {
     struct ClaudeImportList: Sendable {
         var sessions: [ClaudeHistory.Session]
         var groups: [ClaudeHistory.Desktop.Group]
+        /// Сколько разговоров каждого проекта Claude уже перенесено (их в списке нет)
+        var done: [String: Int] = [:]
     }
 
     nonisolated static func claudeImportList(skip: Set<String>, lumenRoot: URL) -> ClaudeImportList {
         let desktop = ClaudeHistory.Desktop.load()
+        var done: [String: Int] = [:]
+        for (cli, e) in desktop?.entries ?? [:] where skip.contains(cli) && !e.archived {
+            if let g = e.groupID { done[g, default: 0] += 1 }
+        }
         return ClaudeImportList(sessions: ClaudeHistory.sessions(skip: skip, lumenRoot: lumenRoot, desktop: desktop),
-                                groups: desktop?.groups ?? [])
+                                groups: desktop?.groups ?? [], done: done)
     }
 
     /// id сессий claude, что уже есть в Lumen — второй раз их не предлагаем
@@ -63,6 +69,100 @@ extension AppModel {
         reloadProjects()
         reloadConversations()
         return done
+    }
+
+    /// Перенесённые разговоры догоняют приложение Claude: названия, проект (раздел), где разговор лежит там,
+    /// и картинки в старых сообщениях (до 1.4 вместо них стояло «[картинка]»). Ничего нового не переносит.
+    /// Возвращает, сколько разговоров поправлено.
+    @discardableResult
+    func refreshFromClaude() async -> Int {
+        let mine = conversations.filter { $0.cliSessionID != nil && $0.kind == .agent }
+        guard !mine.isEmpty, let desktop = await Task.detached(operation: { ClaudeHistory.Desktop.load() }).value else { return 0 }
+        var fixed = Set<String>()
+        for c in mine {
+            guard let sid = c.cliSessionID else { continue }
+            var cur = conversations.first { $0.id == c.id } ?? c
+            let entry = desktop.entries[desktop.successor(of: sid) ?? sid] ?? desktop.entries[sid]
+            if let e = entry {
+                // переименовали в Claude — и здесь (если тут не переименовывали руками: название совпадало с прежним)
+                if !e.title.isEmpty, e.title != cur.title, !chat.isRunning(c.id) { renameChat(cur, e.title); fixed.insert(c.id); cur.title = e.title }
+                if cur.projectID == nil, let g = desktop.group(e.groupID) {
+                    move(cur, to: projectNamed(g.name, folder: cur.folder).id)
+                    fixed.insert(c.id)
+                }
+            }
+            // картинки в старых сообщениях
+            let msgs = (try? store.messages(in: c.id)) ?? []
+            guard msgs.contains(where: { $0.role == .user && $0.text.contains("[картинка]") }),
+                  let file = ClaudeHistory.file(for: sid) else { continue }
+            let s = ClaudeHistory.Session(id: sid, file: file, cwd: cur.folder ?? "", title: cur.title, firstPrompt: "", updatedAt: Date(), bytes: 0)
+            guard let t = await Task.detached(operation: { try? ClaudeHistory.transcript(s, conversationID: c.id) }).value else { continue }
+            let withImages = t.messages.filter { $0.role == .user && !$0.attachments.isEmpty }
+            for var m in msgs where m.role == .user && m.text.contains("[картинка]") {
+                let clean = m.text.replacingOccurrences(of: "\n\n[картинка]", with: "").replacingOccurrences(of: "[картинка]", with: "")
+                guard let src = withImages.min(by: { abs($0.createdAt.timeIntervalSince(m.createdAt)) < abs($1.createdAt.timeIntervalSince(m.createdAt)) }),
+                      abs(src.createdAt.timeIntervalSince(m.createdAt)) < 5 else { continue }
+                m.text = clean
+                m.attachments = src.attachments
+                try? store.patch(m)
+                fixed.insert(c.id)
+            }
+        }
+        if !fixed.isEmpty {
+            reloadConversations()
+            if let open = chat.conversation, fixed.contains(open.id), let c = conversations.first(where: { $0.id == open.id }) {
+                chat.caughtUp(c, sessionChanged: false)
+            }
+            log("Из Claude: поправлено разговоров — \(fixed.count)")
+        }
+        return fixed.count
+    }
+
+    /// Память Claude Code (~/.claude/projects/*/memory/*.md: по факту в файле, описание во фронтматтере) — в память Lumen.
+    /// Уже перенесённое второй раз не переносится (ключ — имя файла). Возвращает, сколько фактов добавлено.
+    @discardableResult
+    func importClaudeMemory(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> Int {
+        let fm = FileManager.default
+        let projects = home.appendingPathComponent(".claude/projects", isDirectory: true)
+        let have = Set(memories.compactMap(\.key))
+        var added = 0
+        for dir in (try? fm.contentsOfDirectory(at: projects, includingPropertiesForKeys: nil)) ?? [] {
+            let mem = dir.appendingPathComponent("memory", isDirectory: true)
+            for f in (try? fm.contentsOfDirectory(at: mem, includingPropertiesForKeys: nil)) ?? []
+            where f.pathExtension == "md" && f.lastPathComponent != "MEMORY.md" {
+                let key = "claude-memory:" + f.deletingPathExtension().lastPathComponent
+                guard !have.contains(key), let text = try? String(contentsOf: f, encoding: .utf8),
+                      let fact = Self.claudeMemoryFact(text, key: key) else { continue }
+                if (try? store.save(fact)) != nil { added += 1 }
+            }
+        }
+        if added > 0 {
+            reloadMemories()
+            log("Память Claude Code: перенесено фактов — \(added)")
+        }
+        return added
+    }
+
+    /// Факт из файла памяти Claude Code: описание (или первая строка) и тип → вид факта Lumen
+    nonisolated static func claudeMemoryFact(_ text: String, key: String) -> MemoryFact? {
+        var description: String?, type: String?, body = text
+        if text.hasPrefix("---"), let end = text.range(of: "\n---", range: text.index(text.startIndex, offsetBy: 3)..<text.endIndex) {
+            for line in text[..<end.lowerBound].split(separator: "\n") {
+                let l = line.trimmingCharacters(in: .whitespaces)
+                if l.hasPrefix("description:") { description = l.dropFirst(12).trimmingCharacters(in: CharacterSet(charactersIn: " \"'")) }
+                if l.hasPrefix("type:") { type = l.dropFirst(5).trimmingCharacters(in: .whitespaces) }
+            }
+            body = String(text[end.upperBound...])
+        }
+        let first = body.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty && !$0.hasPrefix("**") }
+        guard let t = (description?.isEmpty == false ? description : first), !t.isEmpty else { return nil }
+        let kind: MemoryKind = switch type {
+        case "user": .you
+        case "feedback": .pref
+        case "project": .project
+        default: .decision
+        }
+        return MemoryFact(kind: kind, text: String(t.prefix(400)), source: "Claude Code", key: key)
     }
 
     /// Проект Lumen для папки: уже есть — он, нет — новый, с именем папки
@@ -231,8 +331,12 @@ struct ImportClaudeSheet: View {
                         case .group(let g, let items):
                             groupHeader(g, items)
                             if items.isEmpty {
-                                Text("Пустой проект — перенесётся без разговоров").tw(12, lh: 16).foregroundStyle(p.mutedFg)
+                                let done = list?.done[g.id] ?? 0
+                                Text(done > 0 ? "Разговоры уже в Lumen (\(done)) — переносить нечего" : "Пустой проект — перенесётся без разговоров")
+                                    .tw(12, lh: 16).foregroundStyle(p.mutedFg)
                                     .padding(.leading, 34).padding(.bottom, 2)
+                            } else if let done = list?.done[g.id], done > 0 {
+                                Text("Ещё \(done) уже в Lumen").tw(12, lh: 16).foregroundStyle(p.mutedFg).padding(.leading, 34).padding(.bottom, 2)
                             }
                             ForEach(items) { s in row(s) }
                         case .folder(let cwd, let items):

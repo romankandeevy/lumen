@@ -21,16 +21,56 @@ extension AppModel {
     /// Новый проект: сразу открывается его страница, название можно поменять там же
     @discardableResult
     func createProject(folder: URL? = nil) -> Project {
-        let p = Project(name: folder?.lastPathComponent ?? "Новый проект", folder: folder?.path)
+        // у этой папки уже есть проект — открыть его, второй такой же не нужен
+        if let folder, let same = projects.first(where: { $0.folder.map { URL(fileURLWithPath: $0).standardizedFileURL.path.lowercased() }
+                                                            == folder.standardizedFileURL.path.lowercased() }) {
+            page = .project(same.id)
+            return same
+        }
+        let p = Project(name: freeProjectName(folder?.lastPathComponent ?? "Новый проект"), folder: folder?.path)
         try? store.save(p)
         reloadProjects()
         page = .project(p.id)
         return p
     }
 
+    /// Два проекта с одним названием не бывает: занято — «Название 2», «Название 3»…
+    func freeProjectName(_ name: String, except id: String? = nil) -> String {
+        let taken = Set(projects.filter { $0.id != id }.map { $0.name.trimmingCharacters(in: .whitespaces).lowercased() })
+        guard taken.contains(name.lowercased()) else { return name }
+        var n = 2
+        while taken.contains("\(name) \(n)".lowercased()) { n += 1 }
+        return "\(name) \(n)"
+    }
+
+    /// Одинаковые проекты (то же название, та же папка или её нет) — в один: разговоры и файлы переезжают в первый
+    func mergeDuplicateProjects() {
+        var seen: [String: Project] = [:]
+        for p in projects {
+            let key = p.name.trimmingCharacters(in: .whitespaces).lowercased()
+            guard let keep = seen[key] else { seen[key] = p; continue }
+            let a = keep.folder.map { $0.lowercased() }, b = p.folder.map { $0.lowercased() }
+            guard a == b || a == nil || b == nil else { continue }
+            for var c in conversations where c.projectID == p.id {
+                c.projectID = keep.id
+                try? store.save(c)
+            }
+            for var f in (try? store.files(in: p.id)) ?? [] {
+                f.projectID = keep.id
+                _ = try? store.save(f)
+            }
+            if keep.folder == nil, let f = p.folder { var k = keep; k.folder = f; try? store.save(k); seen[key] = k }
+            try? store.deleteProject(p.id)
+            log("Проекты: «\(p.name)» был дважды — слил в один")
+        }
+        reloadProjects()
+        reloadConversations()
+    }
+
     func updateProject(_ p: Project, _ change: (inout Project) -> Void) {
         var updated = project(p.id) ?? p
         change(&updated)
+        updated.name = freeProjectName(updated.name, except: updated.id)
         try? store.save(updated)
         reloadProjects()
         // инструкции и файлы — в системном промпте: следующий ход возьмёт новые
