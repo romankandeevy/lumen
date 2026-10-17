@@ -135,6 +135,12 @@ final class ChatController {
         }
     }
 
+    /// Разговор затих в приложении Claude — отправить, что ждало в очереди (ChatView проверяет раз в 3 с)
+    func claudeWentIdle(_ id: String) {
+        guard turns[id] == nil, !app.claudeBusy(id), queue[id]?.isEmpty == false else { return }
+        dispatchQueue(id, stopped: false)
+    }
+
     /// Ход кончился — следующее из очереди. После «Стоп» очередь ждёт (кроме «Сейчас»).
     private func dispatchQueue(_ id: String, stopped: Bool) {
         let now = sendAfterStop.remove(id) != nil
@@ -325,8 +331,8 @@ final class ChatController {
             tr.newInput = true
             return
         }
-        // идёт ответ — в очередь
-        if busy, let c = conversation {
+        // идёт ответ (здесь или в приложении Claude) — в очередь
+        if let c = conversation, busy || app.claudeBusy(c.id) {
             queue[c.id, default: []].append(Queued(text: text, attachments: attachments))
             return
         }

@@ -225,7 +225,7 @@ struct ChatView: View {
                     if !chat.busy, let c = chat.conversation, let live = app.claudeLive[c.id] {
                         TimelineView(.periodic(from: .now, by: 5)) { ctx in
                             switch live.active(now: ctx.date) {
-                            case .working(let since): LiveStepLine(text: "Идёт в Claude Code", since: since)
+                            case .working(let since, let step): LiveStepLine(text: step.map { "Claude Code: \($0)" } ?? "Идёт в Claude Code", since: since)
                             case .retrying(let since):
                                 LiveStepLine(text: "Claude Code: нет связи с API — повторяет", since: since, tint: Palette.destructive)
                             case .idle: EmptyView()
@@ -282,7 +282,10 @@ struct ChatView: View {
             // перенесённый из Claude Code разговор: пока открыт — догоняет то, что пишется там (раз в 3 с, только если файл менялся)
             .task(id: chat.conversation?.id) {
                 while !Task.isCancelled {
-                    if let c = chat.conversation, c.kind == .agent { await app.syncFromClaude(c) }
+                    if let c = chat.conversation, c.kind == .agent {
+                        await app.syncFromClaude(c)
+                        chat.claudeWentIdle(c.id)
+                    }
                     try? await Task.sleep(for: .seconds(3))
                 }
             }
@@ -961,7 +964,8 @@ struct Composer: View {
     /// Очередь: что уйдёт после ответа — «Сейчас» (остановить ответ и отправить это) или убрать
     private var queueList: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("В очереди — уйдёт после ответа").tw(12, lh: 16).foregroundStyle(p.mutedFg)
+            Text(app.claudeBusy(chat.conversation?.id) && !chat.busy ? "В очереди — уйдёт, когда Claude Code закончит" : "В очереди — уйдёт после ответа")
+                .tw(12, lh: 16).foregroundStyle(p.mutedFg)
             ForEach(chat.openQueue) { q in
                 HStack(spacing: 8) {
                     Icon("clock", 14).foregroundStyle(p.mutedFg)
@@ -1099,7 +1103,7 @@ struct Composer: View {
     }
 
     @ViewBuilder private var sendButton: some View {
-        if chat.busy && !inGroup && canSend {
+        if (chat.busy || app.claudeBusy(chat.conversation?.id)) && !inGroup && canSend {
             // ответ идёт, а в поле уже есть следующее — в очередь (↩ делает то же)
             Button(action: send) {
                 HStack(spacing: 6) {
@@ -1112,7 +1116,7 @@ struct Composer: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Отправится сам, когда Lumen закончит · ↩")
+            .help(chat.busy ? "Отправится сам, когда Lumen закончит · ↩" : "Отправится сам, когда Claude Code закончит · ↩")
             .padding(.trailing, 4)
         }
         if chat.busy && !(inGroup && canSend) {
@@ -1129,7 +1133,7 @@ struct Composer: View {
             .buttonStyle(.plain)
             .keyboardShortcut(".", modifiers: .command)
             .help("Остановить · ⌘.")
-        } else {
+        } else if !(app.claudeBusy(chat.conversation?.id) && canSend) {
             Button(action: send) {
                 Icon("arrow-up", 16)
                     .foregroundStyle(p.onGlow)
@@ -1139,8 +1143,10 @@ struct Composer: View {
                     .shadow(color: currentBot.map { BotColor.soft($0.hue) } ?? p.glowSoft, radius: 8)
             }
             .buttonStyle(.plain)
-            .disabled(!ready)
-            .help(!ready ? "Сначала выбери папку проекта" : "Отправить · ↩")
+            // пустое поле — нечего отправлять: кнопка тусклая и не нажимается
+            .disabled(!ready || !canSend)
+            .opacity(canSend ? 1 : 0.35)
+            .help(!ready ? "Сначала выбери папку проекта" : (canSend ? "Отправить · ↩" : "Напиши сообщение"))
         }
     }
 }

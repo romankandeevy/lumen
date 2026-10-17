@@ -28,6 +28,12 @@ public final class AppModel {
     var claudeTouched: [String: Date] = [:]
     /// Что сейчас с перенесённым разговором в Claude Code (идёт, повторяет, тихо) — по записям, не по времени файла
     var claudeLive: [String: ClaudeHistory.Live] = [:]
+
+    /// Разговор сейчас идёт в приложении Claude: писать в ту же сессию нельзя — сообщение ждёт в очереди
+    func claudeBusy(_ id: String?) -> Bool {
+        guard let id, let live = claudeLive[id] else { return false }
+        return live.active() != .idle
+    }
     var orb: Orb.State = .idle
 
     // MARK: окно

@@ -201,7 +201,9 @@ private func writeSession(dir: URL, id: String, cwd: String) throws -> URL {
     let ts = ISO8601DateFormatter().string(from: now)
     func next(_ s: ClaudeHistory.Live, _ o: [String: Any]) -> ClaudeHistory.Live { ClaudeHistory.live(after: s, o) }
     var s = next(.idle, ["type": "user", "timestamp": ts, "message": ["content": "сделай"]])
-    #expect(s == .working(ISO8601DateFormatter().date(from: ts)!))
+    #expect(s == .working(ISO8601DateFormatter().date(from: ts)!, step: "Думает…"))
+    let tool = next(s, ["type": "assistant", "timestamp": ts, "message": ["content": [["type": "tool_use", "name": "Bash", "input": ["description": "Showing tokens page"]]]]])
+    #expect(tool == .working(ISO8601DateFormatter().date(from: ts)!, step: "Запускает: Showing tokens page"))
     s = next(s, ["type": "custom-title", "customTitle": "x"])          // служебное — не меняет
     #expect(s.active(now: now) != .idle)
     s = next(s, ["type": "system", "subtype": "api_error", "timestamp": ts])
@@ -277,4 +279,38 @@ private func writeSession(dir: URL, id: String, cwd: String) throws -> URL {
     #expect(list.first?.title == "Паспорт")
     #expect(list.first?.message.attachments.first?.name == "plan.md")
     #expect(BrowserTools.names.contains("make_file")) // у всех ботов и Lumen
+}
+
+
+@Test func claudeAppPlanServiceTurnsAndNoResponseAreHandled() throws {
+    // план приложения Claude: список, «следующий», «сделаны N, начат M»
+    var p = ClaudeHistory.desktopPlan(["items": [["content": "Прочитать", "status": "in_progress"], ["content": "Плитки", "status": "pending"],
+                                                 ["content": "Паспорт", "status": "pending"]]], [])
+    #expect(p.map(\.state) == [.doing, .todo, .todo])
+    p = ClaudeHistory.desktopPlan(["advance": true], p)
+    #expect(p.map(\.state) == [.done, .doing, .todo])
+    p = ClaudeHistory.desktopPlan(["done": [2], "start": 3], p)
+    #expect(p.map(\.state) == [.done, .done, .doing])
+
+    // автоматический ход (уведомление) и ответ «No response requested.» — не показываются
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-svc-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let f = try writeSession(dir: dir, id: "s1", cwd: "/Users/test/prog")
+    let more = [
+        line(["type": "user", "origin": ["kind": "task-notification"], "timestamp": "2026-10-17T13:00:00.000Z",
+              "message": ["role": "user", "content": "<task-notification><status>stopped</status></task-notification>"]]),
+        line(["type": "assistant", "uuid": "x1", "timestamp": "2026-10-17T13:00:01.000Z",
+              "message": ["role": "assistant", "content": [["type": "text", "text": "No response requested."]]]]),
+        line(["type": "assistant", "uuid": "x2", "timestamp": "2026-10-17T13:00:02.000Z",
+              "message": ["role": "assistant", "content": [["type": "tool_use", "name": "mcp__ccd_turn__update_plan",
+                                                             "input": ["items": [["content": "Шаг", "status": "in_progress"]]]]]]]),
+    ]
+    let h = try FileHandle(forWritingTo: f)
+    h.seekToEndOfFile()
+    h.write(Data(("\n" + more.joined(separator: "\n")).utf8))
+    try h.close()
+    let s = try #require(ClaudeHistory.sessions(root: dir).first)
+    let t = try ClaudeHistory.transcript(s, conversationID: "c")
+    #expect(!t.messages.contains { $0.text.contains("No response requested") || $0.text.contains("task-notification") }, "\(t.messages.map(\.text))")
+    #expect(t.plan.map(\.text) == ["Шаг"])
 }

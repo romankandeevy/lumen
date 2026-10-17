@@ -136,15 +136,15 @@ public enum ClaudeHistory {
     /// (приложение Claude дописывает служебное: название, режим, ошибки — это не работа)
     public enum Live: Sendable, Equatable {
         case idle
-        /// идёт ход: последняя запись — сообщение человека, вызов или результат инструмента
-        case working(Date)
+        /// идёт ход: последняя запись — сообщение человека, вызов или результат инструмента; шаг — что делает сейчас
+        case working(Date, step: String? = nil)
         /// нет связи с API, Claude повторяет
         case retrying(Date)
 
         /// Идёт ли ход на самом деле: «идёт» без новых записей дольше 2 минут — уже нет
         public func active(now: Date = Date()) -> Live {
             switch self {
-            case .working(let d), .retrying(let d): now.timeIntervalSince(d) < 120 ? self : .idle
+            case .working(let d, _), .retrying(let d): now.timeIntervalSince(d) < 120 ? self : .idle
             case .idle: .idle
             }
         }
@@ -250,6 +250,8 @@ public enum ClaudeHistory {
     static func userPrompt(_ o: [String: Any]) -> Prompt? {
         guard o["type"] as? String == "user", o["isMeta"] as? Bool != true, o["isSidechain"] as? Bool != true,
               let m = o["message"] as? [String: Any] else { return nil }
+        // ход начал не человек (уведомление о фоновой задаче, событие сессии, CI) — не его реплика
+        if let kind = (o["origin"] as? [String: Any])?["kind"] as? String, kind != "human" { return nil }
         var text: String
         if let s = m["content"] as? String {
             text = s
@@ -261,7 +263,8 @@ public enum ClaudeHistory {
         if text.hasPrefix("This session is being continued from a previous conversation") { return Prompt(text: text, isSummary: true) }
         text = clean(text)
         let service = ["<command-name>", "<command-message>", "<local-command-stdout>", "<local-command-stderr>",
-                       "[Request interrupted", "<bash-input>", "<bash-stdout>", "<task-notification>"]
+                       "[Request interrupted", "<bash-input>", "<bash-stdout>", "<task-notification>",
+                       "<side-sessions-event", "<ci-monitor-event", "<agent-message"]
         if text.isEmpty || service.contains(where: { text.hasPrefix($0) }) { return nil }
         return Prompt(text: text, isSummary: false)
     }
@@ -306,6 +309,11 @@ public enum ClaudeHistory {
         func closeAnswer() {
             if var a = answer, !(a.text.isEmpty && a.steps.isEmpty && a.error == nil) {
                 a.text = a.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                // ответ Claude на служебный ход («No response requested.») — не ответ человеку
+                for junk in ["No response requested.", "No response requested"] where a.text.hasSuffix(junk) {
+                    a.text = String(a.text.dropLast(junk.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                if a.text.isEmpty && a.steps.allSatisfy({ $0.kind == .think }) && a.error == nil { answer = nil; needBreak = false; return }
                 messages.append(a)
             }
             answer = nil
@@ -375,6 +383,8 @@ public enum ClaudeHistory {
                         if let id = input["taskId"] as? String ?? (input["taskId"] as? Int).map(String.init) {
                             plan = PlanItem.apply(.update(id: id, status: input["status"] as? String, text: input["subject"] as? String), to: plan)
                         }
+                    case let n where n.hasSuffix("update_plan"):
+                        plan = Self.desktopPlan(input, plan)
                     default: break
                     }
                 default: break
@@ -387,6 +397,25 @@ public enum ClaudeHistory {
         return t
     }
 
+    /// План приложения Claude (update_plan): весь список, «следующий шаг» или «сделаны N, начат M»
+    static func desktopPlan(_ input: [String: Any], _ plan: [PlanItem]) -> [PlanItem] {
+        func state(_ s: String?) -> PlanItem.State { s == "completed" ? .done : (s == "in_progress" ? .doing : .todo) }
+        if let items = input["items"] as? [[String: Any]] {
+            return items.map { PlanItem(text: $0["content"] as? String ?? "", state: state($0["status"] as? String)) }
+        }
+        var p = plan
+        if input["advance"] as? Bool == true {
+            if let i = p.firstIndex(where: { $0.state == .doing }) { p[i].state = .done }
+            if let j = p.firstIndex(where: { $0.state == .todo }) { p[j].state = .doing }
+        }
+        for n in (input["done"] as? [Int]) ?? [] where n >= 1 && n <= p.count { p[n - 1].state = .done }
+        if let n = input["start"] as? Int, n >= 1, n <= p.count {
+            for i in p.indices where p[i].state == .doing { p[i].state = .done }
+            p[n - 1].state = .doing
+        }
+        return p
+    }
+
     /// Следующее состояние разговора по одной записи файла (служебное — не меняет)
     static func live(after current: Live, _ o: [String: Any]) -> Live {
         if o["isSidechain"] as? Bool == true { return current }
@@ -397,13 +426,23 @@ public enum ClaudeHistory {
             if let s = m?["content"] as? String, s.hasPrefix("[Request interrupted") { return .idle }
             if let blocks = m?["content"] as? [[String: Any]],
                blocks.contains(where: { ($0["text"] as? String)?.hasPrefix("[Request interrupted") == true }) { return .idle }
-            return o["isMeta"] as? Bool == true ? current : .working(at)
+            if o["isMeta"] as? Bool == true { return current }
+            // результат инструмента — тот же шаг идёт дальше (модель думает над ним)
+            if let blocks = m?["content"] as? [[String: Any]], blocks.contains(where: { $0["type"] as? String == "tool_result" }) {
+                if case .working(_, let step) = current { return .working(at, step: step) }
+                return .working(at)
+            }
+            return .working(at, step: "Думает…")
         case "assistant":
             if o["isApiErrorMessage"] as? Bool == true { return .idle }
             let blocks = m?["content"] as? [[String: Any]] ?? []
-            if blocks.contains(where: { $0["type"] as? String == "tool_use" }) { return .working(at) }
+            if let tool = blocks.last(where: { $0["type"] as? String == "tool_use" }) {
+                let step = AgentStep.from(tool: tool["name"] as? String ?? "", input: tool["input"] as? [String: Any] ?? [:])
+                return .working(at, step: step.text)
+            }
             if m?["stop_reason"] as? String == "end_turn" { return .idle }
-            return .working(at)
+            if blocks.contains(where: { $0["type"] as? String == "text" }) { return .working(at, step: "Пишет ответ") }
+            return .working(at, step: "Думает…")
         case "system":
             switch o["subtype"] as? String {
             case "api_error": return .retrying(at)
