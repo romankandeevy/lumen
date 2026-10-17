@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import LumenCore
+import Network
 import LumenProviders
 import LumenStorage
 import Observation
@@ -43,6 +44,10 @@ public final class AppModel {
         return live.active() != .idle
     }
     var orb: Orb.State = .idle
+    /// Есть ли сеть (NWPathMonitor): без неё ход ждёт, а не падает
+    var online = true
+    @ObservationIgnored private let pathMonitor = NWPathMonitor()
+
     /// Что последним видели в приложении Claude про модель, усилие и режим разговора — применяем только смену
     var claudeSettingsSeen: [String: ClaudeHistory.Desktop.Settings] = [:]
     /// Разделённый экран: какую долю ширины занимает левый разговор
@@ -207,6 +212,11 @@ public final class AppModel {
         DistributedNotificationCenter.default().addObserver(forName: Notification.Name("AppleInterfaceThemeChangedNotification"), object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.systemDark = AppModel.readSystemDark() }
         }
+        pathMonitor.pathUpdateHandler = { [weak self] path in
+            let ok = path.status == .satisfied
+            Task { @MainActor in if self?.online != ok { self?.online = ok } }
+        }
+        pathMonitor.start(queue: DispatchQueue(label: "lumen.network"))
         updater = Updater.make()
         updater?.beta = { [weak self] in self?.prefs.betaUpdates ?? false }
     }

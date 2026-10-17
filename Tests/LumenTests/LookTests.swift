@@ -103,3 +103,20 @@ import Testing
     #expect(a.count == 1 && a[0].kind == .image && a[0].path == f.path)
     #expect(Attachment.splitSavedNote("просто текст (в скобках)").text == "просто текст (в скобках)")
 }
+
+/// Что Lumen повторяет сам: сбои сети и API — да; лимит, вход, ошибки в самом запросе — нет
+@MainActor @Test func transientFailuresAreRecognized() {
+    #expect(ChatController.transient("API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)"))
+    #expect(ChatController.transient("API Error: 529 Overloaded"))
+    #expect(ChatController.transient(""))
+    #expect(!ChatController.transient("Claude AI usage limit reached"))
+    #expect(!ChatController.transient("Invalid API key · Please run /login"))
+    #expect(AnthropicAPI.retryable(status: 529) && AnthropicAPI.retryable(status: 503) && !AnthropicAPI.retryable(status: 400))
+    #expect(AnthropicAPI.delay(1, retryAfter: nil) == 2 && AnthropicAPI.delay(3, retryAfter: nil) == 15)
+    #expect(AnthropicAPI.delay(1, retryAfter: "120") == 60)
+}
+
+@MainActor @Test func longPromptIsNotRetried() {
+    #expect(!ChatController.transient("prompt is too long: 250000 tokens > 200000 maximum"))
+    #expect(ChatController.transient("API Error: 503 Service Unavailable"))
+}

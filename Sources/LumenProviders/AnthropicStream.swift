@@ -110,46 +110,92 @@ public enum APIChatError: Error, LocalizedError, Equatable {
 
 extension AnthropicAPI {
     /// Стрим ответа. Отмена задачи-потребителя обрывает соединение — это «Стоп».
-    public func chat(_ request: AnthropicChatRequest) -> AsyncThrowingStream<APIChatEvent, Error> {
+    /// Пока ответ не пошёл, сбои сети, перегрузка, лимит и ошибки сервера 5xx повторяются сами (до 3 раз,
+    /// пауза растёт; у 429 — сколько просит сервер). Связь, молчащая дольше 2 минут, считается оборванной.
+    public func chat(_ request: AnthropicChatRequest, onRetry: (@Sendable (Int, String) -> Void)? = nil) -> AsyncThrowingStream<APIChatEvent, Error> {
         AsyncThrowingStream { cont in
             let task = Task {
-                do {
-                    var req = URLRequest(url: baseURL.appendingPathComponent("v1/messages"))
-                    req.httpMethod = "POST"
-                    req.setValue(key, forHTTPHeaderField: "x-api-key")
-                    req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-                    req.setValue("application/json", forHTTPHeaderField: "content-type")
-                    if request.model.hasServerFallback {
-                        req.setValue("server-side-fallback-2026-07-01", forHTTPHeaderField: "anthropic-beta")
-                    }
-                    req.httpBody = try request.body()
-                    req.timeoutInterval = 600
+                var attempt = 0
+                while true {
+                    var yielded = false
+                    do {
+                        var req = URLRequest(url: baseURL.appendingPathComponent("v1/messages"))
+                        req.httpMethod = "POST"
+                        req.setValue(key, forHTTPHeaderField: "x-api-key")
+                        req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+                        req.setValue("application/json", forHTTPHeaderField: "content-type")
+                        if request.model.hasServerFallback {
+                            req.setValue("server-side-fallback-2026-07-01", forHTTPHeaderField: "anthropic-beta")
+                        }
+                        req.httpBody = try request.body()
+                        // таймаут между пакетами: сервер шлёт ping раз в ~10 с, 2 минуты тишины — обрыв
+                        req.timeoutInterval = 120
 
-                    let (bytes, resp) = try await session.bytes(for: req)
-                    let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-                    guard code == 200 else {
-                        var data = Data()
-                        for try await b in bytes { data.append(b) }
-                        throw Self.error(status: code, body: data)
+                        let (bytes, resp) = try await session.bytes(for: req)
+                        let http = resp as? HTTPURLResponse
+                        let code = http?.statusCode ?? 0
+                        guard code == 200 else {
+                            var data = Data()
+                            for try await b in bytes { data.append(b) }
+                            let err = Self.error(status: code, body: data)
+                            if attempt < Self.maxRetries, Self.retryable(status: code) {
+                                attempt += 1
+                                let wait = Self.delay(attempt, retryAfter: http?.value(forHTTPHeaderField: "retry-after"))
+                                onRetry?(attempt, err.localizedDescription)
+                                try await Task.sleep(for: .seconds(wait))
+                                continue
+                            }
+                            throw err
+                        }
+                        var parser = SSEMessageBuilder()
+                        for try await line in bytes.lines {
+                            guard line.hasPrefix("data:") else { continue }
+                            let json = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
+                            for ev in try parser.feed(Data(json.utf8)) {
+                                yielded = true
+                                cont.yield(ev)
+                            }
+                        }
+                        cont.finish()
+                        return
+                    } catch let e as URLError where e.code == .cancelled {
+                        cont.finish()
+                        return
+                    } catch is CancellationError {
+                        cont.finish()
+                        return
+                    } catch let e as URLError {
+                        let network = [.notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost,
+                                       .timedOut, .dnsLookupFailed, .secureConnectionFailed].contains(e.code)
+                        // ответ ещё не пошёл — повторить; пошёл — оборвать честно, без дублей
+                        if network && !yielded && attempt < Self.maxRetries {
+                            attempt += 1
+                            onRetry?(attempt, APIChatError.noNetwork.localizedDescription)
+                            try? await Task.sleep(for: .seconds(Self.delay(attempt, retryAfter: nil)))
+                            if Task.isCancelled { cont.finish(); return }
+                            continue
+                        }
+                        cont.finish(throwing: network ? APIChatError.noNetwork : e)
+                        return
+                    } catch {
+                        cont.finish(throwing: error)
+                        return
                     }
-                    var parser = SSEMessageBuilder()
-                    for try await line in bytes.lines {
-                        guard line.hasPrefix("data:") else { continue }
-                        let json = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
-                        for ev in try parser.feed(Data(json.utf8)) { cont.yield(ev) }
-                    }
-                    cont.finish()
-                } catch let e as URLError where e.code == .cancelled {
-                    cont.finish()
-                } catch let e as URLError {
-                    cont.finish(throwing: [.notConnectedToInternet, .networkConnectionLost, .cannotFindHost,
-                                           .cannotConnectToHost, .timedOut].contains(e.code) ? APIChatError.noNetwork : e)
-                } catch {
-                    cont.finish(throwing: error)
                 }
             }
             cont.onTermination = { _ in task.cancel() }
         }
+    }
+
+    public static let maxRetries = 3
+
+    /// Что стоит повторить: лимит, перегрузка, ошибки сервера
+    static func retryable(status: Int) -> Bool { status == 429 || status == 529 || status == 408 || (500...599).contains(status) }
+
+    /// Пауза перед повтором: 2, 6, 15 с; если сервер сказал, сколько ждать, — столько (не больше минуты)
+    static func delay(_ attempt: Int, retryAfter: String?) -> Double {
+        if let r = retryAfter.flatMap(Double.init), r > 0 { return min(60, r) }
+        return [2, 6, 15][min(attempt, 3) - 1]
     }
 
     static func error(status: Int, body: Data) -> APIChatError {

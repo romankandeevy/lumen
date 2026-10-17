@@ -79,6 +79,12 @@ final class ChatController {
     /// Журнал Claude Code по разговорам (последние 400 строк) и когда процесс подавал голос в последний раз
     private(set) var logs: [String: [ClaudeLog.Line]] = [:]
     private(set) var lastSign: [String: Date] = [:]
+    /// Что сейчас с надёжностью хода: «нет сети — жду», «повтор 1 из 2», «Claude повторяет запрос» (видно под перепиской)
+    var retryNote: [String: String] = [:]
+    /// Сколько раз Lumen сам повторяет ход Claude Code после сбоя сети или API, пока ответ не начался
+    static let autoRetries = 2
+    /// Сколько ждать, когда claude молчит не на инструменте (ждёт API), прежде чем прервать и повторить
+    static let stallLimit: TimeInterval = 180
     /// Когда начался последний шаг хода — для живой строки «Запускает: … 12 с»
     private(set) var stepStarted: [String: Date] = [:]
     /// Что агент делает прямо сейчас (последний шаг идущего хода открытого разговора) и с какого времени
@@ -817,7 +823,16 @@ final class ChatController {
         sessions.removeAll()
     }
 
-    private func runCLI(_ c: Conversation, text: String, attachments: [Attachment] = [], hadTurnsBefore: Bool, retried: Bool = false) async {
+    private func runCLI(_ c: Conversation, text: String, attachments: [Attachment] = [], hadTurnsBefore: Bool, retried: Bool = false,
+                        attempt: Int = 0) async {
+        // нет сети — не падать сразу: подождать до 2 минут, вдруг Wi‑Fi вернётся
+        if !app.online {
+            retryNote[c.id] = "Нет сети — отправлю, как только появится"
+            let until = Date().addingTimeInterval(120)
+            while !app.online, Date() < until, !isStopped(c) { try? await Task.sleep(for: .seconds(1)) }
+            retryNote[c.id] = nil
+            if isStopped(c) { await finish(c, text: "", stopped: true); return }
+        }
         guard let cli = app.cli else {
             await finish(c, text: "", error: "Claude Code не найден. Поставь его и войди в Настройках → Модели и оплата.")
             return
@@ -844,15 +859,40 @@ final class ChatController {
             let turn = attachments.isEmpty ? try session.send(text)
                 : try session.send(content: Attachment.userContent(text: text, attachments: attachments, agent: c.kind != .chat))
             if isStopped(c) { session.interrupt() }
+            // сторож: claude молчит не на инструменте (значит, ждёт API) дольше stallLimit — прервать, потом повторить
+            var toolOpen = false
+            var stalled = false
+            let watchdog = Task { @MainActor [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(5))
+                    guard let self, self.turns[c.id] != nil else { return }
+                    let quiet = Date().timeIntervalSince(max(self.lastSign[c.id] ?? .distantPast, self.turns[c.id]?.start ?? Date()))
+                    if !toolOpen, self.pendingPermissions[c.id] == nil, quiet > Self.stallLimit {
+                        stalled = true
+                        self.app.log("claude молчит \(Int(quiet)) с без инструмента — прерываю ход", conversation: c)
+                        session.interrupt()
+                        return
+                    }
+                }
+            }
+            defer { watchdog.cancel() }
             for await ev in turn {
                 switch ev {
                 case .textDelta(let t):
+                    toolOpen = false
+                    retryNote[c.id] = nil
                     answer += appendStreaming(t, c)
                 case .step(let step):
+                    toolOpen = true
+                    retryNote[c.id] = nil
                     appendStep(step, c)
+                case .retry(let n, let err):
+                    // claude сам повторяет запрос к API — показать, что не завис
+                    retryNote[c.id] = "Claude повторяет запрос к API (\(n))" + (err.isEmpty ? "" : " — " + String(err.prefix(80)))
                 case .anchor(let a):
                     turns[c.id]?.anchor = a
                 case .toolDone:
+                    toolOpen = false
                     // позванный Lumen бот ответил — его сообщение уже в базе
                     pullBotReplies(c)
                 case .plan(let change):
@@ -871,6 +911,21 @@ final class ChatController {
                 }
             }
             pendingPermissions[c.id] = nil
+            watchdog.cancel()
+            retryNote[c.id] = nil
+            // сбой сети или API, а ответ ещё не начался (ни слова, ни шага) — повторить самим, без дублей в сессии
+            let nothingDone = answer.isEmpty && (turns[c.id]?.message?.steps.isEmpty ?? true)
+            let failure: String?
+            if stalled { failure = "stall" } else if let r = result { failure = r.ok ? nil : r.text } else { failure = session.errorOutput }
+            if let failure, nothingDone, !isStopped(c), attempt < Self.autoRetries, stalled || Self.transient(failure) {
+                await autoRetry(c, text: text, attachments: attachments, hadTurnsBefore: hadTurnsBefore, attempt: attempt + 1,
+                                why: stalled ? "Claude не отвечал \(Int(Self.stallLimit / 60)) мин" : "Сбой связи с API")
+                return
+            }
+            if stalled {
+                await finish(c, text: answer, error: "Claude Code не отвечал \(Int(Self.stallLimit / 60)) мин и был прерван. Нажми «Повторить».")
+                return
+            }
             var changes: ChangeSet?
             if let git, let before, let files = try? await git.changes(since: before), !files.isEmpty {
                 changes = ChangeSet(files: files)
@@ -905,6 +960,47 @@ final class ChatController {
         } catch {
             await finish(c, text: "", error: error.localizedDescription)
         }
+    }
+
+    /// Повтор хода после сбоя: сессия откатывается к последнему хорошему ответу (claude забывает неудачный вопрос),
+    /// пауза растёт, без сети — ждём её
+    private func autoRetry(_ c: Conversation, text: String, attachments: [Attachment], hadTurnsBefore: Bool, attempt: Int, why: String) async {
+        var c = c
+        let wait = attempt == 1 ? 3 : 10
+        app.log("\(why) — повтор \(attempt) из \(Self.autoRetries) через \(wait) с", conversation: c)
+        for left in stride(from: wait, to: 0, by: -1) {
+            retryNote[c.id] = "\(why) — повтор \(attempt) из \(Self.autoRetries) через \(left) с"
+            try? await Task.sleep(for: .seconds(1))
+            if isStopped(c) { retryNote[c.id] = nil; await finish(c, text: "", stopped: true); return }
+        }
+        retryNote[c.id] = "\(why) — повторяю (\(attempt) из \(Self.autoRetries))"
+        sessions[c.id]?.close()
+        sessions[c.id] = nil
+        var resume = hadTurnsBefore
+        if hadTurnsBefore {
+            let earlier = ((try? app.store.messages(in: c.id)) ?? []).filter { $0.role == .assistant && $0.error == nil && ($0.botID == nil || c.kind == .bot) }
+            if let anchor = earlier.last(where: { $0.cliAnchor != nil })?.cliAnchor { rewindAt[c.id] = anchor }
+        } else {
+            // первый ход не удался — начать с чистой сессии
+            c.cliSessionID = UUID().uuidString.lowercased()
+            try? app.store.save(c)
+            turns[c.id]?.conversation.cliSessionID = c.cliSessionID
+            if conversation?.id == c.id { conversation?.cliSessionID = c.cliSessionID }
+            resume = false
+        }
+        await runCLI(c, text: text, attachments: attachments, hadTurnsBefore: resume, attempt: attempt)
+    }
+
+    /// Сбой, который стоит повторить: сеть, DNS, обрыв, перегрузка, 5xx, процесс умер молча
+    static func transient(_ raw: String) -> Bool {
+        let s = raw.lowercased()
+        if s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
+        return ["enotfound", "econnreset", "econnrefused", "etimedout", "eai_again", "socket hang up", "fetch failed",
+                "can't reach", "cannot reach", "connection error", "network", "timed out", "timeout", "overloaded",
+                "internal server error", "bad gateway", "service unavailable",
+                "api error: connection", "premature close", "terminated"].contains { s.contains($0) }
+            // коды ответа — отдельным числом, а не куском другого («250000 tokens» — не 500)
+            || s.range(of: #"\b(500|502|503|504|529)\b"#, options: .regularExpression) != nil
     }
 
     /// Ход через ChatGPT (codex). Разговор продолжается по thread_id, который хранится в `cliSessionID`.
@@ -1122,7 +1218,13 @@ final class ChatController {
             api.session = app.urlSession
             for _ in 0..<6 {
                 var finished: (String, String)?
-                for try await ev in api.chat(request) {
+                let cid = c.id
+                let stream = api.chat(request) { [weak self] n, why in
+                    Task { @MainActor in self?.retryNote[cid] = "\(why) Повтор \(n) из \(AnthropicAPI.maxRetries)…" }
+                }
+                defer { retryNote[cid] = nil }
+                for try await ev in stream {
+                    if retryNote[cid] != nil { retryNote[cid] = nil }
                     switch ev {
                     case .textDelta(let t):
                         answer += appendStreaming(t, c)

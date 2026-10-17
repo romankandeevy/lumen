@@ -14,6 +14,10 @@ struct ChatView: View {
     @State private var draft = ""
     @State private var attachments: [Attachment] = []
     @State private var dropping = false
+    /// Переписка у самого низа — тогда кнопка «вниз» не нужна, а при смене ширины окна держимся низа
+    @State private var atBottom = true
+    /// Верхнее видимое сообщение — к нему возвращаемся, если ширина поменялась (спрятали панель), а мы не внизу
+    @State private var topVisible: Int64?
 
     private var chat: ChatController { controller ?? app.chat }
     private var isSplit: Bool { controller != nil }
@@ -259,12 +263,23 @@ struct ChatView: View {
                         LiveStepLine(text: live.step.text, since: live.since, tint: app.bot(chat.turnBot).map { BotColor.accent($0.hue) })
                     }
                     // claude долго молчит — сказать прямо, что происходит, и дать выход
-                    if chat.busy, chat.pendingPermission == nil, chat.conversation?.usesCLI == true {
+                    // сбой связи: Lumen сам повторяет или ждёт сеть — видно, что не завис
+                    if chat.busy, let c = chat.conversation, let note = chat.retryNote[c.id] {
+                        HStack(spacing: 10) {
+                            Icon("refresh-cw", 14)
+                            Text(note).tw(13, lh: 18)
+                            Button("Стоп") { chat.stop() }.buttonStyle(.plain).foregroundStyle(p.glow)
+                        }
+                        .foregroundStyle(p.mutedFg)
+                        .padding(.leading, 36)
+                    }
+                    if chat.busy, chat.pendingPermission == nil, chat.conversation?.usesCLI == true,
+                       chat.conversation.map({ chat.retryNote[$0.id] == nil }) ?? true {
                         TimelineView(.periodic(from: .now, by: 1)) { ctx in
                             if let s = chat.silence(now: ctx.date), s >= 30 {
                                 HStack(spacing: 10) {
                                     Icon("clock", 14)
-                                    Text("Claude Code молчит \(Int(s)) с — \(s > 90 ? "похоже, завис" : "думает или ждёт ответа API")")
+                                    Text("Claude Code молчит \(Int(s)) с — \(s > 90 ? "если это не долгая команда, на 3-й минуте прерву и повторю сам" : "думает или ждёт ответа API")")
                                         .tw(13, lh: 18)
                                     Button("Журнал") { app.update { $0.contextOpen = true; $0.panelHidden.removeAll { $0 == "log" } } }
                                         .buttonStyle(.plain).foregroundStyle(p.glow)
@@ -291,6 +306,7 @@ struct ChatView: View {
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
+                .scrollTargetLayout()
                 // поля по бокам: на узком окне переписка не упирается в края
                 .padding(.horizontal, 44).padding(.vertical, 32)
                 .frame(maxWidth: app.prefs.chatWidth.points)
@@ -324,6 +340,34 @@ struct ChatView: View {
             .overlay(alignment: .topTrailing) {
                 if chat.messages.contains(where: \.chapter) { ChaptersButton(chat: chat).padding(16) }
             }
+            // где мы в переписке: у низа ли и какое сообщение сверху
+            .modifier(ScrollTracking(atBottom: $atBottom, topVisible: $topVisible))
+            // ширина поменялась (спрятали или показали панель, потянули окно) — ленивый список теряет место:
+            // вернуть к низу или к тому сообщению, что было сверху
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { _ in
+                let bottom = atBottom, top = topVisible
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(60))
+                    if bottom { proxy.scrollTo("bottom", anchor: .bottom) } else if let top { proxy.scrollTo(Optional(top), anchor: .top) } // id строки — Int64?
+                }
+            }
+            // кнопка «вниз», когда отлистал вверх
+            .overlay(alignment: .bottom) {
+                if !atBottom && !chat.messages.isEmpty {
+                    Button { withAnimation(.easeOut(duration: 0.3)) { proxy.scrollTo("bottom", anchor: .bottom) } } label: {
+                        Icon("arrow-down", 16).foregroundStyle(p.foreground)
+                            .frame(width: 34, height: 34)
+                            .background(p.popover, in: Circle())
+                            .overlay(Circle().strokeBorder(p.foreground.opacity(0.12)))
+                            .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Вниз, к последнему сообщению")
+                    .padding(.bottom, 12)
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                }
+            }
+            .animation(.easeOut(duration: 0.15), value: atBottom)
         }
     }
 }
@@ -1708,5 +1752,23 @@ struct MarkdownTable: View {
         }
         .background(p.card.opacity(0.5), in: RoundedRectangle(cornerRadius: R.lg))
         .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
+    }
+}
+
+/// Следит за прокруткой переписки (macOS 15+): у низа ли она и какое сообщение видно сверху
+private struct ScrollTracking: ViewModifier {
+    @Binding var atBottom: Bool
+    @Binding var topVisible: Int64?
+
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) {
+            content
+                .onScrollGeometryChange(for: Bool.self) { g in
+                    g.contentOffset.y + g.containerSize.height >= g.contentSize.height - 80
+                } action: { _, v in if atBottom != v { atBottom = v } }
+                .onScrollTargetVisibilityChange(idType: Int64?.self) { ids in topVisible = ids.lazy.compactMap { $0 }.first }
+        } else {
+            content
+        }
     }
 }
