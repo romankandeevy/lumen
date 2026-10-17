@@ -341,36 +341,51 @@ struct ImportClaudeSheet: View {
     }
 }
 
-/// Перенесённый разговор догоняет Claude Code: что человек написал там после переноса — появляется здесь
+/// Перенесённый разговор догоняет Claude Code: что написано там после переноса — здесь, и по ходу (ChatView следит раз в 3 с).
+/// Подтянутое помечено Via.claudeCode и пересобирается целиком, пока Lumen сам в разговоре не писал: ответ, который
+/// в Claude ещё дописывается, обновляется на месте.
 extension AppModel {
     func syncFromClaude(_ c: Conversation) async {
-        guard c.kind == .agent, let sid = c.cliSessionID, !chat.isRunning(c.id),
-              let anchor = (try? store.messages(in: c.id))?.last(where: { $0.cliAnchor != nil })?.cliAnchor else { return }
-        let since = c.updatedAt
-        let found: (String, ClaudeHistory.Transcript)? = await Task.detached {
+        guard c.kind == .agent, let sid = c.cliSessionID, !chat.isRunning(c.id) else { return }
+        let msgs = (try? store.messages(in: c.id)) ?? []
+        guard let ownIdx = msgs.lastIndex(where: { $0.via?.isClaudeCode != true && $0.cliAnchor != nil }),
+              let anchor = msgs[ownIdx].cliAnchor else { return }
+        let old = msgs[(ownIdx + 1)...].filter { $0.via?.isClaudeCode == true }
+        let seen = claudeTouched[c.id]
+        let found: (String, Date, ClaudeHistory.Transcript?)? = await Task.detached {
             // приложение Claude могло продолжить разговор в новой сессии (откат, продолжение)
             let target = ClaudeHistory.Desktop.load()?.successor(of: sid) ?? sid
             guard let file = ClaudeHistory.file(for: target),
                   let mtime = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
-                  mtime > since.addingTimeInterval(1) else { return nil }
+                  mtime != seen else { return nil }
             let s = ClaudeHistory.Session(id: target, file: file, cwd: c.folder ?? "", title: c.title, firstPrompt: "", updatedAt: mtime, bytes: 0)
-            guard let t = try? ClaudeHistory.transcript(s, conversationID: c.id, after: anchor, skipLumen: true), !t.messages.isEmpty else { return nil }
-            return (target, t)
+            return (target, mtime, try? ClaudeHistory.transcript(s, conversationID: c.id, after: anchor, skipLumen: true))
         }.value
-        guard let (target, t) = found, !chat.isRunning(c.id) else { return }
+        guard let (target, mtime, t) = found, !chat.isRunning(c.id) else { return }
+        let first = seen == nil
+        claudeTouched[c.id] = mtime
+        guard let t, !t.messages.isEmpty else { return }
+        // то же самое, что уже показано, — ничего не трогаем
+        let fresh = t.messages.map { "\($0.role)|\($0.text)|\($0.steps.count)|\($0.note ?? "")" }
+        let shown = old.filter { $0.note != "Дальше — из Claude Code" }.map { "\($0.role)|\($0.text)|\($0.steps.count)|\($0.note ?? "")" }
+        guard fresh != shown else { return }
+        for m in old { if let id = m.id { try? store.deleteMessage(id) } }
         var note = ChatMessage(conversationID: c.id, role: .assistant, text: "", note: "Дальше — из Claude Code")
+        note.via = .claudeCode
         note.createdAt = t.messages.first?.createdAt ?? Date()
         _ = try? store.save(note)
-        for m in t.messages { _ = try? store.save(m) }
+        for var m in t.messages {
+            m.via = .claudeCode
+            _ = try? store.save(m)
+        }
         if target != sid || !t.plan.isEmpty {
             var updated = (try? store.conversations().first { $0.id == c.id }) ?? c
             updated.cliSessionID = target
             if !t.plan.isEmpty { updated.plan = t.plan }
             try? store.save(updated)
-            chat.moved(c.id, updated.projectID)
         }
         reloadConversations()
         if let fresh = conversations.first(where: { $0.id == c.id }) { chat.caughtUp(fresh, sessionChanged: target != sid) }
-        log("Синхронизация с Claude Code: +\(t.messages.count) сообщений в «\(c.title)»")
+        if first || old.isEmpty { log("Синхронизация с Claude Code: \(t.messages.count) сообщений в «\(c.title)»") }
     }
 }

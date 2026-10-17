@@ -103,6 +103,9 @@ public struct Via: Codable, Sendable, Equatable, Hashable {
     /// Позвал другой бот («@id»), а не человек из чата: у чата есть id, у бота — нет,
     /// и название чата тоже может начинаться с «@» («@designer привет»)
     public var fromBot: Bool { conversationID == nil && title.hasPrefix("@") && !title.contains(" ") }
+    /// Сообщение подтянуто из Claude Code (перенесённый разговор догоняет то, что написано там)
+    public static let claudeCode = Via(conversationID: nil, title: "Claude Code")
+    public var isClaudeCode: Bool { self == Self.claudeCode }
 
     public init(conversationID: String? = nil, title: String) {
         self.conversationID = conversationID

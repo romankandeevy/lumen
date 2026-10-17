@@ -162,8 +162,6 @@ final class ChatController {
         guard conversation?.id != c.id else { return }
         conversation = c
         messages = (try? app.store.messages(in: c.id)) ?? []
-        // перенесённый из Claude Code — догнать то, что написано там после переноса
-        if c.kind == .agent { Task { await app.syncFromClaude(c) } }
     }
 
     /// Разговор догнал Claude Code (ImportClaude.swift): новые сообщения на экран; сессия claude сменилась — тёплый процесс не годится

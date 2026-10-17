@@ -221,6 +221,11 @@ struct ChatView: View {
                     if let c = chat.conversation, c.kind != .chat, !c.plan.isEmpty, chat.busy || c.plan.contains(where: { $0.state != .done }) {
                         PlanCard(items: c.plan).padding(.leading, 36)
                     }
+                    // разговор сейчас идёт в приложении Claude — видно здесь
+                    if !chat.busy, let c = chat.conversation, let t = app.claudeTouched[c.id],
+                       chat.messages.last?.via?.isClaudeCode == true, Date().timeIntervalSince(t) < 20 {
+                        LiveStepLine(text: "Идёт в Claude Code", since: t)
+                    }
                     // что агент делает прямо сейчас — пока идёт инструмент (текст после него ещё не пошёл)
                     if chat.busy, !chat.thinking, chat.pendingPermission == nil, let live = chat.liveStep,
                        (live.step.at ?? 0) >= (chat.streaming?.text.count ?? 0) {
@@ -267,6 +272,13 @@ struct ChatView: View {
             .scrollIndicators(.never)
             // к концу — когда страница уже разложена (иначе после смены вкладки переписка оказывалась пустой)
             .onAppear { DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) } }
+            // перенесённый из Claude Code разговор: пока открыт — догоняет то, что пишется там (раз в 3 с, только если файл менялся)
+            .task(id: chat.conversation?.id) {
+                while !Task.isCancelled {
+                    if let c = chat.conversation, c.kind == .agent { await app.syncFromClaude(c) }
+                    try? await Task.sleep(for: .seconds(3))
+                }
+            }
             .onChange(of: chat.messages.count) { withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("bottom", anchor: .bottom) } }
             .onChange(of: chat.streaming?.text.count) { proxy.scrollTo("bottom", anchor: .bottom) }
             .onChange(of: chat.conversation?.id) { DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) } }
@@ -388,7 +400,7 @@ struct MessageRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             }
-            if let via = message.via { ViaChip(via: via, app: chat?.app) }
+            if let via = message.via, !via.isClaudeCode { ViaChip(via: via, app: chat?.app) }
             if !editing, let chat {
                 MessageActions(message: message, chat: chat, user: true) { editText = message.text; editing = true }
                     .opacity(showActions ? 1 : 0)

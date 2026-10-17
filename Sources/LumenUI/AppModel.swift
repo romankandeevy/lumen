@@ -24,6 +24,8 @@ public final class AppModel {
     var browserOpen = false
     var browserWidth: Double = 620
     @ObservationIgnored var browserServer: BrowserServer?
+    /// Перенесённые разговоры: когда файл сессии claude менялся в последний раз (живое слежение за Claude Code)
+    var claudeTouched: [String: Date] = [:]
     var orb: Orb.State = .idle
 
     // MARK: окно
