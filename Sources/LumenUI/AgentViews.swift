@@ -596,9 +596,7 @@ struct PlanCard: View {
                 Spacer(minLength: 0)
             }
             .foregroundStyle(p.mutedFg)
-            // длинный план прокручивается внутри, поле ввода не уезжает
-            ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 8) {
                     ForEach(Array(items.enumerated()), id: \.offset) { _, it in
                         HStack(alignment: .firstTextBaseline, spacing: 10) {
                             Image(systemName: it.state == .done ? "checkmark.circle.fill" : (it.state == .doing ? "ellipsis.circle" : "circle.dashed"))
@@ -609,11 +607,8 @@ struct PlanCard: View {
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .scrollIndicators(.never)
-            .frame(maxHeight: CGFloat(min(items.count, 7)) * 28)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 16).padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)

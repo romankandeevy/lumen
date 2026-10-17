@@ -48,14 +48,6 @@ struct ChatView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 transcript
-                // план — закреплён над полем, как в Claude: виден, пока идёт работа или есть несделанное
-                if let c = chat.conversation, c.kind != .chat, !c.plan.isEmpty,
-                   chat.busy || app.claudeBusy(c.id) || c.plan.contains(where: { $0.state != .done }) {
-                    PlanCard(items: c.plan)
-                        .frame(maxWidth: Composer.width)
-                        .padding(.horizontal, 20).padding(.bottom, 8)
-                        .frame(maxWidth: .infinity)
-                }
                 Composer(app: app, draft: $draft, attachments: $attachments, backend: backend, agent: agent, controller: controller)
             }
         }
@@ -240,6 +232,11 @@ struct ChatView: View {
                     }
                     if let s = chat.streaming {
                         MessageRow(message: s, chat: chat, streaming: true)
+                    }
+                    // план — в самой переписке, после последнего сообщения: листается вместе с чатом и не закрывает экран
+                    if let c = chat.conversation, c.kind != .chat, !c.plan.isEmpty,
+                       chat.busy || app.claudeBusy(c.id) || c.plan.contains(where: { $0.state != .done }) {
+                        PlanCard(items: c.plan).padding(.leading, 36)
                     }
                     // разговор сейчас идёт в приложении Claude — видно здесь (по записям сессии, а не по времени файла)
                     if !chat.busy, let c = chat.conversation, let live = app.claudeLive[c.id] {
