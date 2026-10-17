@@ -26,6 +26,8 @@ public final class AppModel {
     @ObservationIgnored var browserServer: BrowserServer?
     /// Перенесённые разговоры: когда файл сессии claude менялся в последний раз (живое слежение за Claude Code)
     var claudeTouched: [String: Date] = [:]
+    /// Что сейчас с перенесённым разговором в Claude Code (идёт, повторяет, тихо) — по записям, не по времени файла
+    var claudeLive: [String: ClaudeHistory.Live] = [:]
     var orb: Orb.State = .idle
 
     // MARK: окно

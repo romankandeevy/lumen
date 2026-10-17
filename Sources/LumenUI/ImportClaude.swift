@@ -364,10 +364,11 @@ extension AppModel {
         guard let (target, mtime, t) = found, !chat.isRunning(c.id) else { return }
         let first = seen == nil
         claudeTouched[c.id] = mtime
+        if let t, claudeLive[c.id] != t.live { claudeLive[c.id] = t.live }
         guard let t, !t.messages.isEmpty else { return }
         // то же самое, что уже показано, — ничего не трогаем
-        let fresh = t.messages.map { "\($0.role)|\($0.text)|\($0.steps.count)|\($0.note ?? "")" }
-        let shown = old.filter { $0.note != "Дальше — из Claude Code" }.map { "\($0.role)|\($0.text)|\($0.steps.count)|\($0.note ?? "")" }
+        let fresh = t.messages.map { "\($0.role)|\($0.text)|\($0.steps.count)|\($0.note ?? "")|\($0.error ?? "")" }
+        let shown = old.filter { $0.note != "Дальше — из Claude Code" }.map { "\($0.role)|\($0.text)|\($0.steps.count)|\($0.note ?? "")|\($0.error ?? "")" }
         guard fresh != shown else { return }
         for m in old { if let id = m.id { try? store.deleteMessage(id) } }
         var note = ChatMessage(conversationID: c.id, role: .assistant, text: "", note: "Дальше — из Claude Code")

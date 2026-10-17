@@ -221,10 +221,16 @@ struct ChatView: View {
                     if let c = chat.conversation, c.kind != .chat, !c.plan.isEmpty, chat.busy || c.plan.contains(where: { $0.state != .done }) {
                         PlanCard(items: c.plan).padding(.leading, 36)
                     }
-                    // разговор сейчас идёт в приложении Claude — видно здесь
-                    if !chat.busy, let c = chat.conversation, let t = app.claudeTouched[c.id],
-                       chat.messages.last?.via?.isClaudeCode == true, Date().timeIntervalSince(t) < 20 {
-                        LiveStepLine(text: "Идёт в Claude Code", since: t)
+                    // разговор сейчас идёт в приложении Claude — видно здесь (по записям сессии, а не по времени файла)
+                    if !chat.busy, let c = chat.conversation, let live = app.claudeLive[c.id] {
+                        TimelineView(.periodic(from: .now, by: 5)) { ctx in
+                            switch live.active(now: ctx.date) {
+                            case .working(let since): LiveStepLine(text: "Идёт в Claude Code", since: since)
+                            case .retrying(let since):
+                                LiveStepLine(text: "Claude Code: нет связи с API — повторяет", since: since, tint: Palette.destructive)
+                            case .idle: EmptyView()
+                            }
+                        }
                     }
                     // что агент делает прямо сейчас — пока идёт инструмент (текст после него ещё не пошёл)
                     if chat.busy, !chat.thinking, chat.pendingPermission == nil, let live = chat.liveStep,
@@ -264,7 +270,8 @@ struct ChatView: View {
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
-                .padding(.horizontal, 24).padding(.vertical, 32)
+                // поля по бокам: на узком окне переписка не упирается в края
+                .padding(.horizontal, 44).padding(.vertical, 32)
                 .frame(maxWidth: app.prefs.chatWidth.points)
                 .animation(.easeInOut(duration: 0.3), value: app.prefs.chatWidth)
                 .frame(maxWidth: .infinity)
@@ -396,7 +403,8 @@ struct MessageRow: View {
                     .padding(.horizontal, 16).padding(.vertical, 10)
                     .background(p.secondary, in: UnevenRoundedRectangle(topLeadingRadius: R.xxl, bottomLeadingRadius: R.xxl,
                                                                         bottomTrailingRadius: R.md, topTrailingRadius: R.xxl))
-                    .containerRelativeFrame(.horizontal, alignment: .trailing) { w, _ in w * 0.8 }
+                    // 80% колонки переписки, а не окна: иначе на широком окне пузырь вылезает к правому краю
+                    .frame(maxWidth: bubbleMax, alignment: .trailing)
                     .fixedSize(horizontal: false, vertical: true)
             }
             }
@@ -474,6 +482,9 @@ struct MessageRow: View {
 }
 
 extension MessageRow {
+    /// Самый широкий пузырь человека — 80% колонки переписки
+    var bubbleMax: CGFloat { CGFloat((chat?.app.prefs.chatWidth.points ?? 704) * 0.8) }
+
     var editor: some View {
         VStack(alignment: .trailing, spacing: 10) {
             TextField("", text: $editText, axis: .vertical)
@@ -491,7 +502,7 @@ extension MessageRow {
                     .disabled(editText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || chat?.busy == true)
             }
         }
-        .containerRelativeFrame(.horizontal, alignment: .trailing) { w, _ in w * 0.8 }
+        .frame(maxWidth: bubbleMax, alignment: .trailing)
     }
 
     private func sendEdit() {

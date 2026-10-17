@@ -195,3 +195,38 @@ private func writeSession(dir: URL, id: String, cwd: String) throws -> URL {
     let d = ClaudeHistory.Desktop(entries: ["s2": .init(title: "x", archived: false, groupID: nil, priors: ["s1"])])
     #expect(d.successor(of: "s1") == "s2")
 }
+
+@Test func claudeCodeStateComesFromRecordsNotFileTime() {
+    let now = Date()
+    let ts = ISO8601DateFormatter().string(from: now)
+    func next(_ s: ClaudeHistory.Live, _ o: [String: Any]) -> ClaudeHistory.Live { ClaudeHistory.live(after: s, o) }
+    var s = next(.idle, ["type": "user", "timestamp": ts, "message": ["content": "сделай"]])
+    #expect(s == .working(ISO8601DateFormatter().date(from: ts)!))
+    s = next(s, ["type": "custom-title", "customTitle": "x"])          // служебное — не меняет
+    #expect(s.active(now: now) != .idle)
+    s = next(s, ["type": "system", "subtype": "api_error", "timestamp": ts])
+    if case .retrying = s {} else { Issue.record("ожидали retrying, а \(s)") }
+    s = next(s, ["type": "assistant", "isApiErrorMessage": true, "timestamp": ts, "message": ["content": [["type": "text", "text": "API Error"]]]])
+    #expect(s == .idle)
+    s = next(.working(now), ["type": "assistant", "timestamp": ts, "message": ["stop_reason": "end_turn", "content": [["type": "text", "text": "готово"]]]])
+    #expect(s == .idle)
+    // «идёт», но без записей больше 2 минут — уже не идёт
+    #expect(ClaudeHistory.Live.working(now.addingTimeInterval(-300)).active(now: now) == .idle)
+}
+
+@Test func apiErrorFromClaudeIsShownAsErrorNotText() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-apierr-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let f = try writeSession(dir: dir, id: "s1", cwd: "/Users/test/prog")
+    let h = try FileHandle(forWritingTo: f)
+    h.seekToEndOfFile()
+    h.write(Data(("\n" + line(["type": "assistant", "isApiErrorMessage": true, "timestamp": "2026-10-17T12:57:27.819Z",
+                               "message": ["role": "assistant", "content": [["type": "text", "text": "API Error: Can't reach the API server"]]]])).utf8))
+    try h.close()
+    let s = try #require(ClaudeHistory.sessions(root: dir).first)
+    let t = try ClaudeHistory.transcript(s, conversationID: "c")
+    let last = try #require(t.messages.last)
+    #expect(last.error == "API Error: Can't reach the API server")
+    #expect(!last.text.contains("API Error"))
+    #expect(t.live == .idle)
+}

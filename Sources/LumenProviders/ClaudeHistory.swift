@@ -132,6 +132,24 @@ public enum ClaudeHistory {
         }
     }
 
+    /// Что сейчас с разговором в Claude Code — по последним записям файла, а не по времени изменения
+    /// (приложение Claude дописывает служебное: название, режим, ошибки — это не работа)
+    public enum Live: Sendable, Equatable {
+        case idle
+        /// идёт ход: последняя запись — сообщение человека, вызов или результат инструмента
+        case working(Date)
+        /// нет связи с API, Claude повторяет
+        case retrying(Date)
+
+        /// Идёт ли ход на самом деле: «идёт» без новых записей дольше 2 минут — уже нет
+        public func active(now: Date = Date()) -> Live {
+            switch self {
+            case .working(let d), .retrying(let d): now.timeIntervalSince(d) < 120 ? self : .idle
+            case .idle: .idle
+            }
+        }
+    }
+
     /// Разобранный разговор: сообщения в формате Lumen и последний план агента
     public struct Transcript: Sendable {
         public var session: Session
@@ -139,6 +157,7 @@ public enum ClaudeHistory {
         public var plan: [PlanItem]
         public var model: ChatModel?
         public var createdAt: Date
+        public var live: Live = .idle
     }
 
     public static var root: URL {
@@ -285,7 +304,7 @@ public enum ClaudeHistory {
         var needBreak = false
 
         func closeAnswer() {
-            if var a = answer, !(a.text.isEmpty && a.steps.isEmpty) {
+            if var a = answer, !(a.text.isEmpty && a.steps.isEmpty && a.error == nil) {
                 a.text = a.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 messages.append(a)
             }
@@ -294,8 +313,10 @@ public enum ClaudeHistory {
         }
 
         var started = after == nil
+        var live = Live.idle
         for line in data.split(separator: UInt8(ascii: "\n")) {
             guard let o = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { continue }
+            live = Self.live(after: live, o)
             if !started {
                 if let after, o["uuid"] as? String == after { started = true }
                 continue
@@ -322,6 +343,12 @@ public enum ClaudeHistory {
                 answer = ChatMessage(conversationID: conversationID, role: .assistant, text: "", model: model, createdAt: date ?? Date())
             }
             if let uuid = o["uuid"] as? String { answer?.cliAnchor = uuid }
+            // ошибка API (нет сети, лимит) — ошибкой под ответом, не текстом
+            if o["isApiErrorMessage"] as? Bool == true {
+                let t = blocks.compactMap { $0["text"] as? String }.joined(separator: " ")
+                answer?.error = t.isEmpty ? "Ошибка API" : t
+                continue
+            }
             for b in blocks {
                 switch b["type"] as? String {
                 case "text":
@@ -355,7 +382,37 @@ public enum ClaudeHistory {
             }
         }
         closeAnswer()
-        return Transcript(session: s, messages: messages, plan: plan, model: model, createdAt: created ?? s.updatedAt)
+        var t = Transcript(session: s, messages: messages, plan: plan, model: model, createdAt: created ?? s.updatedAt)
+        t.live = live
+        return t
+    }
+
+    /// Следующее состояние разговора по одной записи файла (служебное — не меняет)
+    static func live(after current: Live, _ o: [String: Any]) -> Live {
+        if o["isSidechain"] as? Bool == true { return current }
+        let at = (o["timestamp"] as? String).flatMap(parseDate) ?? Date()
+        let m = o["message"] as? [String: Any]
+        switch o["type"] as? String {
+        case "user":
+            if let s = m?["content"] as? String, s.hasPrefix("[Request interrupted") { return .idle }
+            if let blocks = m?["content"] as? [[String: Any]],
+               blocks.contains(where: { ($0["text"] as? String)?.hasPrefix("[Request interrupted") == true }) { return .idle }
+            return o["isMeta"] as? Bool == true ? current : .working(at)
+        case "assistant":
+            if o["isApiErrorMessage"] as? Bool == true { return .idle }
+            let blocks = m?["content"] as? [[String: Any]] ?? []
+            if blocks.contains(where: { $0["type"] as? String == "tool_use" }) { return .working(at) }
+            if m?["stop_reason"] as? String == "end_turn" { return .idle }
+            return .working(at)
+        case "system":
+            switch o["subtype"] as? String {
+            case "api_error": return .retrying(at)
+            case "stop_hook_summary", "turn_duration": return .idle
+            default: return current
+            }
+        default:
+            return current
+        }
     }
 
     /// Заголовок из первой фразы: до 60 знаков, по границе слова
