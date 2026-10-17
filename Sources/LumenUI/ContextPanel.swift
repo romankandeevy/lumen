@@ -12,82 +12,49 @@ struct ContextPanel: View {
     private var chat: ChatController { app.chat }
     private var conversation: Conversation? { chat.conversation }
 
+    /// Блоки панели и их названия
+    static let names = ["plan": "План", "session": "Сессия", "memory": "Память в ответе", "context": "Окно контекста", "usage": "Расход"]
+
+    /// Какие блоки сейчас есть (план и сессия — только у агента с планом / в папке)
+    private var available: [String] {
+        var all = app.prefs.panelOrder
+        for id in ["plan", "session", "memory", "context", "usage"] where !all.contains(id) { all.append(id) }
+        return all.filter { id in
+            switch id {
+            case "plan": !(conversation?.plan.isEmpty ?? true)
+            case "session": conversation?.kind == .agent && conversation?.folder != nil
+            default: true
+            }
+        }
+    }
+
     var body: some View {
         ScrollView {
-            VStack(spacing: 0) {
-                if let plan = conversation?.plan, !plan.isEmpty {
-                    Side(title: "План") { PlanList(items: plan) }
+            VStack(spacing: 10) {
+                ForEach(available.filter { !app.prefs.panelHidden.contains($0) }, id: \.self) { id in
+                    PanelBlock(app: app, id: id, title: Self.names[id] ?? id, link: link(id)) { content(id) }
                 }
-                if conversation?.kind == .agent, let folder = conversation?.folder {
-                    Side(title: "Сессия") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Label { Text(folder.replacingOccurrences(of: NSHomeDirectory(), with: "~")).lineLimit(1).truncationMode(.middle) }
-                                icon: { Icon("folder", 16).foregroundStyle(p.glow) }
-                            IconLabel(text: "Этот Мак", icon: "laptop").foregroundStyle(p.mutedFg)
-                            IconLabel(text: "push и выкатка — только с твоего OK", icon: "lock").foregroundStyle(p.mutedFg)
-                        }
-                        .font(.geist(14))
-                    }
-                }
-                Side(title: "Память в этом ответе", link: ("Вся память", { app.page = .memory })) {
-                    if used.isEmpty {
-                        Text("В последнем ответе Lumen не опирался на память.").font(.geist(12)).foregroundStyle(p.mutedFg)
-                    } else {
-                        VStack(spacing: 8) {
-                            ForEach(used) { f in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(f.text).font(.geist(13)).fixedSize(horizontal: false, vertical: true)
-                                    Text(f.source == "Знакомство" ? "из знакомства, \(RelativeWhen.string(f.createdAt))"
-                                                                  : "из «\(f.source)», \(RelativeWhen.string(f.createdAt))")
-                                        .font(.geist(11)).foregroundStyle(p.mutedFg)
+                let hidden = available.filter { app.prefs.panelHidden.contains($0) }
+                if !hidden.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Вернуть блок").font(.geist(11, .medium)).foregroundStyle(p.mutedFg)
+                        FlowWrap(spacing: 6) {
+                            ForEach(hidden, id: \.self) { id in
+                                Button { app.update { $0.panelHidden.removeAll { $0 == id } } } label: {
+                                    IconLabel(text: Self.names[id] ?? id, icon: "plus", size: 11).font(.geist(12))
+                                        .padding(.horizontal, 9).padding(.vertical, 5)
+                                        .background(p.foreground.opacity(0.05), in: Capsule())
+                                        .overlay(Capsule().strokeBorder(p.border))
                                 }
-                                .padding(.horizontal, 10).padding(.vertical, 8)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(p.glow.opacity(0.03), in: RoundedRectangle(cornerRadius: R.lg))
-                                .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.glow.opacity(0.15)))
+                                .buttonStyle(.plain).foregroundStyle(p.mutedFg)
                             }
                         }
                     }
-                }
-                Side(title: "Окно контекста") {
-                    if let ctx = chat.lastContext {
-                        HStack(spacing: 16) {
-                            ContextRing(used: ctx.used, window: ctx.window)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("\(Tokens.short(ctx.used)) из \(Tokens.short(ctx.window))").font(.geist(14, .medium)).monospacedDigit()
-                                Legend(color: p.glow, label: "занято", value: Tokens.short(ctx.used))
-                                Legend(color: p.muted, label: "свободно", value: Tokens.short(max(0, ctx.window - ctx.used)))
-                            }
-                        }
-                    } else {
-                        Text("Появится после первого ответа.").font(.geist(12)).foregroundStyle(p.mutedFg)
-                    }
-                    if conversation?.usesCLI == true, chat.lastContext != nil {
-                        Button { chat.compact() } label: {
-                            IconLabel(text: "Сжать разговор", icon: "rotate-ccw", size: 14).font(.geist(12))
-                        }
-                        .buttonStyle(.plain).foregroundStyle(p.mutedFg)
-                        .disabled(chat.busy)
-                        .help("Старые сообщения пересказываются, место в окне освобождается")
-                        .padding(.top, 12)
-                    }
-                }
-                Side(title: "Расход", link: ("Модели и оплата", { app.page = .settings(.models) })) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(Array(app.usage.prefix(2).enumerated()), id: \.offset) { _, w in
-                            Meter(label: w.kind == .session ? "Подписка, 5 часов" : "Подписка, неделя", value: w.percent,
-                                  note: SubscriptionCard.resetNote(w.resetsAt))
-                        }
-                        if app.savedKeyTail != nil || app.apiSpentThisMonth > 0 {
-                            Meter(label: "API в этом месяце", value: Int(app.apiSpentThisMonth / Double(max(1, app.prefs.monthlyLimit)) * 100),
-                                  note: "$\(Money.string(app.apiSpentThisMonth)) из $\(app.prefs.monthlyLimit)")
-                        }
-                        if app.usage.isEmpty && app.savedKeyTail == nil {
-                            Text("Лимиты подписки появятся после входа в Claude Code.").font(.geist(12)).foregroundStyle(p.mutedFg)
-                        }
-                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 4).padding(.top, 4)
                 }
             }
+            .padding(12)
         }
         .scrollIndicators(.never)
         .frame(width: CGFloat(ResizeHandle.clamp(app.panelWidth, min: 280, window: Double(windowWidth))))
@@ -97,6 +64,90 @@ struct ContextPanel: View {
             ResizeHandle(side: .leading, width: $app.panelWidth, minWidth: 280) { app.update { $0.panelWidth = app.panelWidth } }.offset(x: -4)
         }
         .foregroundStyle(p.foreground)
+    }
+
+    private func link(_ id: String) -> (String, () -> Void)? {
+        switch id {
+        case "memory": ("Вся память", { app.page = .memory })
+        case "usage": ("Модели и оплата", { app.page = .settings(.models) })
+        default: nil
+        }
+    }
+
+    @ViewBuilder private func content(_ id: String) -> some View {
+        switch id {
+        case "plan":
+            if let plan = conversation?.plan { PlanList(items: plan) }
+        case "session":
+            if let folder = conversation?.folder {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label { Text(folder.replacingOccurrences(of: NSHomeDirectory(), with: "~")).lineLimit(1).truncationMode(.middle) }
+                        icon: { Icon("folder", 16).foregroundStyle(p.glow) }
+                    IconLabel(text: "Этот Мак", icon: "laptop").foregroundStyle(p.mutedFg)
+                    IconLabel(text: "push и выкатка — только с твоего OK", icon: "lock").foregroundStyle(p.mutedFg)
+                }
+                .font(.geist(14))
+            }
+        case "memory":
+            if used.isEmpty {
+                Text("В последнем ответе Lumen не опирался на память.").font(.geist(12)).foregroundStyle(p.mutedFg)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(used) { f in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(f.text).font(.geist(13)).fixedSize(horizontal: false, vertical: true)
+                            Text(f.source == "Знакомство" ? "из знакомства, \(RelativeWhen.string(f.createdAt))"
+                                                          : "из «\(f.source)», \(RelativeWhen.string(f.createdAt))")
+                                .font(.geist(11)).foregroundStyle(p.mutedFg)
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(p.glow.opacity(0.03), in: RoundedRectangle(cornerRadius: R.lg))
+                        .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.glow.opacity(0.15)))
+                    }
+                }
+            }
+        case "context":
+            VStack(alignment: .leading, spacing: 0) {
+                if let ctx = chat.lastContext {
+                    HStack(spacing: 16) {
+                        ContextRing(used: ctx.used, window: ctx.window)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(Tokens.short(ctx.used)) из \(Tokens.short(ctx.window))").font(.geist(14, .medium)).monospacedDigit()
+                            Legend(color: p.glow, label: "занято", value: Tokens.short(ctx.used))
+                            Legend(color: p.muted, label: "свободно", value: Tokens.short(max(0, ctx.window - ctx.used)))
+                        }
+                    }
+                } else {
+                    Text("Появится после первого ответа.").font(.geist(12)).foregroundStyle(p.mutedFg)
+                }
+                if conversation?.usesCLI == true, chat.lastContext != nil {
+                    Button { chat.compact() } label: {
+                        IconLabel(text: "Сжать разговор", icon: "rotate-ccw", size: 14).font(.geist(12))
+                    }
+                    .buttonStyle(.plain).foregroundStyle(p.mutedFg)
+                    .disabled(chat.busy)
+                    .help("Старые сообщения пересказываются, место в окне освобождается")
+                    .padding(.top, 12)
+                }
+            }
+        case "usage":
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(app.usage.prefix(2).enumerated()), id: \.offset) { _, w in
+                    Meter(label: w.kind == .session ? "Подписка, 5 часов" : "Подписка, неделя", value: w.percent,
+                          note: SubscriptionCard.resetNote(w.resetsAt))
+                }
+                if app.savedKeyTail != nil || app.apiSpentThisMonth > 0 {
+                    Meter(label: "API в этом месяце", value: Int(app.apiSpentThisMonth / Double(max(1, app.prefs.monthlyLimit)) * 100),
+                          note: "$\(Money.string(app.apiSpentThisMonth)) из $\(app.prefs.monthlyLimit)")
+                }
+                if app.usage.isEmpty && app.savedKeyTail == nil {
+                    Text("Лимиты подписки появятся после входа в Claude Code.").font(.geist(12)).foregroundStyle(p.mutedFg)
+                }
+            }
+        default:
+            EmptyView()
+        }
     }
 
     /// Факты последнего ответа: вспомненные и запомненные
@@ -177,5 +228,78 @@ enum Tokens {
         if n >= 1_000_000 { return (n % 1_000_000 == 0 ? "\(n / 1_000_000)" : String(format: "%.1f", Double(n) / 1_000_000).replacingOccurrences(of: ".", with: ",")) + " млн" }
         if n >= 1000 { return "\(Int((Double(n) / 1000).rounded())) тыс." }
         return "\(n)"
+    }
+}
+
+/// Блок правой панели, как в Claude: карточка; заголовок сворачивает, «×» убирает, тащи — переставишь
+struct PanelBlock<Content: View>: View {
+    @Bindable var app: AppModel
+    let id: String
+    let title: String
+    var link: (String, () -> Void)?
+    @ViewBuilder let content: Content
+
+    @Environment(\.palette) private var p
+    @State private var hover = false
+    @State private var linkHover = false
+    @State private var dropTarget = false
+
+    private var collapsed: Bool { app.prefs.panelCollapsed.contains(id) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Button {
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        app.update { pr in if collapsed { pr.panelCollapsed.removeAll { $0 == id } } else { pr.panelCollapsed.append(id) } }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(title).font(.geist(13, .medium)).foregroundStyle(p.foreground.opacity(0.9))
+                        Icon("chevron-down", 12).foregroundStyle(p.mutedFg).rotationEffect(.degrees(collapsed ? -90 : 0))
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                Spacer()
+                if let link, !collapsed {
+                    Button(link.0, action: link.1).buttonStyle(.plain).font(.geist(12))
+                        .foregroundStyle(linkHover ? p.glow : p.mutedFg).onHover { linkHover = $0 }
+                }
+                Button {
+                    withAnimation(.easeOut(duration: 0.15)) { app.update { $0.panelHidden.append(id) } }
+                } label: {
+                    Icon("x", 12).foregroundStyle(p.mutedFg).frame(width: 20, height: 20).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .opacity(hover ? 1 : 0)
+                .help("Убрать блок — вернуть можно внизу панели")
+            }
+            if !collapsed { content }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(p.card.opacity(0.55), in: RoundedRectangle(cornerRadius: R.xl))
+        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(dropTarget ? p.glow.opacity(0.5) : p.border))
+        .onHover { hover = $0 }
+        // перетащить блок: бросаешь на другой — встаёт перед ним
+        .draggable(id) {
+            Text(title).font(.geist(13, .medium)).padding(.horizontal, 12).padding(.vertical, 8)
+                .background(p.popover, in: RoundedRectangle(cornerRadius: R.lg))
+        }
+        .dropDestination(for: String.self) { items, _ in
+            guard let moved = items.first, moved != id, ContextPanel.names[moved] != nil else { return false }
+            withAnimation(.easeOut(duration: 0.2)) {
+                app.update { pr in
+                    var order = pr.panelOrder
+                    for x in ContextPanel.names.keys.sorted() where !order.contains(x) { order.append(x) }
+                    order.removeAll { $0 == moved }
+                    let at = order.firstIndex(of: id) ?? order.count
+                    order.insert(moved, at: at)
+                    pr.panelOrder = order
+                }
+            }
+            return true
+        } isTargeted: { dropTarget = $0 }
     }
 }

@@ -855,9 +855,7 @@ struct Composer: View {
                 .frame(minHeight: big ? 96 : 48, alignment: .topLeading)
             HStack(spacing: 2) {
                 // как в Claude: «+» в левом нижнем углу — картинки и файлы
-                IconButton(icon: "plus", help: "Прикрепить картинки и файлы · или перетащи их в поле, или вставь картинку ⌘V") {
-                    attachments += app.chooseAttachments()
-                }
+                PlusMenu(app: app, agent: agent, canPickFolder: agent && chat.conversation == nil, draft: $draft, attachments: $attachments)
                 if agent { folderPicker; modePicker }
                 if let b = currentBot { botChip(b); botFolderPicker(b); botEffortPicker(b) }
                 ElsewherePill(app: app)

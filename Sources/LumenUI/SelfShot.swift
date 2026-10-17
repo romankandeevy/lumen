@@ -31,6 +31,10 @@ extension AppModel {
         if let b = bots.first {
             shots.append(("bot-chat", { [self] in searchOpen = false; openBot(b.id) }))
         }
+        // правая панель блоками
+        let panelWasOpen = prefs.contextOpen
+        shots.append(("chat-panel", { [self] in update { $0.contextOpen = true }; tab = .chat; if let c = conversations.first(where: { $0.kind == .chat }) { openChat(c) } }))
+        shots.append(("chat-panel-restore", { [self] in update { $0.contextOpen = panelWasOpen } }))
         // темы: светлая и своя — чат и «Внешний вид»; в конце вернуть как было
         let theme = prefs.theme, custom = prefs.customTheme
         let firstChat = conversations.first(where: { $0.kind == .chat })

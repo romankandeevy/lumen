@@ -61,6 +61,10 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var theme: Theme
     /// Настройки своей темы (используются, когда theme == .custom)
     public var customTheme = CustomTheme()
+    /// Правая панель блоками, как в Claude: порядок, убранные и свёрнутые блоки
+    public var panelOrder: [String] = ["plan", "session", "memory", "context", "usage"]
+    public var panelHidden: [String] = []
+    public var panelCollapsed: [String] = []
     public var reducedMotion: Bool
     /// Последние выбранные в чате модель и «сколько думать» — для нового чата
     public var model: ChatModel
@@ -116,6 +120,9 @@ public struct Preferences: Codable, Sendable, Equatable {
         backend = try c.decodeIfPresent(Backend.self, forKey: .backend) ?? .subscription
         theme = (try? c.decodeIfPresent(Theme.self, forKey: .theme)) ?? .lumen
         customTheme = (try? c.decodeIfPresent(CustomTheme.self, forKey: .customTheme)) ?? CustomTheme()
+        panelOrder = (try? c.decodeIfPresent([String].self, forKey: .panelOrder)) ?? ["plan", "session", "memory", "context", "usage"]
+        panelHidden = (try? c.decodeIfPresent([String].self, forKey: .panelHidden)) ?? []
+        panelCollapsed = (try? c.decodeIfPresent([String].self, forKey: .panelCollapsed)) ?? []
         reducedMotion = try c.decodeIfPresent(Bool.self, forKey: .reducedMotion) ?? false
         model = try c.decodeIfPresent(ChatModel.self, forKey: .model) ?? .sonnet
         effort = try c.decodeIfPresent(Effort.self, forKey: .effort) ?? .medium
