@@ -51,6 +51,8 @@ public enum ClaudeHistory {
             public var title: String
             public var archived: Bool
             public var groupID: String?
+            /// Прежние сессии claude этого разговора (откат, продолжение): их место заняла текущая
+            public var priors: [String] = []
         }
         /// Живые сессии приложения по id сессии claude
         public var entries: [String: Entry] = [:]
@@ -115,7 +117,7 @@ public enum ClaudeHistory {
                               let sid = o["sessionId"] as? String, let cli = o["cliSessionId"] as? String else { continue }
                         d.entries[cli] = Entry(title: (o["title"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
                                                archived: o["isArchived"] as? Bool == true || archived.contains(sid),
-                                               groupID: assignments[sid])
+                                               groupID: assignments[sid], priors: o["priorCliSessionIds"] as? [String] ?? [])
                     }
                 }
             }
@@ -123,6 +125,11 @@ public enum ClaudeHistory {
         }
 
         func group(_ id: String?) -> Group? { id.flatMap { id in groups.first { $0.id == id } } }
+
+        /// Разговор приложения продолжился в новой сессии claude — её id
+        public func successor(of id: String) -> String? {
+            entries.first { $0.value.priors.contains(id) }?.key
+        }
     }
 
     /// Разобранный разговор: сообщения в формате Lumen и последний план агента
@@ -254,8 +261,20 @@ public enum ClaudeHistory {
         return t.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Файл сессии claude по её id
+    public static func file(for sessionID: String, root: URL = root) -> URL? {
+        let fm = FileManager.default
+        for dir in (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? [] {
+            let f = dir.appendingPathComponent("\(sessionID).jsonl")
+            if fm.fileExists(atPath: f.path) { return f }
+        }
+        return nil
+    }
+
     /// Прочитать разговор целиком в сообщения Lumen. `conversationID` — id разговора, куда он ляжет.
-    public static func transcript(_ s: Session, conversationID: String) throws -> Transcript {
+    /// `after` — только то, что после этой записи (uuid); `skipLumen` — без ходов самого Lumen (entrypoint sdk-cli):
+    /// так перенесённый разговор догоняет то, что человек писал в Claude Code. Записи `after` нет — пусто.
+    public static func transcript(_ s: Session, conversationID: String, after: String? = nil, skipLumen: Bool = false) throws -> Transcript {
         let data = try Data(contentsOf: s.file)
         var messages: [ChatMessage] = []
         var plan: [PlanItem] = []
@@ -274,9 +293,15 @@ public enum ClaudeHistory {
             needBreak = false
         }
 
+        var started = after == nil
         for line in data.split(separator: UInt8(ascii: "\n")) {
             guard let o = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { continue }
+            if !started {
+                if let after, o["uuid"] as? String == after { started = true }
+                continue
+            }
             if o["isSidechain"] as? Bool == true { continue }
+            if skipLumen, o["entrypoint"] as? String == "sdk-cli" { continue }
             let date = (o["timestamp"] as? String).flatMap(parseDate)
             if created == nil, let date { created = date }
 

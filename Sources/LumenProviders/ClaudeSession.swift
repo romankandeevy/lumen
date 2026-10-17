@@ -88,6 +88,14 @@ public final class ClaudeSession: @unchecked Sendable {
     private let process = Process()
     private let input = Pipe()
     private var stderrText = ""
+    /// Журнал процесса человеческими строками (ClaudeLog): Lumen показывает его в панели «Журнал Claude Code»
+    private var logSink: (@Sendable (ClaudeLog.Line) -> Void)?
+    private let logState = ClaudeLog.State()
+    public var onLog: (@Sendable (ClaudeLog.Line) -> Void)? {
+        get { lock.lock(); defer { lock.unlock() }; return logSink }
+        set { lock.lock(); logSink = newValue; lock.unlock() }
+    }
+    private func log(_ kind: ClaudeLog.Line.Kind, _ text: String) { onLog?(ClaudeLog.Line(kind: kind, text: text)) }
     /// Поток событий текущего хода. Между ходами событий почти нет; что пришло — достаётся следующему ходу.
     private var turn: AsyncStream<ClaudeEvent>.Continuation?
     private let lock = NSLock()
@@ -109,6 +117,7 @@ public final class ClaudeSession: @unchecked Sendable {
             let chunk = h.availableData
             guard let self, !chunk.isEmpty else { return }
             for line in lines.append(chunk) {
+                if let sink = self.onLog, let l = ClaudeLog.summarize(line, state: self.logState) { sink(l) }
                 for ev in ClaudeEvent.decodeAll(line) { self.deliver(ev) }
             }
         }
@@ -116,8 +125,12 @@ public final class ClaudeSession: @unchecked Sendable {
             let s = String(decoding: h.availableData, as: UTF8.self)
             guard let self, !s.isEmpty else { return }
             self.lock.lock(); self.stderrText += s; self.lock.unlock()
+            for l in s.split(separator: "\n") where !l.trimmingCharacters(in: .whitespaces).isEmpty {
+                self.log(.error, "stderr: " + String(l.prefix(300)))
+            }
         }
-        process.terminationHandler = { [weak self] _ in
+        process.terminationHandler = { [weak self] p in
+            self?.log(p.terminationStatus == 0 ? .info : .error, "Процесс claude завершился (код \(p.terminationStatus))")
             output.fileHandleForReading.readabilityHandler = nil
             errors.fileHandleForReading.readabilityHandler = nil
             self?.endTurn()
@@ -143,6 +156,7 @@ public final class ClaudeSession: @unchecked Sendable {
         var data = try JSONSerialization.data(withJSONObject: msg)
         data.append(0x0A)
         try input.fileHandleForWriting.write(contentsOf: data)
+        log(.wait, "Сообщение отправлено — ждёт ответа API")
         return stream
     }
 
@@ -167,6 +181,7 @@ public final class ClaudeSession: @unchecked Sendable {
         guard process.isRunning, var data = try? JSONSerialization.data(withJSONObject: msg) else { return }
         data.append(0x0A)
         try? input.fileHandleForWriting.write(contentsOf: data)
+        log(.info, "«Стоп» — прерываю ход")
     }
 
     /// Ответ на запрос разрешения: разрешить (вход как был) или отклонить с объяснением для модели

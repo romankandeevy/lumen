@@ -74,6 +74,37 @@ final class ChatController {
         self.app = app
     }
 
+    /// Журнал Claude Code по разговорам (последние 400 строк) и когда процесс подавал голос в последний раз
+    private(set) var logs: [String: [ClaudeLog.Line]] = [:]
+    private(set) var lastSign: [String: Date] = [:]
+    /// Когда начался последний шаг хода — для живой строки «Запускает: … 12 с»
+    private(set) var stepStarted: [String: Date] = [:]
+    /// Что агент делает прямо сейчас (последний шаг идущего хода открытого разговора) и с какого времени
+    var liveStep: (step: AgentStep, since: Date)? {
+        guard let c = conversation, let tr = turns[c.id], let s = tr.message?.steps.last else { return nil }
+        return (s, stepStarted[c.id] ?? tr.start)
+    }
+    var openLog: [ClaudeLog.Line] { conversation.flatMap { logs[$0.id] } ?? [] }
+
+    func appendLog(_ key: String, _ line: ClaudeLog.Line) {
+        var keys = [key]
+        // бот, позванный через @, работает в своей сессии — его журнал виден и в чате, откуда позвали
+        if let t = turns.values.first(where: { $0.delegate == key }) { keys.append(t.conversation.id) }
+        for k in keys {
+            var l = logs[k] ?? []
+            l.append(line)
+            if l.count > 400 { l.removeFirst(l.count - 400) }
+            logs[k] = l
+            lastSign[k] = line.at
+        }
+    }
+
+    /// Сколько секунд идущий ход открытого разговора молчит (nil — ход не идёт)
+    func silence(now: Date = Date()) -> TimeInterval? {
+        guard let c = conversation, let tr = turns[c.id] else { return nil }
+        return now.timeIntervalSince(max(lastSign[c.id] ?? tr.start, tr.start))
+    }
+
     /// Очередь, как в Claude Code: написанное во время ответа уходит само, когда ответ закончится
     struct Queued: Identifiable, Equatable {
         let id = UUID()
@@ -131,6 +162,19 @@ final class ChatController {
         guard conversation?.id != c.id else { return }
         conversation = c
         messages = (try? app.store.messages(in: c.id)) ?? []
+        // перенесённый из Claude Code — догнать то, что написано там после переноса
+        if c.kind == .agent { Task { await app.syncFromClaude(c) } }
+    }
+
+    /// Разговор догнал Claude Code (ImportClaude.swift): новые сообщения на экран; сессия claude сменилась — тёплый процесс не годится
+    func caughtUp(_ c: Conversation, sessionChanged: Bool) {
+        if sessionChanged {
+            sessions[c.id]?.close()
+            sessions[c.id] = nil
+        }
+        guard conversation?.id == c.id else { return }
+        conversation = c
+        reloadMessages()
     }
 
     func moved(_ id: String, _ projectID: String?) {
@@ -1006,6 +1050,9 @@ final class ChatController {
         config.settings = app.hooksSettingsFile()?.path
         if resume { config.resumeAt = resumeAt }
         let s = try ClaudeSession(cli: cli, config: config)
+        let key = c.id
+        s.onLog = { [weak self] line in Task { @MainActor in self?.appendLog(key, line) } }
+        appendLog(key, ClaudeLog.Line(kind: .info, text: (resume ? "Продолжаю сессию " : "Новая сессия ") + String(sid.prefix(8)) + " · " + c.model.name))
         sessions[c.id] = s
         return s
     }
@@ -1133,6 +1180,7 @@ final class ChatController {
             if conversation?.id == c.id { app.orb = .writing }
         }
         if tr.message == nil { tr.message = ChatMessage(conversationID: c.id, role: .assistant, text: "", model: c.model); tr.message?.botID = tr.bot }
+        lastSign[c.id] = Date()
         var chunk = t
         if tr.needBreak {
             tr.needBreak = false
@@ -1202,6 +1250,8 @@ final class ChatController {
             if conversation?.id == c.id { app.orb = .idle }
         }
         if tr.message == nil { tr.message = ChatMessage(conversationID: c.id, role: .assistant, text: "", model: c.model); tr.message?.botID = tr.bot }
+        lastSign[c.id] = Date()
+        stepStarted[c.id] = Date()
         // место шага — конец уже написанного: следующий текст начнётся новым абзацем после шагов
         var step = step
         step.at = tr.received.count
@@ -1447,6 +1497,7 @@ extension AppModel {
         var lines = ["Ты — Lumen, агент на Маке. Отвечай по-русски, по делу."]
         if !profile.name.isEmpty { lines.append("Собеседника зовут \(profile.name), обращайся на \(profile.address == .ty ? "«ты»" : "«вы»").") }
         lines.append("Push, публикацию и выкатку не делай: это только с явного OK, и делает их человек.")
+        lines.append("Всегда веди план, даже для маленькой задачи из двух шагов: первым действием составь его (TaskCreate на каждый шаг или TodoWrite), перед шагом отмечай его начатым, после — сделанным (TaskUpdate). Lumen показывает план человеку под перепиской. Только ответ на вопрос без действий — без плана.")
         lines.append("""
             В самом конце каждого ответа добавь блок для карточки «что дальше» — строго JSON внутри тегов, без markdown:
             <lumen-next>{"recap": "два-три коротких предложения: что теперь сделано и что не сделано или не проверено", "ask": "один вопрос, если следующий шаг решает человек, иначе null", "primary": {"label": "1–3 слова", "reply": "что отправится от человека"} или null, "secondary": такая же вторая кнопка, только если это реальная альтернатива, иначе null}</lumen-next>

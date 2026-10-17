@@ -340,3 +340,37 @@ struct ImportClaudeSheet: View {
         return f.string(from: d)
     }
 }
+
+/// Перенесённый разговор догоняет Claude Code: что человек написал там после переноса — появляется здесь
+extension AppModel {
+    func syncFromClaude(_ c: Conversation) async {
+        guard c.kind == .agent, let sid = c.cliSessionID, !chat.isRunning(c.id),
+              let anchor = (try? store.messages(in: c.id))?.last(where: { $0.cliAnchor != nil })?.cliAnchor else { return }
+        let since = c.updatedAt
+        let found: (String, ClaudeHistory.Transcript)? = await Task.detached {
+            // приложение Claude могло продолжить разговор в новой сессии (откат, продолжение)
+            let target = ClaudeHistory.Desktop.load()?.successor(of: sid) ?? sid
+            guard let file = ClaudeHistory.file(for: target),
+                  let mtime = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
+                  mtime > since.addingTimeInterval(1) else { return nil }
+            let s = ClaudeHistory.Session(id: target, file: file, cwd: c.folder ?? "", title: c.title, firstPrompt: "", updatedAt: mtime, bytes: 0)
+            guard let t = try? ClaudeHistory.transcript(s, conversationID: c.id, after: anchor, skipLumen: true), !t.messages.isEmpty else { return nil }
+            return (target, t)
+        }.value
+        guard let (target, t) = found, !chat.isRunning(c.id) else { return }
+        var note = ChatMessage(conversationID: c.id, role: .assistant, text: "", note: "Дальше — из Claude Code")
+        note.createdAt = t.messages.first?.createdAt ?? Date()
+        _ = try? store.save(note)
+        for m in t.messages { _ = try? store.save(m) }
+        if target != sid || !t.plan.isEmpty {
+            var updated = (try? store.conversations().first { $0.id == c.id }) ?? c
+            updated.cliSessionID = target
+            if !t.plan.isEmpty { updated.plan = t.plan }
+            try? store.save(updated)
+            chat.moved(c.id, updated.projectID)
+        }
+        reloadConversations()
+        if let fresh = conversations.first(where: { $0.id == c.id }) { chat.caughtUp(fresh, sessionChanged: target != sid) }
+        log("Синхронизация с Claude Code: +\(t.messages.count) сообщений в «\(c.title)»")
+    }
+}

@@ -156,3 +156,42 @@ private func writeSession(dir: URL, id: String, cwd: String) throws -> URL {
 @Test func pastedContentWrapperIsRemoved() {
     #expect(ClaudeHistory.clean("<pasted_content id=\"9601\">длинный текст</pasted_content>\nи вопрос") == "длинный текст\nи вопрос")
 }
+
+@Test func claudeLogExplainsWhatClaudeIsDoing() {
+    let st = ClaudeLog.State()
+    func s(_ o: [String: Any]) -> ClaudeLog.Line? { ClaudeLog.summarize(try! JSONSerialization.data(withJSONObject: o), state: st) }
+    #expect(s(["type": "system", "subtype": "init", "model": "claude-opus-5-5", "tools": ["Read", "Bash"], "claude_code_version": "2.1.301"])?.text
+        .contains("готов: claude-opus-5-5, инструментов 2") == true)
+    #expect(s(["type": "system", "subtype": "api_retry", "attempt": 2, "max_retries": 10, "retry_delay_ms": 4000, "error_status": 529, "error": "overloaded"])?.kind == .error)
+    #expect(s(["type": "stream_event", "event": ["type": "content_block_start", "content_block": ["type": "thinking"]]])?.text == "Думает…")
+    #expect(s(["type": "stream_event", "event": ["type": "content_block_start", "content_block": ["type": "tool_use", "id": "t1", "name": "mcp__lumen__browser_click"]]])?.text == "Вызывает lumen: browser_click")
+    #expect(s(["type": "user", "message": ["content": [["type": "tool_result", "tool_use_id": "t1", "is_error": true, "content": "нет элемента"]]]])?.text
+        == "lumen: browser_click: ошибка — нет элемента")
+    #expect(s(["type": "stream_event", "event": ["type": "content_block_delta", "delta": ["type": "text_delta", "text": "x"]]]) == nil) // дельты — не в журнал
+    #expect(s(["type": "result", "subtype": "success", "duration_ms": 12400, "usage": ["output_tokens": 1500]])?.text == "Ход завершён за 12 с, ответ 1.5 тыс. токенов")
+}
+
+@Test func importedConversationCatchesUpWithClaudeCode() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-sync-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let f = try writeSession(dir: dir, id: "s1", cwd: "/Users/test/prog")
+    // после переноса: ход Lumen (sdk-cli) и потом — разговор в приложении Claude
+    let more = [
+        line(["type": "user", "entrypoint": "sdk-cli", "timestamp": "2026-10-17T12:00:00.000Z", "message": ["role": "user", "content": "из Lumen"]]),
+        line(["type": "assistant", "uuid": "l1", "entrypoint": "sdk-cli", "timestamp": "2026-10-17T12:00:01.000Z", "message": ["role": "assistant", "content": [["type": "text", "text": "ответ в Lumen"]]]]),
+        line(["type": "user", "entrypoint": "claude-desktop", "timestamp": "2026-10-17T12:05:00.000Z", "message": ["role": "user", "content": "из Claude"]]),
+        line(["type": "assistant", "uuid": "d1", "entrypoint": "claude-desktop", "timestamp": "2026-10-17T12:05:01.000Z", "message": ["role": "assistant", "content": [["type": "text", "text": "ответ в Claude"]]]]),
+    ]
+    let h = try FileHandle(forWritingTo: f)
+    h.seekToEndOfFile()
+    h.write(Data(("\n" + more.joined(separator: "\n")).utf8))
+    try h.close()
+    let s = try #require(ClaudeHistory.sessions(root: dir).first)
+    let t = try ClaudeHistory.transcript(s, conversationID: "c", after: "a5", skipLumen: true)
+    // то, что уже есть в Lumen (до a5) и ходы самого Lumen — не повторяются
+    #expect(t.messages.map(\.text).filter { !$0.isEmpty } == ["Спасибо", "из Claude", "ответ в Claude"], "\(t.messages.map(\.text))")
+    #expect(try ClaudeHistory.transcript(s, conversationID: "c", after: "нет такой", skipLumen: true).messages.isEmpty)
+    // приложение Claude продолжило разговор в новой сессии
+    let d = ClaudeHistory.Desktop(entries: ["s2": .init(title: "x", archived: false, groupID: nil, priors: ["s1"])])
+    #expect(d.successor(of: "s1") == "s2")
+}

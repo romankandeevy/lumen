@@ -110,6 +110,7 @@ extension AppModel {
 
     func showProjectMenu(_ p: Project, at point: CGPoint) {
         menu = MenuState(items: [
+            MenuItem(title: "Открыть проект", key: "o") { [weak self] in self?.openProject(p) },
             MenuItem(title: p.pinned ? "Открепить" : "Закрепить", key: "p") { [weak self] in self?.updateProject(p) { $0.pinned.toggle() } },
             MenuItem(title: "Переименовать", key: "r") { [weak self] in
                 self?.page = .project(p.id)

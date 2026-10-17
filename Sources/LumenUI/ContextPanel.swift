@@ -1,4 +1,6 @@
+import AppKit
 import LumenCore
+import LumenProviders
 import SwiftUI
 
 /// Правая панель «Контекст» (`ContextPanel` в макете): сессия агента, память в ответе, окно контекста, расход.
@@ -13,16 +15,20 @@ struct ContextPanel: View {
     private var conversation: Conversation? { chat.conversation }
 
     /// Блоки панели и их названия
-    static let names = ["plan": "План", "session": "Сессия", "memory": "Память в ответе", "context": "Окно контекста", "usage": "Расход"]
+    static let names = ["plan": "План", "session": "Сессия", "log": "Журнал Claude Code", "memory": "Память в ответе", "context": "Окно контекста", "usage": "Расход"]
 
     /// Какие блоки сейчас есть (план и сессия — только у агента с планом / в папке)
     private var available: [String] {
         var all = app.prefs.panelOrder
-        for id in ["plan", "session", "memory", "context", "usage"] where !all.contains(id) { all.append(id) }
+        for id in ["plan", "session", "log", "memory", "context", "usage"] where !all.contains(id) {
+            // журнал — сразу после сессии: его смотрят, когда ход идёт
+            if id == "log", let i = all.firstIndex(of: "session") { all.insert(id, at: i + 1) } else { all.append(id) }
+        }
         return all.filter { id in
             switch id {
             case "plan": !(conversation?.plan.isEmpty ?? true)
             case "session": conversation?.kind == .agent && conversation?.folder != nil
+            case "log": conversation?.usesCLI == true
             default: true
             }
         }
@@ -88,6 +94,8 @@ struct ContextPanel: View {
                 }
                 .font(.geist(14))
             }
+        case "log":
+            ClaudeLogView(chat: chat)
         case "memory":
             if used.isEmpty {
                 Text("В последнем ответе Lumen не опирался на память.").font(.geist(12)).foregroundStyle(p.mutedFg)
@@ -301,5 +309,73 @@ struct PanelBlock<Content: View>: View {
             }
             return true
         } isTargeted: { dropTarget = $0 }
+    }
+}
+
+
+/// «Журнал Claude Code»: что делает процесс claude, по секундам — думает, ждёт API, вызывает инструменты, ошибки.
+/// Сверху — сколько он молчит, если ход идёт: видно, завис или работает.
+struct ClaudeLogView: View {
+    let chat: ChatController
+
+    @Environment(\.palette) private var p
+    @State private var all = false
+
+    private static let time: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
+
+    var body: some View {
+        let lines = chat.openLog
+        VStack(alignment: .leading, spacing: 6) {
+            if chat.busy {
+                TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                    let s = Int(chat.silence(now: ctx.date) ?? 0)
+                    HStack(spacing: 6) {
+                        LiveDot(color: s > 30 ? Palette.destructive : p.glow, size: 6)
+                        Text(s < 3 ? "Работает" : "Молчит \(s) с — \(s > 90 ? "похоже, завис: «Стоп» и повторить" : "думает или ждёт ответа API")")
+                            .font(.geist(12)).foregroundStyle(s > 30 ? Palette.destructive : p.mutedFg)
+                    }
+                }
+            }
+            if lines.isEmpty {
+                Text("Появится, когда Claude Code начнёт работать.").font(.geist(12)).foregroundStyle(p.mutedFg)
+            } else {
+                let shown = all ? lines : Array(lines.suffix(40))
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(shown) { l in
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(Self.time.string(from: l.at)).font(.system(size: 10, design: .monospaced)).foregroundStyle(p.mutedFg.opacity(0.7))
+                            Text(l.text).font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(color(l.kind))
+                                .fixedSize(horizontal: false, vertical: true)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
+                HStack(spacing: 12) {
+                    if lines.count > 40 {
+                        Button(all ? "Только последние" : "Весь журнал (\(lines.count))") { all.toggle() }
+                    }
+                    Button("Копировать") {
+                        let text = lines.map { Self.time.string(from: $0.at) + "  " + $0.text }.joined(separator: "\n")
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(text, forType: .string)
+                    }
+                }
+                .buttonStyle(.plain).font(.geist(12)).foregroundStyle(p.mutedFg)
+            }
+        }
+    }
+
+    private func color(_ k: ClaudeLog.Line.Kind) -> Color {
+        switch k {
+        case .error: Palette.destructive
+        case .done: p.glow
+        case .think, .wait: p.mutedFg
+        default: p.foreground.opacity(0.85)
+        }
     }
 }

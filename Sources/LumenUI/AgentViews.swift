@@ -143,39 +143,35 @@ struct FolderTile: View {
     }
 }
 
-/// Шаги агента (`msg.steps` в макете): «▸ 5 шагов: читал, правил, запускал», по нажатию — список
+/// Шаги агента между абзацами, как в Claude: «Выполнено 5 команд ›» серым, по нажатию — список шагов
 struct StepsView: View {
     let steps: [AgentStep]
     var live = false
 
     @Environment(\.palette) private var p
     @State private var open = false
+    @State private var hover = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Button { withAnimation(.easeOut(duration: 0.15)) { open.toggle() } } label: {
-                HStack(spacing: 8) {
+                HStack(spacing: 4) {
+                    Text(summary).tw(14, lh: 20).lineLimit(1)
                     Icon(open ? "chevron-down" : "chevron-right", 12)
-                    Text(summary).font(.geist(12))
-                    if live { LiveDot(color: p.glow, size: 6) }
                 }
-                .foregroundStyle(p.mutedFg)
-                .padding(.vertical, 2)
+                .foregroundStyle(hover ? p.foreground.opacity(0.8) : p.mutedFg)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            if open || live {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(Array((open ? steps : Array(steps.suffix(3))).enumerated()), id: \.offset) { _, s in
-                        HStack(spacing: 8) {
-                            Icon(Self.icon(s.kind), 14)
-                            Text(s.text).font(.geist(12)).lineLimit(1)
-                        }
+            .onHover { hover = $0 }
+            if open {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(steps.enumerated()), id: \.offset) { _, s in
+                        Text(s.text).tw(13, lh: 18).foregroundStyle(p.mutedFg).lineLimit(2).textSelection(.enabled)
                     }
                 }
-                .foregroundStyle(p.mutedFg)
                 .padding(.leading, 12)
-                .overlay(alignment: .leading) { p.border.frame(width: 1) }
+                .transition(.opacity)
             }
         }
     }
@@ -580,5 +576,76 @@ struct PermissionCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(p.glow.opacity(0.05), in: RoundedRectangle(cornerRadius: R.xl))
         .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.glow.opacity(0.3)))
+    }
+}
+
+/// План под перепиской, как в Claude: рамка, пункты — сделано (галочка), идёт (точки), впереди (пунктир)
+struct PlanCard: View {
+    let items: [PlanItem]
+    /// План составлен до последнего сообщения человека — так и подписан
+    var earlier = false
+
+    @Environment(\.palette) private var p
+    @State private var folded = false
+
+    var body: some View {
+        let done = items.filter { $0.state == .done }.count
+        VStack(alignment: .leading, spacing: 10) {
+            Button { withAnimation(.easeOut(duration: 0.15)) { folded.toggle() } } label: {
+                HStack(spacing: 6) {
+                    Text(earlier ? "План до твоего последнего сообщения" : "План").tw(12, lh: 16)
+                    Text("\(done) из \(items.count)").tw(12, lh: 16).monospacedDigit()
+                    Icon(folded ? "chevron-right" : "chevron-down", 12)
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(p.mutedFg)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if !folded {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(items.enumerated()), id: \.offset) { _, it in
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Image(systemName: it.state == .done ? "checkmark.circle.fill" : (it.state == .doing ? "ellipsis.circle" : "circle.dashed"))
+                                .font(.system(size: 15))
+                                .foregroundStyle(it.state == .todo ? p.mutedFg : p.foreground.opacity(0.85))
+                            Text(it.text).tw(14, lh: 20)
+                                .foregroundStyle(it.state == .todo ? p.foreground.opacity(0.75) : p.foreground)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
+    }
+}
+
+/// Живая строка под планом, пока идёт ход: что агент делает сейчас и сколько уже (как в Claude: «… 5 мин 54 с ›»)
+struct LiveStepLine: View {
+    let text: String
+    let since: Date
+    var tint: Color?
+
+    @Environment(\.palette) private var p
+
+    var body: some View {
+        HStack(spacing: 10) {
+            LiveDot(color: tint ?? p.glow, size: 7).frame(width: 22)
+            TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                HStack(spacing: 8) {
+                    Text(text).tw(14, lh: 20).foregroundStyle(p.mutedFg).lineLimit(1).shimmer(p.foreground)
+                    Text(Self.elapsed(ctx.date.timeIntervalSince(since))).tw(13, lh: 20).foregroundStyle(p.mutedFg.opacity(0.8)).monospacedDigit()
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    static func elapsed(_ t: TimeInterval) -> String {
+        let s = max(0, Int(t))
+        return s < 60 ? "\(s) с" : "\(s / 60) мин \(s % 60) с"
     }
 }

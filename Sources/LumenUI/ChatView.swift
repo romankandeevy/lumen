@@ -217,6 +217,33 @@ struct ChatView: View {
                     if let s = chat.streaming {
                         MessageRow(message: s, chat: chat, streaming: true)
                     }
+                    // план под перепиской, как в Claude: ответы идут над ним; виден, пока идёт работа или есть несделанное
+                    if let c = chat.conversation, c.kind != .chat, !c.plan.isEmpty, chat.busy || c.plan.contains(where: { $0.state != .done }) {
+                        PlanCard(items: c.plan).padding(.leading, 36)
+                    }
+                    // что агент делает прямо сейчас — пока идёт инструмент (текст после него ещё не пошёл)
+                    if chat.busy, !chat.thinking, chat.pendingPermission == nil, let live = chat.liveStep,
+                       (live.step.at ?? 0) >= (chat.streaming?.text.count ?? 0) {
+                        LiveStepLine(text: live.step.text, since: live.since, tint: app.bot(chat.turnBot).map { BotColor.accent($0.hue) })
+                    }
+                    // claude долго молчит — сказать прямо, что происходит, и дать выход
+                    if chat.busy, chat.pendingPermission == nil, chat.conversation?.usesCLI == true {
+                        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                            if let s = chat.silence(now: ctx.date), s >= 30 {
+                                HStack(spacing: 10) {
+                                    Icon("clock", 14)
+                                    Text("Claude Code молчит \(Int(s)) с — \(s > 90 ? "похоже, завис" : "думает или ждёт ответа API")")
+                                        .tw(13, lh: 18)
+                                    Button("Журнал") { app.update { $0.contextOpen = true; $0.panelHidden.removeAll { $0 == "log" } } }
+                                        .buttonStyle(.plain).foregroundStyle(p.glow)
+                                    Button("Стоп") { chat.stop() }.buttonStyle(.plain).foregroundStyle(p.glow)
+                                }
+                                .font(.geist(13))
+                                .foregroundStyle(s > 90 ? Palette.destructive : p.mutedFg)
+                                .padding(.leading, 36)
+                            }
+                        }
+                    }
                     if let ask = chat.pendingPermission, ask.conversationID == chat.conversation?.id {
                         PermissionCard(chat: chat, ask: ask.request).id("permission-\(ask.request.id)")
                     } else if chat.thinking {
@@ -385,7 +412,7 @@ struct MessageRow: View {
                         let last = i == pieces.count - 1
                         switch piece {
                         case .text(let t): RichText(text: t, caret: streaming && last)
-                        case .steps(let s): StepsView(steps: s, live: streaming && last)
+                        case .steps(let s): StepsView(steps: s)
                         }
                     }
                     // снимки страниц и файлы, которые агент показал в чате

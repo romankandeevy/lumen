@@ -50,6 +50,8 @@ struct ProjectRow: View {
     @Environment(\.palette) private var p
     @State private var hover = false
 
+    @State private var dotsHover = false
+
     private var active: Bool { app.page == .project(project.id) }
 
     var body: some View {
@@ -76,12 +78,12 @@ struct ProjectRow: View {
         .overlay(alignment: .leading) { if active { GlowBar() } }
         .onHover { hover = $0 }
         .overlay(alignment: .trailing) {
-            if hover {
+            if hover || dotsHover {
                 GeometryReader { g in
                     let f = g.frame(in: .global)
                     DotsButton { app.showProjectMenu(project, at: CGPoint(x: f.minX, y: f.maxY + 4)) }
                 }
-                .frame(width: 26, height: 26).padding(.trailing, 4)
+                .frame(width: 26, height: 26).onHover { dotsHover = $0 }.padding(.trailing, 4)
             }
         }
         .onRightClick { point in app.showProjectMenu(project, at: point) }

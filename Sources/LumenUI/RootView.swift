@@ -101,6 +101,8 @@ struct Sidebar: View {
     @State private var importing = false
     @Environment(\.palette) private var p
 
+    @State private var collapsed: Set<String> = []
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // как в Claude: в одной строке с кнопками окна — «спрятать панель» и поиск
@@ -110,57 +112,63 @@ struct Sidebar: View {
 
             TabSwitch(app: app).padding(.horizontal, 12).padding(.top, 12)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    if app.tab == .chat {
-                        NewButton(title: "Новый чат") { app.newChat() }
-                            .padding(.bottom, 12)
-                        ProjectsSection(app: app, kind: .chat)
-                        ForEach(groups, id: \.0) { name, items in
-                            VStack(alignment: .leading, spacing: 0) {
-                                Text(name).tw(12, lh: 16).foregroundStyle(p.mutedFg)
-                                    .padding(.horizontal, 10).padding(.bottom, 4)
-                                ForEach(items) { c in ChatRow(app: app, c: c) }
-                            }
-                            .padding(.bottom, 12)
-                        }
-                    } else if app.tab == .bots {
-                        BotsSidebar(app: app)
-                    } else {
-                        NewButton(title: "Новая задача") { app.newAgentTask() }
-                            .padding(.bottom, 4)
-                        NavRow(title: "Импорт из Claude Code", icon: "download", active: false) { importing = true }
-                            .padding(.bottom, 12)
-                        ProjectsSection(app: app, kind: .agent)
-                        if !sessions.isEmpty {
-                            Text("Сессии").tw(12, lh: 16).foregroundStyle(p.mutedFg)
-                                .padding(.horizontal, 10).padding(.bottom, 4)
-                            ForEach(sessions) { c in ChatRow(app: app, c: c) }
-                        }
+            if app.tab == .bots {
+                ScrollView {
+                    BotsSidebar(app: app).padding(.horizontal, 12).padding(.vertical, 12)
+                }
+                .scrollIndicators(.never)
+            } else {
+                // как в Claude: сверху — действия строками с иконками
+                VStack(spacing: 2) {
+                    NavRow(title: app.tab == .agent ? "Новая задача" : "Новый чат", icon: "square-pen", active: false) {
+                        app.tab == .agent ? app.newAgentTask() : app.newChat()
                     }
+                    NavRow(title: "Поиск", icon: "search", active: app.searchOpen, trailing: "⌘K") { app.searchOpen = true }
+                    if app.tab == .agent {
+                        NavRow(title: "Импорт из Claude Code", icon: "download", active: false) { importing = true }
+                    }
+                    NavRow(title: "Кастомизация", icon: "wrench", active: skillsActive,
+                           trailing: customizeCount == 0 ? nil : "\(customizeCount)") { app.page = .skills }
+                    NavRow(title: "Память", icon: "brain", active: app.page == .memory, trailing: "\(app.memoryCount)") { app.page = .memory }
                 }
-                .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 12)
-            }
-            .scrollIndicators(.never)
+                .padding(.horizontal, 12).padding(.top, 12)
 
-            VStack(spacing: 2) {
-                NavRow(title: "Кастомизация", icon: "wrench", active: skillsActive,
-                       trailing: customizeCount == 0 ? nil : "\(customizeCount)") {
-                    app.page = .skills
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        let kind: ConversationKind = app.tab == .agent ? .agent : .chat
+                        let mine = app.conversations.filter { $0.kind == kind }
+                        let pinned = mine.filter(\.pinned)
+                        if !pinned.isEmpty {
+                            section("pinned", "Закреплённые", pinned)
+                        }
+                        // проекты — разделами, как группы в Claude
+                        ForEach(app.projects) { pr in
+                            let items = mine.filter { $0.projectID == pr.id && !$0.pinned }
+                            section("p:" + pr.id, pr.name, items, project: pr)
+                        }
+                        let recent = mine.filter { $0.projectID == nil && !$0.pinned }
+                        section("recent", "Недавние", recent, plus: { app.tab == .agent ? app.newAgentTask() : app.newChat() })
+                        Button { app.createProject(folder: app.tab == .agent ? app.agentFolder : nil) } label: {
+                            HStack(spacing: 6) {
+                                Icon("plus", 12)
+                                Text("Новый проект").tw(12, lh: 16)
+                            }
+                            .foregroundStyle(p.mutedFg)
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 12).padding(.top, 16).padding(.bottom, 12)
                 }
-                NavRow(title: "Память", icon: "brain", active: app.page == .memory, trailing: "\(app.memoryCount)") {
-                    app.page = .memory
-                }
-                NavRow(title: "Настройки", icon: "settings", active: { if case .settings = app.page { true } else { false } }()) {
-                    app.page = .settings(.look)
-                }
+                .scrollIndicators(.never)
             }
-            .padding(.horizontal, 12).padding(.vertical, 8)
-            .overlay(alignment: .top) { p.border.frame(height: 1) }
 
-            Button { app.page = .settings(.models) } label: { profile }
+            Button { app.page = .settings(.look) } label: { profile }
                 .buttonStyle(.plain)
-                .padding([.horizontal, .bottom], 12)
+                .help("Настройки")
+                .padding(12)
+                .overlay(alignment: .top) { p.border.frame(height: 1) }
         }
         .foregroundStyle(p.foreground)
         .frame(width: CGFloat(ResizeHandle.clamp(app.sidebarWidth, min: 220, window: Double(windowWidth))))
@@ -173,6 +181,24 @@ struct Sidebar: View {
         .background(p.sidebar.opacity(0.7).ignoresSafeArea())
         .overlay(alignment: .trailing) { p.border.frame(width: 1).ignoresSafeArea() }
         .sheet(isPresented: $importing) { ImportClaudeSheet(app: app) { importing = false }.environment(\.palette, p) }
+        .onChange(of: app.chat.conversation?.projectID) { _, id in if let id { collapsed.remove("p:" + id) } }
+    }
+
+    /// Раздел как в Claude: серое название (у проекта — сворачивается), «+» справа, ниже строки разговоров
+    @ViewBuilder
+    private func section(_ key: String, _ title: String, _ items: [Conversation], project: Project? = nil,
+                         plus: (() -> Void)? = nil) -> some View {
+        let isCollapsed = collapsed.contains(key)
+        SidebarSectionHeader(app: app, title: title, collapsed: project == nil ? nil : isCollapsed, project: project,
+                             toggle: { if isCollapsed { collapsed.remove(key) } else { collapsed.insert(key) } },
+                             plus: plus ?? project.map { pr in { app.newChat(in: pr, agent: app.tab == .agent) } })
+        if !isCollapsed {
+            ForEach(items) { c in ChatRow(app: app, c: c) }
+            if items.isEmpty && project != nil {
+                Text("Пусто").tw(12, lh: 16).foregroundStyle(p.mutedFg.opacity(0.7)).padding(.horizontal, 10).padding(.vertical, 4)
+            }
+        }
+        Color.clear.frame(height: 14)
     }
 
     private var sessions: [Conversation] {
@@ -202,6 +228,53 @@ struct Sidebar: View {
             if case .signedIn(_, let a) = app.claude { return "Claude \(a.planName ?? "") · подписка" }
             return "Claude Code · подписка"
         }
+    }
+}
+
+/// Заголовок раздела в панели, как в Claude: «LUMEN ›  +». У проекта: щелчок — свернуть, «…» — меню (открыть, переименовать…)
+struct SidebarSectionHeader: View {
+    @Bindable var app: AppModel
+    let title: String
+    /// nil — раздел не сворачивается
+    let collapsed: Bool?
+    let project: Project?
+    let toggle: () -> Void
+    let plus: (() -> Void)?
+
+    @Environment(\.palette) private var p
+    @State private var hover = false
+    @State private var dotsHover = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Button(action: toggle) {
+                HStack(spacing: 4) {
+                    Text(title).tw(12, lh: 16).lineLimit(1)
+                    if collapsed == true || (collapsed == false && hover) {
+                        Icon(collapsed == true ? "chevron-right" : "chevron-down", 12)
+                    }
+                }
+                .foregroundStyle(hover ? p.foreground.opacity(0.8) : p.mutedFg)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .allowsHitTesting(collapsed != nil)
+            .simultaneousGesture(TapGesture(count: 2).onEnded { if let project { app.openProject(project) } })
+            Spacer(minLength: 4)
+            if let project, hover || dotsHover {
+                GeometryReader { g in
+                    let f = g.frame(in: .global)
+                    DotsButton { app.showProjectMenu(project, at: CGPoint(x: f.minX, y: f.maxY + 4)) }
+                }
+                .frame(width: 20, height: 20)
+                .onHover { dotsHover = $0 }
+            }
+            if let plus { SmallPlus(help: project == nil ? "Новый разговор" : "Новый разговор в «\(title)»", action: plus) }
+        }
+        .padding(.leading, 10).padding(.trailing, 4).frame(height: 24)
+        .padding(.bottom, 2)
+        .contentShape(Rectangle())
+        .onHover { hover = $0 }
     }
 }
 
@@ -303,6 +376,8 @@ struct ChatRow: View {
 
     @State private var newTitle = ""
     @FocusState private var focused: Bool
+    /// Мышь на «…»: строка при этом не должна прятать их (иначе нажать невозможно)
+    @State private var dotsHover = false
 
     private var renaming: Bool { app.renamingID == c.id }
 
@@ -310,60 +385,36 @@ struct ChatRow: View {
     private var running: Bool { app.chat.isRunning(c.id) }
 
     var body: some View {
+        // как в Claude: только название; справа — точка, пока идёт ответ; при наведении «…»
         Button { app.openChat(c) } label: {
-            HStack(alignment: c.kind == .agent ? .top : .center, spacing: 8) {
-                if c.kind == .agent {
-                    // как в макете: ноутбук (на этом Маке) или крутилка, пока работает
-                    Group {
-                        if running { LiveDot(color: p.glow) } else { Icon("laptop", 14) }
-                    }
-                    .foregroundStyle(p.mutedFg).frame(width: 20, height: 18)
-                    VStack(alignment: .leading, spacing: 0) {
-                        if renaming {
-                            renameField
-                        } else {
-                            Text(c.title).font(.geist(14)).lineLimit(1)
-                                .foregroundStyle(active || hover ? p.foreground : p.foreground.opacity(0.8))
-                        }
-                        Text(AppModel.folderName(URL(fileURLWithPath: c.folder ?? ""))).font(.geist(11)).foregroundStyle(p.mutedFg).lineLimit(1)
-                    }
-                    Spacer(minLength: 4)
-                    Text(when).font(.geist(11)).foregroundStyle(p.mutedFg).opacity(hover ? 0 : 1)
+            HStack(spacing: 8) {
+                if renaming {
+                    renameField
                 } else {
-                    if renaming {
-                        renameField
-                    } else {
-                        Text(c.title).font(.geist(14)).lineLimit(1)
-                            .foregroundStyle(active || hover ? p.foreground : p.foreground.opacity(0.8))
-                    }
-                    Spacer(minLength: 4)
-                    if running {
-                        LiveDot(color: p.glow)
-                    } else {
-                        Text(when).font(.geist(11)).foregroundStyle(p.mutedFg).opacity(hover ? 0 : 1)
-                    }
+                    Text(c.title).font(.geist(14)).lineLimit(1)
+                        .foregroundStyle(active || hover ? p.foreground : p.foreground.opacity(0.8))
                 }
+                Spacer(minLength: 4)
+                if running && !hover { LiveDot(color: p.glow) }
             }
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            .frame(minHeight: 32)
-            .background(active ? p.foreground.opacity(0.07) : (hover ? p.foreground.opacity(0.05) : .clear),
+            .padding(.horizontal, 10).frame(height: 30)
+            .background(active ? p.foreground.opacity(0.08) : (hover ? p.foreground.opacity(0.05) : .clear),
                         in: RoundedRectangle(cornerRadius: R.lg))
-            .overlay(alignment: .leading) {
-                if active { GlowBar() }
-            }
             .contentShape(Rectangle())
+            .help(c.kind == .agent ? "\(c.title) · \(AppModel.folderName(URL(fileURLWithPath: c.folder ?? ""))) · \(when)" : "\(c.title) · \(when)")
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
         .simultaneousGesture(TapGesture(count: 2).onEnded { app.renamingID = c.id })
         // «…» при наведении, как в Claude — меню без двойного щелчка
         .overlay(alignment: .trailing) {
-            if (hover || app.menu != nil && menuFor) && !renaming {
+            if (hover || dotsHover) && !renaming {
                 GeometryReader { g in
                     let f = g.frame(in: .global)
                     DotsButton { app.showChatMenu(c, at: CGPoint(x: f.minX, y: f.maxY + 4)) }
                 }
                 .frame(width: 26, height: 26)
+                .onHover { dotsHover = $0 }
                 .padding(.trailing, 4)
             }
         }

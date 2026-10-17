@@ -108,6 +108,9 @@ extension Bot {
         let to = handoff.map { "@\($0.id) (\($0.name))" } ?? "Lumen"
         lines.append("Если просят то, что не по роли, — коротко откажись и предложи передать это \(to). Не делай чужую работу наполовину.")
         lines.append("Push, публикацию и выкатку не делай: это только человек.")
+        if can.contains(.read) || can.contains(.write) || can.contains(.run) {
+            lines.append("Задачу из нескольких действий веди планом (TodoWrite): сначала составь, по ходу отмечай сделанное — человек видит его под перепиской.")
+        }
         if !userName.isEmpty { lines.append("Собеседника зовут \(userName), обращайся на \(ty ? "«ты»" : "«вы»").") }
         if let skills { lines.append(skills) }
         lines.append("Отвечай по-русски, коротко и по делу: что сделал, что нашёл, что дальше.")

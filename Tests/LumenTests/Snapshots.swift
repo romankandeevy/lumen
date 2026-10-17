@@ -142,6 +142,20 @@ enum Snap {
                                           prepicked: ["s0", "s1", "s3"])
         .environment(\.palette, Palette.of(.lumen)), "40-import-claude", size: CGSize(width: 680, height: 640))
 
+    // план под перепиской, как в Claude
+    var pc = Conversation(title: "Паспорт как книжка", kind: .agent, folder: folders[0].path, backend: .subscription, model: .opus, effort: .high)
+    pc.plan = [PlanItem(text: "Посмотреть, что поменялось в макетах", state: .done), PlanItem(text: "Паспорт как открытая книжка с закладкой", state: .doing),
+               PlanItem(text: "Новая галерея index.html", state: .todo), PlanItem(text: "Обновить localhost и проверить", state: .todo)]
+    try app.store.save(pc)
+    try app.store.save(ChatMessage(conversationID: pc.id, role: .user, text: "Сделай паспорт как открытую книжку"))
+    let t1 = "Смотрю, что поменялось в макетах."
+    try app.store.save(ChatMessage(conversationID: pc.id, role: .assistant, text: t1 + "\n\nПаспорт делаю разворотом: слева фото и данные, справа штампы.",
+        steps: [.init(kind: .run, text: "Запускает: ls macets", at: t1.count), .init(kind: .read, text: "Читает passport.html", at: t1.count),
+                .init(kind: .run, text: "Запускает: git diff", at: t1.count)]))
+    app.reloadConversations()
+    app.openChat(pc)
+    try await Snap.save(RootView(app: app), "42-plan-card")
+
     // браузер сбоку: пустой, с подсказкой про входы в аккаунты (страницу WebKit рисует сам, в снимок она не попадает)
     app.browserOpen = true
     try await Snap.save(RootView(app: app), "41-browser", size: CGSize(width: 1440, height: 820))
