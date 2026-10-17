@@ -35,8 +35,9 @@ let caller = callerID.isEmpty ? nil : (try? store.bots())?.first { $0.id == call
 let canDelegate = (caller?.can.contains(.bots) == true || callerID.isEmpty) && depth < 1
     && !((try? store.bots()) ?? []).isEmpty
 // Lumen достраивает себя сам (Рома, 16.10): смотрит, создаёт, находит на skills.sh и ставит навыки.
-// Ботам — нет: их навыки выбирает человек.
-let manageSkills = tools.skills != nil && callerID.isEmpty
+// Остальным ботам — нет: их навыки выбирает человек.
+// …и боты с правом «Навыки и коннекторы» (Рома, 17.10: «Конструктор скиллов» не видел каталог)
+let manageSkills = tools.skills != nil && (callerID.isEmpty || caller?.can.contains(.skills) == true)
 if manageSkills { visible += SkillAdmin.definitions + CustomizeAdmin.definitions }
 
 /// Дождаться асинхронного (сеть) внутри синхронного цикла сервера

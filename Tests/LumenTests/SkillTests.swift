@@ -317,3 +317,39 @@ func liveLumenManagesSkillsFromChat() async throws {
     while app.chat.busy { try await Task.sleep(for: .milliseconds(300)) }
     #expect(app.skillLibrary.skill("pdf") != nil, "ответ: \(app.chat.messages.last?.text ?? "")")
 }
+
+/// Право «Навыки и коннекторы»: бот с ним видит каталог skills.sh и коннекторы, без него — нет (Рома, 17.10)
+@Test func botWithSkillsRightSeesCatalog() throws {
+    let builder = Bot(id: "skill-builder", name: "Конструктор скиллов", capabilities: [.read, .write, .skills])
+    let plain = Bot(id: "designer", name: "Дизайнер", capabilities: [.read])
+    #expect(BotPermissions(builder).allowed.contains("mcp__lumen__find_skills"))
+    #expect(BotPermissions(builder).allowed.contains("mcp__lumen__install_skill"))
+    #expect(!BotPermissions(plain).allowed.contains("mcp__lumen__find_skills"))
+    #expect(builder.rules(handoff: nil, userName: "", ty: true, skills: nil).contains("skills.sh"))
+
+    pointToMCP()
+    guard let path = ProcessInfo.processInfo.environment["LUMEN_MCP"] else { Issue.record("lumen-mcp не собран"); return }
+    let home = tempDir("lumen-mcp-botskills")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let paths = AppPaths(root: home)
+    try paths.create()
+    let store = try Store(path: paths.database)
+    try store.save(builder)
+    try store.save(plain)
+    func tools(as bot: String) throws -> String {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: path)
+        p.environment = ["LUMEN_DB": paths.database.path, "LUMEN_CONVERSATION_ID": "c1", "LUMEN_SKILLS_DIR": paths.skills.path,
+                         "LUMEN_SKILLS": "*", "LUMEN_BOT_ID": bot]
+        let input = Pipe(), output = Pipe()
+        p.standardInput = input
+        p.standardOutput = output
+        try p.run()
+        try input.fileHandleForWriting.write(contentsOf: Data(#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#.utf8 + Data("\n".utf8)))
+        try input.fileHandleForWriting.close()
+        p.waitUntilExit()
+        return String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    }
+    #expect(try tools(as: "skill-builder").contains("\"find_skills\""))
+    #expect(try !tools(as: "designer").contains("\"find_skills\""))
+}

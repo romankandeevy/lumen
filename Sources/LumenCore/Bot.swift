@@ -95,6 +95,11 @@ extension Bot {
                     + others.map { "- @\($0.id): \($0.role)" }.joined(separator: "\n"))
             }
         }
+        if can.contains(.skills) {
+            lines.append("Навыки Lumen (SKILL.md) и коннекторы — твоя работа, делай её сам этими инструментами, не отправляй человека в интерфейс: "
+                + "list_skills — что стоит; find_skills и install_skill — найти и поставить готовый из каталога skills.sh; create_skill — создать свой; "
+                + "list_customization, find_connectors, propose_connector, propose_hook — коннекторы MCP и хуки (подключает человек одним нажатием на карточке).")
+        }
         if !learned.isEmpty {
             lines.append("Чему ты научился на прошлых задачах (учитывай):\n" + learned.map { "- \($0)" }.joined(separator: "\n"))
         }
@@ -111,12 +116,16 @@ extension Bot {
 
 /// Что боту разрешено. Push на GitHub не разрешается никому: его делает человек.
 public enum BotCapability: String, Codable, Sendable, CaseIterable, Hashable {
-    case read, write, run, web, git, memory, bots
+    case read, write, run, web, git, memory, bots, skills
 
     /// Есть у каждого бота всегда и не выключаются (Рома, 16.10): ничему не мешают и делают ботов полезнее
     public static let always: Set<BotCapability> = [.memory, .bots]
     /// Что выбирает человек в конструкторе
-    public static let choosable: [BotCapability] = [.read, .write, .run, .web, .git]
+    public static let choosable: [BotCapability] = [.read, .write, .run, .web, .git, .skills]
+
+    /// Инструменты lumen-mcp для права «Навыки и коннекторы»: каталог skills.sh, свои навыки, коннекторы и хуки
+    public static let skillTools = ["list_skills", "create_skill", "find_skills", "install_skill",
+                                    "list_customization", "find_connectors", "propose_connector", "propose_hook"]
 
     public var name: String {
         switch self {
@@ -127,6 +136,7 @@ public enum BotCapability: String, Codable, Sendable, CaseIterable, Hashable {
         case .git: "Git: коммит"
         case .memory: "Писать в память"
         case .bots: "Звать других ботов"
+        case .skills: "Навыки и коннекторы"
         }
     }
 
@@ -139,6 +149,7 @@ public enum BotCapability: String, Codable, Sendable, CaseIterable, Hashable {
         case .git: "git-commit-horizontal"
         case .memory: "brain"
         case .bots: "at-sign"
+        case .skills: "wrench"
         }
     }
 }
@@ -193,6 +204,7 @@ public struct BotPermissions: Sendable, Equatable {
         self.allowed = allowed + ["mcp__lumen__recall", "mcp__lumen__load_skill", "mcp__lumen__read_skill_file"]
             + (can.contains(.memory) ? ["mcp__lumen__remember"] : []) + (can.contains(.bots) ? ["mcp__lumen__delegate"] : [])
             + bot.connectors.map { "mcp__\($0)" }
+            + (can.contains(.skills) ? BotCapability.skillTools.map { "mcp__lumen__\($0)" } : [])
         self.memoryReadOnly = !can.contains(.memory)
         var never = ["Bash(git push:*)", "Bash(git push)"]
         if !can.contains(.git) { never += ["Bash(git commit:*)", "Bash(git reset:*)", "Bash(git checkout:*)"] }
