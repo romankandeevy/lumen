@@ -51,6 +51,15 @@ public struct Keychain: Sendable {
     private static let cache = OSAllocatedUnfairLock(initialState: [String: String]())
     private static let adopted = OSAllocatedUnfairLock(initialState: Set<String>())
 
+    /// Есть ли запись — без чтения самого секрета: macOS на это не спрашивает пароль
+    public func has(_ account: String) -> Bool {
+        if Self.cache.withLock({ $0[service + "/" + account] }) != nil { return true }
+        var q = base(account)
+        q[kSecMatchLimit as String] = kSecMatchLimitOne
+        q[kSecReturnAttributes as String] = true
+        return SecItemCopyMatching(q as CFDictionary, nil) == errSecSuccess
+    }
+
     public func save(_ value: String, for account: String) throws {
         Self.cache.withLock { $0[service + "/" + account] = value }
         let data = Data(value.utf8)

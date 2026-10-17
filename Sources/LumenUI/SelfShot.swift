@@ -15,6 +15,7 @@ extension AppModel {
             ("chat-new", { [self] in tab = .chat; newChat() }),
             ("agent-new", { [self] in tab = .agent; newAgentTask() }),
             ("bots", { [self] in page = .bots }),
+            ("bot-editor", { [self] in page = .botEditor(nil) }),
             ("skills", { [self] in customizeTab = .skills; skillsMode = .mine; page = .skills }),
             ("skills-catalog", { [self] in customizeTab = .skills; skillsMode = .catalog; page = .skills }),
             ("customize-connectors", { [self] in

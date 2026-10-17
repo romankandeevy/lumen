@@ -438,3 +438,27 @@ struct LiveDot: View {
             .accessibilityLabel("Работает")
     }
 }
+
+/// Текст «думает» переливается светом, как в Claude: по буквам проходит блик
+struct Shimmer: ViewModifier {
+    var color: Color
+    @State private var phase: CGFloat = -0.6
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                GeometryReader { g in
+                    LinearGradient(colors: [.clear, color.opacity(0.95), .clear], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: max(40, g.size.width * 0.45))
+                        .offset(x: phase * g.size.width)
+                }
+                .mask(content)
+                .allowsHitTesting(false)
+            }
+            .onAppear { withAnimation(.linear(duration: 1.6).repeatForever(autoreverses: false)) { phase = 1.2 } }
+    }
+}
+
+extension View {
+    func shimmer(_ color: Color) -> some View { modifier(Shimmer(color: color)) }
+}

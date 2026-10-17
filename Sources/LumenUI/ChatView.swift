@@ -174,9 +174,11 @@ struct ChatView: View {
     private func transcriptScroll(_ proxy: ScrollViewProxy) -> some View {
         Group {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 28) {
+                LazyVStack(alignment: .leading, spacing: 14) {
                     ForEach(chat.messages) { m in
                         MessageRow(message: m, chat: chat, isLast: m.id == chat.messages.last?.id).id(m.id)
+                            // новый вопрос отделён от прошлого ответа, а ответ стоит близко к вопросу
+                            .padding(.top, m.role == .user && m.id != chat.messages.first?.id ? 18 : 0)
                     }
                     if !chat.busy, let last = chat.messages.last, let next = last.next {
                         NextStepCard(next: next) { chat.answer($0, on: last) } close: { chat.dismissNext(last) }
@@ -190,10 +192,10 @@ struct ChatView: View {
                         HStack(spacing: 12) {
                             if let b = app.bot(chat.turnBot) {
                                 BotAvatar(bot: b, size: 22)
-                                Text("\(b.name) работает…").tw(14, lh: 20).foregroundStyle(p.mutedFg)
+                                Text("\(b.name) работает…").tw(14, lh: 20).foregroundStyle(p.mutedFg).shimmer(BotColor.accent(b.hue))
                             } else {
                                 Orb(state: .thinking, size: 22)
-                                Text("Думает…").tw(14, lh: 20).foregroundStyle(p.mutedFg)
+                                Text("Думает…").tw(14, lh: 20).foregroundStyle(p.mutedFg).shimmer(p.foreground)
                             }
                         }
                     }

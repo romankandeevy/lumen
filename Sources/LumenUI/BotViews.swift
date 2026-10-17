@@ -335,16 +335,20 @@ struct BotEditor: View {
                     .disabled(problem != nil)
             }
         } content: {
-            ScrollView {
-                // слева форма, справа — как бот будет выглядеть (липнет к верху)
-                HStack(alignment: .top, spacing: 40) {
-                    form.frame(maxWidth: 620, alignment: .leading)
-                    preview.frame(width: 260)
+            // слева форма (прокручивается), справа — как бот будет выглядеть: всегда на виду, едет вместе с прокруткой
+            HStack(alignment: .top, spacing: 24) {
+                ScrollView {
+                    form.padding(.bottom, 40)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.bottom, 40)
+                .scrollIndicators(.never)
+                .frame(maxWidth: 780)
+                ScrollView {
+                    preview.frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .scrollIndicators(.never)
+                .frame(width: 320)
+                Spacer(minLength: 0)
             }
-            .scrollIndicators(.never)
         }
         .onAppear(perform: load)
         .onChange(of: botID) { loaded = false; load() }

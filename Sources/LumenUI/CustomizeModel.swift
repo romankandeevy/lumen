@@ -103,9 +103,10 @@ extension AppModel {
         return out
     }
 
-    /// Каких секретов не хватает
+    /// Каких секретов не хватает. Только «есть ли запись» — сам секрет не читаем: это зовут при отрисовке,
+    /// а чтение может вызвать вопрос macOS и остановить окно
     func missingSecrets(_ s: MCPServer) -> [String] {
-        s.placeholders.filter { secret($0) == nil && ProcessInfo.processInfo.environment[$0] == nil }
+        s.placeholders.filter { !keychain.has("secret.\($0)") && ProcessInfo.processInfo.environment[$0] == nil }
     }
 
     /// Проверить: запустить, получить список инструментов

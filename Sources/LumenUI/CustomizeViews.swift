@@ -334,7 +334,7 @@ private struct PresetCard: View {
     }
 
     private func start() {
-        if !preset.asks.isEmpty, preset.asks.contains(where: { app.secret($0.key) == nil }) { asking = true; return }
+        if !preset.asks.isEmpty, preset.asks.contains(where: { !app.keychain.has("secret.\($0.key)") }) { asking = true; return }
         finish()
     }
 
@@ -433,7 +433,7 @@ struct ConnectorEditor: View {
                     box($envText, placeholder: "API_KEY=…")
                 }
             }
-            let need = pending.placeholders.filter { app.secret($0) == nil }
+            let need = pending.placeholders.filter { !app.keychain.has("secret.\($0)") }
             if !need.isEmpty {
                 field("Секреты", aside: "хранятся в Связке ключей, в файл не попадают") {
                     VStack(spacing: 6) {
