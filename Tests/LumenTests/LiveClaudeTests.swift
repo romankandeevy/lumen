@@ -166,6 +166,39 @@ func pointToMCP() {
     #expect(app.browser.url.hasSuffix("form.html"))
 }
 
+/// Очередь: написанное во время ответа уходит само; после «Стоп» ждёт; «Сейчас» — сразу (Рома, 17.10)
+@MainActor @Test(.enabled(if: live)) func liveQueuedMessagesGoAfterAnswer() async throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-queue-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    pointToMCP()
+    let app = try AppModel(paths: AppPaths(root: home))
+    await app.refreshClaude()
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .subscription, theme: .lumen)
+    app.chat.set(model: .haiku, effort: .low)
+
+    app.chat.send("Посчитай от 1 до 15 словами, каждое с новой строки.")
+    #expect(app.chat.busy)
+    app.chat.send("А теперь скажи только слово ЛИМОН.")
+    #expect(app.chat.openQueue.count == 1)
+    while app.chat.busy || !app.chat.openQueue.isEmpty { try await Task.sleep(for: .milliseconds(100)) }
+    let roles = app.chat.messages.map(\.role)
+    #expect(roles == [.user, .assistant, .user, .assistant], "\(roles)")
+    #expect(app.chat.messages.last?.text.uppercased().contains("ЛИМОН") == true, "\(app.chat.messages.last?.text ?? "")")
+
+    // «Стоп» — очередь ждёт; «Сейчас» — уходит
+    app.chat.send("Напиши длинный рассказ на 20 абзацев о море.")
+    app.chat.send("Скажи только слово ГРУША.")
+    try await Task.sleep(for: .seconds(2))
+    app.chat.stop()
+    while app.chat.busy { try await Task.sleep(for: .milliseconds(100)) }
+    try await Task.sleep(for: .milliseconds(300))
+    #expect(app.chat.openQueue.count == 1)
+    app.chat.sendNow(app.chat.openQueue[0].id)
+    #expect(app.chat.openQueue.isEmpty)
+    while app.chat.busy { try await Task.sleep(for: .milliseconds(100)) }
+    #expect(app.chat.messages.last?.text.uppercased().contains("ГРУША") == true, "\(app.chat.messages.last?.text ?? "")")
+}
+
 @MainActor @Test(.enabled(if: live)) func liveMemoryAcrossChats() async throws {
     let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-mem-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: home) }

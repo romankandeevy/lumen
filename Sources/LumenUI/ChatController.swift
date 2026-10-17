@@ -74,6 +74,46 @@ final class ChatController {
         self.app = app
     }
 
+    /// Очередь, как в Claude Code: написанное во время ответа уходит само, когда ответ закончится
+    struct Queued: Identifiable, Equatable {
+        let id = UUID()
+        var text: String
+        var attachments: [Attachment]
+    }
+    private(set) var queue: [String: [Queued]] = [:]
+    /// Очередь открытого разговора
+    var openQueue: [Queued] { conversation.flatMap { queue[$0.id] } ?? [] }
+    /// «Сейчас»: после остановки сразу отправить первое из очереди
+    @ObservationIgnored private var sendAfterStop: Set<String> = []
+
+    func unqueue(_ id: UUID) {
+        guard let c = conversation else { return }
+        queue[c.id]?.removeAll { $0.id == id }
+    }
+
+    /// Остановить ответ и сразу отправить это сообщение из очереди
+    func sendNow(_ id: UUID) {
+        guard let c = conversation, var q = queue[c.id], let i = q.firstIndex(where: { $0.id == id }) else { return }
+        q.insert(q.remove(at: i), at: 0)
+        queue[c.id] = q
+        if turns[c.id] != nil {
+            sendAfterStop.insert(c.id)
+            stop(c.id)
+        } else {
+            dispatchQueue(c.id, stopped: false)
+        }
+    }
+
+    /// Ход кончился — следующее из очереди. После «Стоп» очередь ждёт (кроме «Сейчас»).
+    private func dispatchQueue(_ id: String, stopped: Bool) {
+        let now = sendAfterStop.remove(id) != nil
+        guard !stopped || now, var q = queue[id], !q.isEmpty, turns[id] == nil,
+              let c = app.conversations.first(where: { $0.id == id }) ?? (conversation?.id == id ? conversation : nil) else { return }
+        let next = q.removeFirst()
+        queue[id] = q.isEmpty ? nil : q
+        begin(c, text: next.text, attachments: next.attachments, isNew: false)
+    }
+
     private var openTurn: Turn? { conversation.flatMap { turns[$0.id] } }
     /// Ход идёт в открытом разговоре
     var busy: Bool { openTurn != nil }
@@ -243,7 +283,11 @@ final class ChatController {
             tr.newInput = true
             return
         }
-        guard !busy else { return }
+        // идёт ответ — в очередь
+        if busy, let c = conversation {
+            queue[c.id, default: []].append(Queued(text: text, attachments: attachments))
+            return
+        }
         var c: Conversation
         if let existing = conversation {
             c = existing
@@ -259,15 +303,23 @@ final class ChatController {
         if conversation == nil { c.projectID = newProjectID }
         // ChatGPT идёт по подписке ChatGPT, не по ключу Anthropic
         if c.model.isGPT { c.backend = .subscription }
-        let isNew = conversation == nil
+        begin(c, text: text, attachments: attachments, isNew: conversation == nil)
+    }
+
+    /// Начать ход в разговоре — открытом или (из очереди) в том, куда человек уже не смотрит
+    private func begin(_ conv: Conversation, text: String, attachments: [Attachment], isNew: Bool) {
+        var c = conv
+        let open = isNew || conversation?.id == c.id
         if c.usesCLI && c.cliSessionID == nil { c.cliSessionID = UUID().uuidString.lowercased() }
         do {
             try app.store.save(c)
             var u = ChatMessage(conversationID: c.id, role: .user, text: text)
             u.attachments = attachments
             let user = try app.store.save(u)
-            conversation = c
-            messages.append(user)
+            if open {
+                conversation = c
+                messages.append(user)
+            }
         } catch {
             return
         }
@@ -278,8 +330,8 @@ final class ChatController {
         let tr = Turn(c)
         tr.bot = delegate?.0.id ?? (c.kind == .bot ? c.botID : nil)
         turns[c.id] = tr
-        app.orb = .thinking
-        let history = messages
+        if open { app.orb = .thinking }
+        let history = open ? messages : ((try? app.store.messages(in: c.id)) ?? [])
         tr.task = Task { [weak self] in
             guard let self else { return }
             if c.kind == .group {
@@ -294,9 +346,11 @@ final class ChatController {
             } else {
                 await self.runAPI(c, history: history)
             }
+            let stopped = tr.stopRequested
             self.turns[c.id] = nil
             self.settleOrb()
             self.app.reloadConversations()
+            self.dispatchQueue(c.id, stopped: stopped)
         }
     }
 

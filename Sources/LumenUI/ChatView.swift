@@ -849,6 +849,7 @@ struct Composer: View {
                 .padding(.bottom, 4)
                 .overlay(alignment: .bottom) { p.border.frame(height: 1) }
             }
+            if !chat.openQueue.isEmpty { queueList }
             if !attachments.isEmpty { AttachmentStrip(items: $attachments) }
             TextField(big ? "Опиши задачу: что сделать, починить или проверить" : (agent ? "Что сделать в проекте?" : (currentBot.map { "Задача для «\($0.name)»" } ?? (chat.conversation?.kind == .group ? "Написать группе · @id — ответит один" : "Просто напиши"))),
                       text: $draft, axis: .vertical)
@@ -907,9 +908,34 @@ struct Composer: View {
 
     private var inGroup: Bool { chat.conversation?.kind == .group }
 
+    /// Очередь: что уйдёт после ответа — «Сейчас» (остановить ответ и отправить это) или убрать
+    private var queueList: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("В очереди — уйдёт после ответа").tw(12, lh: 16).foregroundStyle(p.mutedFg)
+            ForEach(chat.openQueue) { q in
+                HStack(spacing: 8) {
+                    Icon("clock", 14).foregroundStyle(p.mutedFg)
+                    Text(q.text.isEmpty ? (q.attachments.first?.name ?? "Вложение") : q.text)
+                        .tw(13, lh: 18).lineLimit(1)
+                    if !q.attachments.isEmpty, !q.text.isEmpty {
+                        Icon("paperclip", 12).foregroundStyle(p.mutedFg)
+                    }
+                    Spacer(minLength: 8)
+                    Button { chat.sendNow(q.id) } label: { Text("Сейчас").tw(12, .medium, lh: 16).foregroundStyle(p.glow) }
+                        .buttonStyle(.plain).help("Остановить ответ и отправить это")
+                    Button { chat.unqueue(q.id) } label: { Icon("x", 12).foregroundStyle(p.mutedFg) }
+                        .buttonStyle(.plain).help("Убрать из очереди")
+                }
+                .padding(.horizontal, 10).frame(height: 30)
+                .background(p.secondary.opacity(0.6), in: RoundedRectangle(cornerRadius: R.md))
+            }
+        }
+        .padding(.bottom, 4)
+    }
+
     private func send() {
-        // в группе можно писать, пока боты отвечают: новое сообщение подхватят со следующего хода
-        guard !chat.busy || inGroup, canSend, ready else { return }
+        // идёт ответ — сообщение встаёт в очередь (в группе — сразу в комнату)
+        guard canSend, ready else { return }
         chat.send(draft, attachments: attachments)
         draft = ""
         attachments = []
@@ -1023,6 +1049,22 @@ struct Composer: View {
     }
 
     @ViewBuilder private var sendButton: some View {
+        if chat.busy && !inGroup && canSend {
+            // ответ идёт, а в поле уже есть следующее — в очередь (↩ делает то же)
+            Button(action: send) {
+                HStack(spacing: 6) {
+                    Icon("clock", 12)
+                    Text("В очередь").font(.geist(13, .medium))
+                }
+                .foregroundStyle(p.onGlow)
+                .padding(.horizontal, 12).frame(height: 32)
+                .background(p.glow, in: RoundedRectangle(cornerRadius: R.lg))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Отправится сам, когда Lumen закончит · ↩")
+            .padding(.trailing, 4)
+        }
         if chat.busy && !(inGroup && canSend) {
             Button { chat.stop() } label: {
                 HStack(spacing: 6) {
