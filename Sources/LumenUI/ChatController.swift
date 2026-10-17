@@ -37,6 +37,10 @@ final class ChatController {
         @ObservationIgnored var needBreak = false
         /// Последняя метка ответа в сессии claude
         @ObservationIgnored var anchor: String?
+        /// Lumen позвал бота, и его ответ уже показан отдельным сообщением
+        @ObservationIgnored var botShown = false
+        /// Текст Lumen до вызова бота — уже сохранён отдельным сообщением над ответом бота
+        @ObservationIgnored var flushed = ""
 
         init(_ c: Conversation) { conversation = c }
     }
@@ -314,8 +318,58 @@ final class ChatController {
         var m = ChatMessage(conversationID: b.id, role: .assistant, text: text, model: bot.model, error: ok ? nil : Self.cliError(result?.text ?? ""))
         m.botID = bot.id
         _ = try? app.store.save(m)
-        if !ok { sessions[b.id] = nil }
-        return ok ? "@\(bot.id) ответил:\n\(text)" : "@\(bot.id) не справился: \(text)"
+        if !ok { sessions[b.id] = nil; return "@\(bot.id) не справился: \(text)" }
+        // как при «@id …»: ответ бота — отдельным сообщением с его знаком (текст Lumen до вызова — над ним)
+        flushPreText(c)
+        var shown = ChatMessage(conversationID: c.id, role: .assistant, text: text, model: bot.model)
+        shown.botID = bot.id
+        if let saved = try? app.store.save(shown) {
+            if conversation?.id == c.id { messages.append(saved) }
+            turns[c.id]?.botShown = true
+            return "Ответ @\(bot.id) человек уже видит в чате отдельным сообщением бота. Не повторяй, не пересказывай и не упоминай, "
+                + "что он показан. Если есть что добавить по сути — одной-двумя фразами; если нечего — ответь пустым сообщением.\n\nЧто он ответил (для тебя):\n\(text)"
+        }
+        return "@\(bot.id) ответил:\n\(text)"
+    }
+
+    /// Ответы ботов, которых Lumen позвал сам (lumen-mcp пишет их в этот чат), — сразу на экран
+    private func pullBotReplies(_ c: Conversation) {
+        guard c.kind != .bot, let tr = turns[c.id] else { return }
+        let all = (try? app.store.messages(in: c.id)) ?? []
+        let fresh = all.filter { m in m.botID != nil && m.role == .assistant && m.createdAt >= tr.start
+            && !messages.contains { $0.id == m.id } }
+        guard !fresh.isEmpty else { return }
+        // текст Lumen до вызова — своим сообщением над ответом бота; ответы бота переписываются под него
+        if flushPreText(c) {
+            for m in fresh {
+                if let id = m.id { try? app.store.deleteMessage(id) }
+                var copy = m
+                copy.id = nil
+                if let saved = try? app.store.save(copy), conversation?.id == c.id { messages.append(saved) }
+            }
+        } else if conversation?.id == c.id {
+            messages += fresh
+        }
+        tr.botShown = true
+    }
+
+    /// Сохранить уже написанный текст хода отдельным сообщением (перед ответом бота). true — было что сохранить.
+    @discardableResult
+    private func flushPreText(_ c: Conversation) -> Bool {
+        guard let tr = turns[c.id] else { return false }
+        let pre = tr.received.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !pre.isEmpty else { return false }
+        tr.revealTask?.cancel()
+        tr.revealTask = nil
+        var m = ChatMessage(conversationID: c.id, role: .assistant, text: pre, model: c.model,
+                            steps: c.kind == .chat ? [] : (tr.message?.steps ?? []))
+        m.botID = tr.bot
+        if let saved = try? app.store.save(m), conversation?.id == c.id { messages.append(saved) }
+        tr.flushed += tr.received
+        tr.received = ""
+        tr.message = nil
+        tr.needBreak = false
+        return true
     }
 
     /// Что было в чате без Lumen: вопросы ботам через @ и их ответы шли в процессах ботов, сессия Lumen их не видела.
@@ -563,6 +617,9 @@ final class ChatController {
                     appendStep(step, c)
                 case .anchor(let a):
                     turns[c.id]?.anchor = a
+                case .toolDone:
+                    // позванный Lumen бот ответил — его сообщение уже в базе
+                    pullBotReplies(c)
                 case .plan(let change):
                     updatePlan(change, c)
                 case .permission(let req):
@@ -968,6 +1025,11 @@ final class ChatController {
         // ответ допечатывается до конца; «Стоп» и ошибки — сразу
         await drainReveal(c, instant: stopped || error != nil)
         let tr = turns[c.id]
+        // уже сохранённое до ответа бота — не повторять
+        var text = text
+        if let f = tr?.flushed, !f.isEmpty, text.hasPrefix(f) {
+            text = String(text.dropFirst(f.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         if let error { app.log("Ошибка в разговоре: \(error)", conversation: c) }
         // шаги показываем у агента; в чате вызовы памяти видны плашками «Запомнил» и «Опирался на»
         // у агента и ботов шаги видны; в чате вызовы памяти видны плашками «Запомнил» и «Опирался на»
@@ -991,7 +1053,10 @@ final class ChatController {
             m.contextTokens = context.0
             m.contextWindow = context.1 > 0 ? context.1 : nil
         }
-        let saved = try? app.store.save(m)
+        // Lumen позвал бота и сам ничего не добавил — его пустой ответ не нужен (ответ бота уже на экране)
+        pullBotReplies(c)
+        let skip = tr?.botShown == true && visible.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && error == nil && !stopped
+        let saved = skip ? nil : try? app.store.save(m)
         if let saved, conversation?.id == c.id { messages.append(saved) }
         // первый ответ — название разговора от модели
         if error == nil && !stopped && !visible.isEmpty, c.kind != .bot,
@@ -1200,8 +1265,9 @@ extension AppModel {
         guard !bots.isEmpty else { return "Ботов пока нет — их создают во вкладке «Боты»." }
         return "Твои боты (свои роли, свои права): " + bots.map { "@\($0.id) — \($0.name)\($0.role.isEmpty ? "" : ": \($0.role)")" }.joined(separator: "; ")
             + ". Человек зовёт бота сам, написав в начале сообщения @id и задачу. Ты тоже можешь: инструмент delegate (bot, task) — "
-            + "передай задачу полностью, с нужным контекстом (бот не видит этот разговор), дождись ответа и приведи его человеку "
-            + "(«@id ответил: …»), можно со своим мнением. Когда просят спросить или позвать бота — зови сам, не пиши «@id …» в ответ."
+            + "передай задачу полностью, с нужным контекстом (бот не видит этот разговор) "
+            + "— его ответ человек увидит сам, отдельным сообщением бота. Перед вызовом ничего не пиши; после — только своё короткое мнение, "
+            + "если оно нужно. Когда просят спросить или позвать бота — зови сам, не пиши «@id …» в ответ."
     }
 
     /// Какие коннекторы подключены сейчас — чтобы Lumen не говорил «нет», когда есть

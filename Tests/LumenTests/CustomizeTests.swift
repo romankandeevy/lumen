@@ -629,8 +629,12 @@ extension LiveCustomizeSuite {
         app.chat.set(model: .haiku, effort: .low)
         app.chat.send("Спроси у бота pick, какой цвет взять для кнопки, и скажи мне его ответ.")
         while app.chat.busy { try await Task.sleep(for: .milliseconds(200)) }
-        let r = try #require(app.chat.messages.last)
-        #expect(r.error == nil && r.text.uppercased().contains("БИРЮЗ"), "\(r.text)")
+        // ответ бота — отдельным сообщением с его знаком, как при «@pick …»
+        let shown = try #require(app.chat.messages.first { $0.botID == "pick" }, "\(app.chat.messages.map(\.text))")
+        #expect(shown.text.uppercased().contains("БИРЮЗ"), "\(shown.text)")
+        let afterBot = app.chat.messages.drop { $0.id != shown.id }.dropFirst()
+        #expect(afterBot.allSatisfy { !$0.text.uppercased().contains("ВЫБИРАЮ ЦВЕТ БИРЮЗОВЫЙ") }, "Lumen повторил ответ бота")
+        print("DBG", app.chat.messages.map { "\($0.role)/\($0.botID ?? "lumen"): \($0.text.prefix(80))" })
         let botConv = app.botConversation(for: app.bot("pick")!)
         let asked = try #require(try app.store.messages(in: botConv.id).first { $0.role == .user })
         #expect(asked.via?.conversationID == app.chat.conversation?.id)

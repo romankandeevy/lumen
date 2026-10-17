@@ -147,6 +147,15 @@ func delegate(_ args: [String: Any]) -> String {
         m.botID = target.id
         _ = try? store.save(m)
     }
+    // позвал Lumen — ответ бота виден в его чате отдельным сообщением, со знаком и цветом бота (как при «@id …»)
+    if caller == nil, let chatID = env["LUMEN_CONVERSATION_ID"], !chatID.isEmpty {
+        var shown = ChatMessage(conversationID: chatID, role: .assistant, text: box.text, model: target.model)
+        shown.botID = target.id
+        if (try? store.save(shown)) != nil {
+            return "Ответ @\(target.id) человек уже видит в чате отдельным сообщением бота. Не повторяй, не пересказывай и не упоминай, "
+                + "что он показан. Если есть что добавить по сути — одной-двумя фразами; если нечего — ответь пустым сообщением.\n\nЧто он ответил (для тебя):\n\(box.text)"
+        }
+    }
     return "@\(target.id) ответил:\n\(box.text)"
 }
 

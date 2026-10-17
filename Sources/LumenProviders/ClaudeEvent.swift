@@ -20,6 +20,8 @@ public enum ClaudeEvent: Sendable, Equatable {
     case permission(PermissionRequest)
     /// Метка сообщения claude (uuid): к ней можно откатить разговор (`--resume-session-at`)
     case anchor(String)
+    /// Инструмент вернул результат (сообщение user с tool_result)
+    case toolDone
     case unknown(String)
 
     public struct PermissionRequest: Sendable, Equatable, Identifiable {
@@ -88,6 +90,11 @@ public enum ClaudeEvent: Sendable, Equatable {
                 }
                 return out
             }
+        }
+        if let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any], obj["type"] as? String == "user",
+           let content = (obj["message"] as? [String: Any])?["content"] as? [[String: Any]],
+           content.contains(where: { $0["type"] as? String == "tool_result" }) {
+            return [.toolDone]
         }
         return decode(line).map { [$0] } ?? []
     }
