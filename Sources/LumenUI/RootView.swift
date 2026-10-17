@@ -10,7 +10,7 @@ public struct RootView: View {
     }
 
     public var body: some View {
-        let p = Palette.of(app.prefs.theme)
+        let p = Palette.of(app.prefs.theme, custom: app.prefs.customTheme)
         GeometryReader { g in
         HStack(spacing: 0) {
             if !app.prefs.sidebarHidden { Sidebar(app: app).transition(.move(edge: .leading)) }
@@ -68,7 +68,7 @@ public struct RootView: View {
         }
         .environment(\.palette, p)
         .environment(\.lessMotion, app.prefs.reducedMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(p.scheme)
         .tint(p.glow)
         .frame(minWidth: 900, minHeight: 620)
     }

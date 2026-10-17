@@ -15,9 +15,22 @@ public enum Backend: String, Codable, Sendable, CaseIterable {
     case api
 }
 
-/// Тема окна. Обе тёмные, светлой нет.
+/// Тема окна: «Люмен» и «Монохром» тёмные, «Светлая», и своя (основа, цвет, окраска фона)
 public enum Theme: String, Codable, Sendable, CaseIterable {
-    case lumen, mono
+    case lumen, mono, light, custom
+}
+
+/// Своя тема: тёмная или светлая основа, оттенок акцента 0…360, насколько окрашен фон 0…1
+public struct CustomTheme: Codable, Sendable, Equatable {
+    public var dark: Bool
+    public var hue: Double
+    public var tint: Double
+
+    public init(dark: Bool = true, hue: Double = 210, tint: Double = 0.5) {
+        self.dark = dark
+        self.hue = hue
+        self.tint = tint
+    }
 }
 
 /// Ширина переписки: чат, агент и боты (`chatWidthClass` в макете)
@@ -46,6 +59,8 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var onboarded: Bool
     public var backend: Backend
     public var theme: Theme
+    /// Настройки своей темы (используются, когда theme == .custom)
+    public var customTheme = CustomTheme()
     public var reducedMotion: Bool
     /// Последние выбранные в чате модель и «сколько думать» — для нового чата
     public var model: ChatModel
@@ -99,7 +114,8 @@ public struct Preferences: Codable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         onboarded = try c.decodeIfPresent(Bool.self, forKey: .onboarded) ?? false
         backend = try c.decodeIfPresent(Backend.self, forKey: .backend) ?? .subscription
-        theme = try c.decodeIfPresent(Theme.self, forKey: .theme) ?? .lumen
+        theme = (try? c.decodeIfPresent(Theme.self, forKey: .theme)) ?? .lumen
+        customTheme = (try? c.decodeIfPresent(CustomTheme.self, forKey: .customTheme)) ?? CustomTheme()
         reducedMotion = try c.decodeIfPresent(Bool.self, forKey: .reducedMotion) ?? false
         model = try c.decodeIfPresent(ChatModel.self, forKey: .model) ?? .sonnet
         effort = try c.decodeIfPresent(Effort.self, forKey: .effort) ?? .medium

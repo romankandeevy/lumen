@@ -1,4 +1,5 @@
 import AppKit
+import LumenCore
 import SwiftUI
 
 /// Снимки настоящего окна для проверки без доступа к экрану: `open build/Lumen.app --env LUMEN_SELFSHOT=/папка`.
@@ -18,10 +19,7 @@ extension AppModel {
             ("bot-editor", { [self] in page = .botEditor(nil) }),
             ("skills", { [self] in customizeTab = .skills; skillsMode = .mine; page = .skills }),
             ("skills-catalog", { [self] in customizeTab = .skills; skillsMode = .catalog; page = .skills }),
-            ("customize-connectors", { [self] in
-                customizeTab = .connectors; page = .skills
-                for n in connectors.mcpServers.keys { checkConnector(n) }
-            }),
+            ("customize-connectors", { [self] in customizeTab = .connectors; page = .skills }),
             ("customize-hooks", { [self] in customizeTab = .hooks; page = .skills }),
             ("memory", { [self] in memoryMode = .facts; page = .memory }),
             ("memory-graph", { [self] in memoryMode = .graph; page = .memory }),
@@ -33,13 +31,26 @@ extension AppModel {
         if let b = bots.first {
             shots.append(("bot-chat", { [self] in searchOpen = false; openBot(b.id) }))
         }
+        // темы: светлая и своя — чат и «Внешний вид»; в конце вернуть как было
+        let theme = prefs.theme, custom = prefs.customTheme
+        let firstChat = conversations.first(where: { $0.kind == .chat })
+        shots.append(("theme-light-chat", { [self] in update { $0.theme = .light }; tab = .chat; if let firstChat { openChat(firstChat) } }))
+        shots.append(("theme-light-settings", { [self] in page = .settings(.look) }))
+        shots.append(("theme-custom-chat", { [self] in
+            update { $0.theme = .custom; $0.customTheme = CustomTheme(dark: true, hue: 245, tint: 0.7) }
+            page = .chat; if let firstChat { openChat(firstChat) }
+        }))
+        shots.append(("theme-custom-light-settings", { [self] in
+            update { $0.customTheme = CustomTheme(dark: false, hue: 150, tint: 0.5) }; page = .settings(.look)
+        }))
+        shots.append(("theme-restore", { [self] in update { $0.theme = theme; $0.customTheme = custom } }))
         for s in SettingsView.Section.visible(self) {
             shots.append(("settings-\(s)", { [self] in searchOpen = false; page = .settings(s) }))
         }
         for (name, go) in shots {
             go()
             // каталог тянется из сети — ему дольше
-            try? await Task.sleep(for: .seconds(name == "skills-catalog" ? 5 : name == "customize-connectors" ? 25 : 1.5))
+            try? await Task.sleep(for: .seconds(name == "skills-catalog" ? 5 : 1.5))
             guard let view = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil })?.contentView,
                   let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
             view.cacheDisplay(in: view.bounds, to: rep)

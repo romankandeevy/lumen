@@ -429,7 +429,7 @@ struct MemoryFileSheet: View {
         .frame(width: 576)
         .background(p.popover)
         .foregroundStyle(p.foreground)
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(p.scheme)
     }
 }
 
@@ -482,7 +482,7 @@ struct AddFactSheet: View {
         .frame(width: 600)
         .background(p.popover)
         .foregroundStyle(p.foreground)
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(p.scheme)
     }
 }
 

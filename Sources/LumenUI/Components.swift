@@ -72,7 +72,7 @@ struct LButton: View {
 
     private var fg: Color {
         switch kind {
-        case .glow: .black
+        case .glow: p.onGlow
         case .primary: p.primaryFg
         case .secondary, .outline: p.foreground
         case .ghost: p.foreground
@@ -342,10 +342,13 @@ struct LSwitch: View {
     var body: some View {
         Button { withAnimation(.easeOut(duration: 0.15)) { isOn.toggle() } } label: {
             Capsule()
-                .fill(isOn ? p.primary : p.input.opacity(0.8))
+                .fill(isOn ? p.primary : (p.isLight ? p.foreground.opacity(0.14) : p.input.opacity(0.8)))
                 .frame(width: 32, height: 18)
                 .overlay(alignment: isOn ? .trailing : .leading) {
-                    Circle().fill(isOn ? p.primaryFg : p.foreground).frame(width: 14, height: 14).padding(2)
+                    // на светлой теме ручка белая с тенью, как в macOS
+                    Circle().fill(p.isLight ? Color.white : (isOn ? p.primaryFg : p.foreground))
+                        .shadow(color: .black.opacity(p.isLight ? 0.18 : 0), radius: 1.5, y: 0.5)
+                        .frame(width: 14, height: 14).padding(2)
                 }
                 .contentShape(Capsule())
         }
@@ -403,7 +406,7 @@ struct PopoverPanel<Content: View>: View {
         .padding(6)
         .frame(width: width)
         .background(p.popover)
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(p.scheme)
     }
 }
 

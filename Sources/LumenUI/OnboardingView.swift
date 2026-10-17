@@ -224,7 +224,7 @@ struct ThemeCard: View {
     @State private var hover = false
 
     var body: some View {
-        let t = Palette.of(theme)
+        let t = Palette.of(theme, custom: app.prefs.customTheme)
         let active = app.prefs.theme == theme
         Button { app.update { $0.theme = theme } } label: {
             Group {

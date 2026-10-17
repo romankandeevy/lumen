@@ -390,7 +390,7 @@ struct BotEditor: View {
                         ForEach([20.0, 45, 85, 140, 160, 200, 235, 270, 320], id: \.self) { h in
                             Button { draft.hue = h } label: {
                                 Circle().fill(BotColor.accent(h)).frame(width: 20, height: 20)
-                                    .overlay(Circle().strokeBorder(.white.opacity(abs(draft.hue - h) < 1 ? 0.9 : 0), lineWidth: 2))
+                                    .overlay(Circle().strokeBorder(p.foreground.opacity(abs(draft.hue - h) < 1 ? 0.9 : 0), lineWidth: 2))
                             }
                             .buttonStyle(.plain)
                         }
@@ -724,7 +724,7 @@ private struct Editor: View {
 }
 
 /// Полоса оттенков: щелчок или перетаскивание выбирает цвет бота
-private struct HueSlider: View {
+struct HueSlider: View {
     @Binding var hue: Double
 
     var body: some View {

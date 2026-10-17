@@ -77,13 +77,52 @@ struct SettingsView: View {
 
     // MARK: внешний вид
 
+    /// Своя тема: основа, цвет акцента, насколько окрашен фон — всё меняется сразу
+    private var customThemeEditor: some View {
+        let ct = app.prefs.customTheme
+        func set(_ f: @escaping (inout CustomTheme) -> Void) { app.update { var c = $0.customTheme; f(&c); $0.customTheme = c; $0.theme = .custom } }
+        return VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 16) {
+                Text("Основа").font(.geist(13, .medium)).frame(width: 110, alignment: .leading)
+                Segmented(value: Binding(get: { ct.dark }, set: { v in set { $0.dark = v } }), options: [(true, "Тёмная"), (false, "Светлая")])
+                    .frame(width: 260)
+            }
+            HStack(spacing: 16) {
+                Text("Цвет").font(.geist(13, .medium)).frame(width: 110, alignment: .leading)
+                HStack(spacing: 8) {
+                    ForEach([20.0, 38, 85, 140, 175, 210, 245, 275, 320], id: \.self) { h in
+                        Button { set { $0.hue = h } } label: {
+                            Circle().fill(Color(hue: h / 360, saturation: 0.62, brightness: 1)).frame(width: 20, height: 20)
+                                .overlay(Circle().strokeBorder(p.foreground.opacity(abs(ct.hue - h) < 1 ? 0.9 : 0), lineWidth: 2))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    HueSlider(hue: Binding(get: { ct.hue }, set: { v in set { $0.hue = v } })).padding(.leading, 6)
+                }
+            }
+            HStack(spacing: 16) {
+                Text("Окраска фона").font(.geist(13, .medium)).frame(width: 110, alignment: .leading)
+                Slider(value: Binding(get: { ct.tint }, set: { v in set { $0.tint = v } }), in: 0...1)
+                    .frame(maxWidth: 320)
+                Text(ct.tint < 0.2 ? "почти нейтральный" : ct.tint < 0.65 ? "лёгкий оттенок" : "насыщенный")
+                    .font(.geist(12)).foregroundStyle(p.mutedFg)
+            }
+        }
+        .padding(16)
+        .background(p.card.opacity(0.5), in: RoundedRectangle(cornerRadius: R.xl))
+        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
+    }
+
     private var look: some View {
         VStack(alignment: .leading, spacing: 0) {
             GroupTitle(text: "Тема")
-            ThreeColumns {
-                ThemeCard(app: app, theme: .lumen, name: "Люмен", note: "Тёплая темнота и свет")
-                ThemeCard(app: app, theme: .mono, name: "Монохром", note: "Чёрно-белая, как Пульт")
+            HStack(alignment: .top, spacing: 12) {
+                ThemeCard(app: app, theme: .lumen, name: "Люмен", note: "Тёплая темнота и свет").frame(maxWidth: .infinity)
+                ThemeCard(app: app, theme: .mono, name: "Монохром", note: "Чёрно-белая, как Пульт").frame(maxWidth: .infinity)
+                ThemeCard(app: app, theme: .light, name: "Светлая", note: "Тёплая бумага и чернила").frame(maxWidth: .infinity)
+                ThemeCard(app: app, theme: .custom, name: "Своя", note: "Твой цвет, светлая или тёмная").frame(maxWidth: .infinity)
             }
+            if app.prefs.theme == .custom { customThemeEditor.padding(.top, 16) }
             GroupTitle(text: "Ширина переписки", aside: "чат и агент").padding(.top, 32)
             ThreeColumns(empty: 0) {
                 ForEach(ChatWidth.allCases, id: \.self) { w in WidthCard(app: app, width: w) }

@@ -326,7 +326,7 @@ struct DiffSheet: View {
         .frame(minWidth: 720, minHeight: 480)
         .background(p.popover)
         .foregroundStyle(p.foreground)
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(p.scheme)
     }
 
     private func color(_ l: Substring) -> Color {

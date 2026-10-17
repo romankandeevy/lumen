@@ -2,7 +2,7 @@ import AppKit
 import LumenCore
 import SwiftUI
 
-/// Цвета тем из макета (`ui/src/index.css`, OKLCH → sRGB). Обе тёмные.
+/// Цвета тем: «Люмен» и «Монохром» — из макета (`ui/src/index.css`, OKLCH → sRGB), «Светлая» и своя — от них.
 public struct Palette: Sendable {
     let background, foreground, card, secondary, muted, mutedFg, sidebar, sidebarAccent: Color
     let primary, primaryFg, popover: Color
@@ -15,6 +15,11 @@ public struct Palette: Sendable {
     var glowSoft: Color { glowSoftBase.opacity(isMono ? 0.12 : 0.18) }
     var glowFaint: Color { glowSoftBase.opacity(isMono ? 0.04 : 0.07) }
     let isMono: Bool
+    var isLight = false
+
+    /// Текст и значки на светящейся заливке (кнопка отправки, отметка): на тёмной теме — чёрные, на светлой — белые
+    var onGlow: Color { isLight ? .white : .black }
+    var scheme: ColorScheme { isLight ? .light : .dark }
 
     static let destructive = Color(hex: 0xFF6467)
     static let ok = Color(hex: 0x34D399)
@@ -35,7 +40,46 @@ public struct Palette: Sendable {
         glow: Color(hex: 0xE4E4E4), glowCore: Color(hex: 0xFFFFFF), glowSoftBase: Color(hex: 0xFFFFFF),
         borderBase: Color(hex: 0xFFFFFF), isMono: true)
 
-    static func of(_ t: Theme) -> Palette { t == .mono ? .mono : .lumen }
+    /// Светлая: тёплая бумага, тёмные чернила, янтарный свет темнее — чтобы читался на белом
+    static let light = Palette(
+        background: Color(hex: 0xFBF9F5), foreground: Color(hex: 0x1E1A15), card: Color(hex: 0xFFFFFF),
+        secondary: Color(hex: 0xF0ECE4), muted: Color(hex: 0xF3F0EA), mutedFg: Color(hex: 0x716A60),
+        sidebar: Color(hex: 0xF4F1EB), sidebarAccent: Color(hex: 0xE8E3D9),
+        primary: Color(hex: 0x1E1A15), primaryFg: Color(hex: 0xFFFFFF), popover: Color(hex: 0xFFFFFF),
+        glow: Color(hex: 0xC97A12), glowCore: Color(hex: 0xFFF1D0), glowSoftBase: Color(hex: 0xE8A23A),
+        borderBase: Color(hex: 0x2A2016), isMono: false, isLight: true)
+
+    /// Своя тема: всё считается от оттенка; tint — насколько фон и панели окрашены этим оттенком
+    static func custom(_ c: CustomTheme) -> Palette {
+        let h = c.hue / 360
+        let s = 0.04 + 0.22 * c.tint
+        func hsb(_ sat: Double, _ b: Double) -> Color { Color(hue: h, saturation: min(1, sat), brightness: min(1, b)) }
+        if c.dark {
+            return Palette(
+                background: hsb(s * 0.6, 0.045), foreground: hsb(0.04, 0.95), card: hsb(s * 0.6, 0.075),
+                secondary: hsb(s * 0.5, 0.13), muted: hsb(s * 0.5, 0.115), mutedFg: hsb(0.08, 0.63),
+                sidebar: hsb(s * 0.6, 0.03), sidebarAccent: hsb(s * 0.55, 0.1),
+                primary: hsb(0.22, 0.98), primaryFg: hsb(0.6, 0.1), popover: hsb(s * 0.55, 0.1),
+                glow: hsb(0.62, 1), glowCore: hsb(0.14, 1), glowSoftBase: hsb(0.68, 0.96),
+                borderBase: hsb(0.18, 0.97), isMono: false)
+        }
+        return Palette(
+            background: hsb(s * 0.25, 0.985), foreground: hsb(0.18, 0.12), card: hsb(0, 1),
+            secondary: hsb(s * 0.3, 0.94), muted: hsb(s * 0.25, 0.955), mutedFg: hsb(0.1, 0.45),
+            sidebar: hsb(s * 0.3, 0.96), sidebarAccent: hsb(s * 0.4, 0.91),
+            primary: hsb(0.18, 0.12), primaryFg: hsb(0, 1), popover: hsb(0, 1),
+            glow: hsb(0.82, 0.76), glowCore: hsb(0.2, 1), glowSoftBase: hsb(0.72, 0.9),
+            borderBase: hsb(0.3, 0.12), isMono: false, isLight: true)
+    }
+
+    static func of(_ t: Theme, custom: CustomTheme = CustomTheme()) -> Palette {
+        switch t {
+        case .lumen: .lumen
+        case .mono: .mono
+        case .light: .light
+        case .custom: .custom(custom)
+        }
+    }
 }
 
 extension Color {

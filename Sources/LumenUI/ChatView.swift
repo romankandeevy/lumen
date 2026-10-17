@@ -1000,7 +1000,7 @@ struct Composer: View {
         } else {
             Button(action: send) {
                 Icon("arrow-up", 16)
-                    .foregroundStyle(.black)
+                    .foregroundStyle(p.onGlow)
                     .frame(width: big ? 32 : 28, height: big ? 32 : 28)
                     // как в макете: кнопка всегда светится (bg-glow, тень 16px glow-soft)
                     .background(currentBot.map { BotColor.accent($0.hue) } ?? p.glow, in: Circle())

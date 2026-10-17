@@ -652,7 +652,7 @@ private struct CatalogRow: View {
                     RoundedRectangle(cornerRadius: 4)
                         .strokeBorder(selected ? p.glow : p.foreground.opacity(installed ? 0.1 : 0.3), lineWidth: 1.2)
                         .background(selected ? p.glow : .clear, in: RoundedRectangle(cornerRadius: 4))
-                        .overlay { if selected { Icon("check", 11).foregroundStyle(.black) } }
+                        .overlay { if selected { Icon("check", 11).foregroundStyle(p.onGlow) } }
                         .frame(width: 16, height: 16)
                         .frame(width: 18)
                 }
