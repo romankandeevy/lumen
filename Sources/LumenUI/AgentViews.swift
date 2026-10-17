@@ -586,23 +586,18 @@ struct PlanCard: View {
     var earlier = false
 
     @Environment(\.palette) private var p
-    @State private var folded = false
 
     var body: some View {
         let done = items.filter { $0.state == .done }.count
         VStack(alignment: .leading, spacing: 10) {
-            Button { withAnimation(.easeOut(duration: 0.15)) { folded.toggle() } } label: {
-                HStack(spacing: 6) {
-                    Text(earlier ? "План до твоего последнего сообщения" : "План").tw(12, lh: 16)
-                    Text("\(done) из \(items.count)").tw(12, lh: 16).monospacedDigit()
-                    Icon(folded ? "chevron-right" : "chevron-down", 12)
-                    Spacer(minLength: 0)
-                }
-                .foregroundStyle(p.mutedFg)
-                .contentShape(Rectangle())
+            HStack(spacing: 6) {
+                Text(earlier ? "План до твоего последнего сообщения" : "План").tw(12, lh: 16)
+                Text("\(done) из \(items.count)").tw(12, lh: 16).monospacedDigit()
+                Spacer(minLength: 0)
             }
-            .buttonStyle(.plain)
-            if !folded {
+            .foregroundStyle(p.mutedFg)
+            // длинный план прокручивается внутри, поле ввода не уезжает
+            ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(Array(items.enumerated()), id: \.offset) { _, it in
                         HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -615,10 +610,14 @@ struct PlanCard: View {
                         }
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .scrollIndicators(.never)
+            .frame(maxHeight: CGFloat(min(items.count, 7)) * 28)
         }
         .padding(.horizontal, 16).padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(p.background.opacity(0.92), in: RoundedRectangle(cornerRadius: R.xl))
         .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
     }
 }

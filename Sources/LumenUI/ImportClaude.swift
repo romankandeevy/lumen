@@ -345,7 +345,8 @@ struct ImportClaudeSheet: View {
 /// Подтянутое помечено Via.claudeCode и пересобирается целиком, пока Lumen сам в разговоре не писал: ответ, который
 /// в Claude ещё дописывается, обновляется на месте.
 extension AppModel {
-    func syncFromClaude(_ c: Conversation) async {
+    func syncFromClaude(_ c: Conversation, in ctl: ChatController? = nil) async {
+        let chat = ctl ?? self.chat
         guard c.kind == .agent, let sid = c.cliSessionID, !chat.isRunning(c.id) else { return }
         let msgs = (try? store.messages(in: c.id)) ?? []
         guard let ownIdx = msgs.lastIndex(where: { $0.via?.isClaudeCode != true && $0.cliAnchor != nil }),

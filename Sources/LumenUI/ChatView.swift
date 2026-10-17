@@ -7,13 +7,16 @@ import UniformTypeIdentifiers
 /// Чего нет, потому что ещё не работает: «+», голос, песочница и правая панель контекста.
 struct ChatView: View {
     @Bindable var app: AppModel
+    /// Разговор рядом (разделённый экран) — со своим контроллером; nil — главный
+    var controller: ChatController?
 
     @Environment(\.palette) private var p
     @State private var draft = ""
     @State private var attachments: [Attachment] = []
     @State private var dropping = false
 
-    private var chat: ChatController { app.chat }
+    private var chat: ChatController { controller ?? app.chat }
+    private var isSplit: Bool { controller != nil }
     private var backend: Backend { chat.conversation?.backend ?? app.prefs.backend }
     private var agent: Bool { chat.conversation.map { $0.kind == .agent } ?? (app.tab == .agent) }
     private var folder: URL? { chat.conversation?.folder.map { URL(fileURLWithPath: $0) } ?? app.agentFolder }
@@ -24,7 +27,7 @@ struct ChatView: View {
     var body: some View {
         HStack(spacing: 0) {
             content
-            if app.prefs.contextOpen {
+            if app.prefs.contextOpen && !isSplit {
                 Group {
                     if let group { GroupPanel(app: app, group: group) } else if let bot { BotPassport(app: app, bot: bot) } else { ContextPanel(app: app) }
                 }
@@ -45,7 +48,15 @@ struct ChatView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 transcript
-                Composer(app: app, draft: $draft, attachments: $attachments, backend: backend, agent: agent)
+                // план — закреплён над полем, как в Claude: виден, пока идёт работа или есть несделанное
+                if let c = chat.conversation, c.kind != .chat, !c.plan.isEmpty,
+                   chat.busy || app.claudeBusy(c.id) || c.plan.contains(where: { $0.state != .done }) {
+                    PlanCard(items: c.plan)
+                        .frame(maxWidth: Composer.width)
+                        .padding(.horizontal, 20).padding(.bottom, 8)
+                        .frame(maxWidth: .infinity)
+                }
+                Composer(app: app, draft: $draft, attachments: $attachments, backend: backend, agent: agent, controller: controller)
             }
         }
         .foregroundStyle(p.foreground)
@@ -69,6 +80,13 @@ struct ChatView: View {
             }
         }
         .animation(.easeOut(duration: 0.15), value: dropping)
+        // тянут разговор из списка — правая половина: «откроется рядом»
+        .overlay(alignment: .trailing) {
+            if app.draggingChat != nil, !isSplit, app.split == nil {
+                SplitDropZone(app: app).transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: app.draggingChat)
     }
 
     /// h-14 border-b px-5 gap-3: знак 28 со сферой 18, заголовок text-sm medium, подпись text-xs
@@ -118,14 +136,20 @@ struct ChatView: View {
                 }
             }
             Spacer()
+            if isSplit {
+                IconButton(icon: "x", help: chat.busy ? "Закроется, когда ответ закончится" : "Закрыть разговор рядом") { app.closeSplit() }
+                    .disabled(chat.busy)
+            }
             if let bot { IconButton(icon: "pencil", help: "Изменить бота") { app.page = .botEditor(bot.id) } }
             if let group { IconButton(icon: "pencil", help: "Изменить группу") { app.page = .groupEditor(group.id) } }
-            IconButton(icon: "globe", help: "Браузер сбоку (⇧⌘B): агенты работают в нём, ты входишь в аккаунты", active: app.browserOpen) {
-                app.toggleBrowser()
-            }
-            IconButton(icon: "panel-right", help: bot == nil ? "Контекст: память, окно, расход" : "Паспорт бота: что может и что отрезано",
-                       active: app.prefs.contextOpen) {
-                app.update { $0.contextOpen.toggle() }
+            if !isSplit {
+                IconButton(icon: "globe", help: "Браузер сбоку (⇧⌘B): агенты работают в нём, ты входишь в аккаунты", active: app.browserOpen) {
+                    app.toggleBrowser()
+                }
+                IconButton(icon: "panel-right", help: bot == nil ? "Контекст: память, окно, расход" : "Паспорт бота: что может и что отрезано",
+                           active: app.prefs.contextOpen) {
+                    app.update { $0.contextOpen.toggle() }
+                }
             }
         }
         .padding(.horizontal, 20)
@@ -217,10 +241,6 @@ struct ChatView: View {
                     if let s = chat.streaming {
                         MessageRow(message: s, chat: chat, streaming: true)
                     }
-                    // план под перепиской, как в Claude: ответы идут над ним; виден, пока идёт работа или есть несделанное
-                    if let c = chat.conversation, c.kind != .chat, !c.plan.isEmpty, chat.busy || c.plan.contains(where: { $0.state != .done }) {
-                        PlanCard(items: c.plan).padding(.leading, 36)
-                    }
                     // разговор сейчас идёт в приложении Claude — видно здесь (по записям сессии, а не по времени файла)
                     if !chat.busy, let c = chat.conversation, let live = app.claudeLive[c.id] {
                         TimelineView(.periodic(from: .now, by: 5)) { ctx in
@@ -283,7 +303,7 @@ struct ChatView: View {
             .task(id: chat.conversation?.id) {
                 while !Task.isCancelled {
                     if let c = chat.conversation, c.kind == .agent {
-                        await app.syncFromClaude(c)
+                        await app.syncFromClaude(c, in: chat)
                         chat.claudeWentIdle(c.id)
                     }
                     try? await Task.sleep(for: .seconds(3))
@@ -769,6 +789,8 @@ struct Composer: View {
     var agent = false
     /// Большое поле по центру экрана новой задачи (вариант A): выше, крупнее текст, папка — кнопкой
     var big = false
+    /// Поле разговора рядом (разделённый экран)
+    var controller: ChatController?
 
     @Environment(\.palette) private var p
     @FocusState private var focused: Bool
@@ -777,7 +799,7 @@ struct Composer: View {
     @State private var folderOpen = false
     @State private var modeOpen = false
 
-    private var chat: ChatController { app.chat }
+    private var chat: ChatController { controller ?? app.chat }
     private var model: ChatModel { chat.conversation?.model ?? (agent ? app.defaultAgentModel : app.prefs.model) }
     private var effort: Effort { chat.conversation?.effort ?? (agent ? app.prefs.agentEffort ?? .high : app.prefs.effort) }
     /// Начатый разговор продолжается тем же движком: Claude не продолжит ход ChatGPT и наоборот
@@ -1416,6 +1438,34 @@ struct CenterFlow: Layout {
                 x += size.width + spacing
             }
             y += rowH + spacing
+        }
+    }
+}
+
+
+/// Правая половина окна, пока тянут разговор: отпусти — откроется рядом
+struct SplitDropZone: View {
+    @Bindable var app: AppModel
+    @Environment(\.palette) private var p
+    @State private var over = false
+
+    var body: some View {
+        GeometryReader { g in
+            ZStack {
+                p.background.opacity(over ? 0.85 : 0.6)
+                VStack(spacing: 10) {
+                    Icon("panel-right", 28).foregroundStyle(p.glow)
+                    Text("Отпусти — откроется рядом").tw(15, .medium, lh: 20)
+                }
+            }
+            .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(p.glow.opacity(over ? 0.8 : 0.4), style: StrokeStyle(lineWidth: 1.5, dash: [6, 5])).padding(12))
+            .frame(width: g.size.width / 2)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .dropDestination(for: String.self) { items, _ in
+                guard let c = app.dropped(items) else { return false }
+                app.openSplit(c)
+                return true
+            } isTargeted: { over = $0 }
         }
     }
 }

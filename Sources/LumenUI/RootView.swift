@@ -16,7 +16,16 @@ public struct RootView: View {
             if !app.prefs.sidebarHidden { Sidebar(app: app).transition(.move(edge: .leading)) }
             Group {
                 switch app.page {
-                case .chat: ChatView(app: app)
+                case .chat:
+                    HStack(spacing: 0) {
+                        ChatView(app: app)
+                        if let s = app.split {
+                            ChatView(app: app, controller: s)
+                                .overlay(alignment: .leading) { p.border.frame(width: 1) }
+                                .transition(.move(edge: .trailing).combined(with: .opacity))
+                        }
+                    }
+                    .animation(.easeOut(duration: 0.2), value: app.split == nil)
                 case .memory: MemoryView(app: app)
                 case .project(let id): ProjectView(app: app, projectID: id)
                 case .settings: SettingsView(app: app)
@@ -140,8 +149,8 @@ struct Sidebar: View {
                         let kind: ConversationKind = app.tab == .agent ? .agent : .chat
                         let mine = app.conversations.filter { $0.kind == kind }
                         let pinned = mine.filter(\.pinned)
-                        if !pinned.isEmpty {
-                            section("pinned", "Закреплённые", pinned)
+                        if !pinned.isEmpty || app.draggingChat != nil {
+                            section("pinned", "Закреплённые", pinned, drop: .pin)
                         }
                         // проекты — с папками, внутри их разговоры
                         if !app.projects.isEmpty {
@@ -154,7 +163,7 @@ struct Sidebar: View {
                         }
                         if !app.projects.isEmpty { Color.clear.frame(height: 8) }
                         let recent = mine.filter { $0.projectID == nil && !$0.pinned }
-                        section("recent", app.tab == .agent ? "Сессии" : "Недавние", recent, plus: { app.tab == .agent ? app.newAgentTask() : app.newChat() })
+                        section("recent", app.tab == .agent ? "Сессии" : "Недавние", recent, plus: { app.tab == .agent ? app.newAgentTask() : app.newChat() }, drop: .loose)
                         if app.projects.isEmpty {
                             Button { app.createProject(folder: app.tab == .agent ? app.agentFolder : nil) } label: {
                                 HStack(spacing: 6) {
@@ -194,17 +203,35 @@ struct Sidebar: View {
     }
 
     /// Раздел как в Claude: серое название (у проекта — сворачивается), «+» справа, ниже строки разговоров
+    /// Что делает бросок разговора на раздел
+    enum SectionDrop { case pin, loose }
+
     @ViewBuilder
     private func section(_ key: String, _ title: String, _ items: [Conversation], project: Project? = nil,
-                         plus: (() -> Void)? = nil) -> some View {
+                         plus: (() -> Void)? = nil, drop: SectionDrop? = nil) -> some View {
         let isCollapsed = collapsed.contains(key)
         if let project {
-            // проект — строкой с папкой, как раньше; внутри — его разговоры
+            // проект — строкой с папкой, как раньше; внутри — его разговоры; брось разговор — переложится сюда
             ProjectRow(app: app, project: project, open: !isCollapsed, count: items.count) {
                 if isCollapsed { collapsed.remove(key) } else { collapsed.insert(key) }
             }
+            .dropTarget(app) { c in
+                if c.pinned { app.togglePin(c) }
+                app.move(c, to: project.id)
+                collapsed.remove(key)
+            }
         } else {
-            SidebarSectionHeader(app: app, title: title, collapsed: nil, project: nil, toggle: {}, plus: plus)
+            SidebarSectionHeader(app: app, title: app.draggingChat != nil && drop == .pin && items.isEmpty ? "Закреплённые — отпусти, чтобы закрепить" : title,
+                                 collapsed: nil, project: nil, toggle: {}, plus: plus)
+                .dropTarget(app, enabled: drop != nil) { c in
+                    switch drop {
+                    case .pin: if !c.pinned { app.togglePin(c) }
+                    case .loose:
+                        if c.pinned { app.togglePin(c) }
+                        if c.projectID != nil { app.move(c, to: nil) }
+                    case nil: break
+                    }
+                }
         }
         if !isCollapsed {
             ForEach(items) { c in ChatRow(app: app, c: c).padding(.leading, project == nil ? 0 : 14) }
@@ -458,6 +485,8 @@ struct ChatRow: View {
             }
         }
         .onRightClick { point in app.showChatMenu(c, at: point) }
+        // тянется: в проект, в «Закреплённые», в «Недавние» (вытащить из проекта) или в правую половину окна — рядом
+        .onDrag { app.startDrag(c) }
         .onChange(of: app.renamingID) { _, id in
             if id == c.id {
                 newTitle = c.title
@@ -682,5 +711,37 @@ private struct BotRow: View {
         .buttonStyle(.plain)
         .onHover { hover = $0 }
         .onRightClick { app.showBotMenu(bot, at: $0) }
+    }
+}
+
+
+/// Место, куда бросают разговор из списка: подсвечивается, пока над ним
+private struct ChatDropTarget: ViewModifier {
+    @Bindable var app: AppModel
+    var enabled = true
+    let action: (Conversation) -> Void
+
+    @Environment(\.palette) private var p
+    @State private var over = false
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .background(over ? p.glow.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: R.lg))
+                .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(over ? p.glow.opacity(0.6) : .clear))
+                .dropDestination(for: String.self) { items, _ in
+                    guard let c = app.dropped(items) else { return false }
+                    action(c)
+                    return true
+                } isTargeted: { over = $0 }
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    func dropTarget(_ app: AppModel, enabled: Bool = true, action: @escaping (Conversation) -> Void) -> some View {
+        modifier(ChatDropTarget(app: app, enabled: enabled, action: action))
     }
 }

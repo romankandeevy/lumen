@@ -188,6 +188,12 @@ enum Snap {
     try await Snap.save(RootView(app: app), "45-artifacts")
     app.page = .chat
 
+    // два разговора рядом (бросили разговор в правую половину окна)
+    app.openChat(pc)
+    app.openSplit(c)
+    try await Snap.save(RootView(app: app), "46-split", size: CGSize(width: 1500, height: 820))
+    app.closeSplit()
+
     // браузер сбоку: пустой, с подсказкой про входы в аккаунты (страницу WebKit рисует сам, в снимок она не попадает)
     app.browserOpen = true
     try await Snap.save(RootView(app: app), "41-browser", size: CGSize(width: 1440, height: 820))

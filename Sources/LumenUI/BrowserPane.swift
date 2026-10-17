@@ -38,7 +38,7 @@ extension AppModel {
             guard (try? content.write(to: tmp, atomically: true, encoding: .utf8)) != nil,
                   var a = importAttachment(tmp) else { return .init(text: "Файл не получился.", error: true) }
             a.name = name
-            guard chat.addShot(conv, a) else { return .init(text: "Сейчас нет идущего ответа, куда положить файл.", error: true) }
+            guard controllers.contains(where: { $0.addShot(conv, a) }) else { return .init(text: "Сейчас нет идущего ответа, куда положить файл.", error: true) }
             return .init(text: "Файл «\(name)» (\(a.sizeText)) лежит под ответом: человек может открыть его сбоку и скачать. В проект он не записан.")
         }
         if tool == "show_in_chat" {
@@ -51,13 +51,13 @@ extension AppModel {
             guard let a = big
                 ? Attachment(name: url.lastPathComponent, kind: .file, mime: UTTypeMime.mime(url.pathExtension), path: path, size: size)
                 : importAttachment(url) else { return .init(text: "Файл не прочитался: \(path)", error: true) }
-            guard chat.addShot(conv, a) else { return .init(text: "Сейчас нет идущего ответа, куда положить файл.", error: true) }
+            guard controllers.contains(where: { $0.addShot(conv, a) }) else { return .init(text: "Сейчас нет идущего ответа, куда положить файл.", error: true) }
             return .init(text: "Показано в чате под ответом: \(a.name).")
         }
         let r = await browser.handle(tool: tool, args: args, who: who)
         if let png = r.image, let image = NSImage(data: png) {
             let name = "Снимок — \(browser.title.isEmpty ? (URL(string: browser.url)?.host ?? "страница") : browser.title).png"
-            if let a = importImage(image, name: name) { chat.addShot(conv, a) }
+            if let a = importImage(image, name: name) { _ = controllers.contains { $0.addShot(conv, a) } }
         }
         return r
     }

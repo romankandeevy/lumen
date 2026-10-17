@@ -28,6 +28,12 @@ public final class AppModel {
     var claudeTouched: [String: Date] = [:]
     /// Что сейчас с перенесённым разговором в Claude Code (идёт, повторяет, тихо) — по записям, не по времени файла
     var claudeLive: [String: ClaudeHistory.Live] = [:]
+    /// Второй разговор рядом (разделённый экран): свой контроллер — свой ход, своя очередь
+    var split: ChatController?
+    /// Тянут разговор из списка: видны места, куда его бросить (закрепить, проект, рядом)
+    var draggingChat: String?
+    /// Все открытые разговоры — главный и тот, что рядом
+    var controllers: [ChatController] { [chat] + (split.map { [$0] } ?? []) }
 
     /// Разговор сейчас идёт в приложении Claude: писать в ту же сессию нельзя — сообщение ждёт в очереди
     func claudeBusy(_ id: String?) -> Bool {
@@ -281,8 +287,46 @@ public final class AppModel {
     func openChat(_ c: Conversation) {
         if c.kind == .bot, let id = c.botID { return openBot(id) }
         tab = c.kind == .agent ? .agent : .chat
+        // этот разговор уже открыт рядом — меняем местами, чтобы один разговор не жил в двух окнах
+        if let s = split, s.conversation?.id == c.id {
+            if s.busy { page = .chat; return }
+            split = nil
+        }
         chat.open(c)
         page = .chat
+    }
+
+    /// Открыть разговор рядом с текущим (бросили его в правую половину окна)
+    func openSplit(_ c: Conversation) {
+        guard c.kind != .bot, chat.conversation?.id != c.id else { return }
+        if let s = split, s.busy, s.conversation?.id != c.id { return }
+        let s = split.flatMap { $0.busy ? nil : $0 } ?? ChatController(app: self)
+        s.open(c)
+        split = s
+        page = .chat
+    }
+
+    /// Закрыть разговор рядом (пока он отвечает — нельзя: ответ бы оборвался)
+    func closeSplit() {
+        guard split?.busy != true else { return }
+        split = nil
+    }
+
+    /// Разговор, который бросили, по его id из перетаскивания
+    func dropped(_ items: [String]) -> Conversation? {
+        draggingChat = nil
+        guard let id = items.first?.replacingOccurrences(of: "lumen-chat:", with: "") else { return nil }
+        return conversations.first { $0.id == id }
+    }
+
+    /// Начали тянуть разговор; если бросили мимо мест — через 8 с места прячутся сами
+    func startDrag(_ c: Conversation) -> NSItemProvider {
+        draggingChat = c.id
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(8))
+            if self?.draggingChat == c.id { self?.draggingChat = nil }
+        }
+        return NSItemProvider(object: ("lumen-chat:" + c.id) as NSString)
     }
 
     func newChat() {
