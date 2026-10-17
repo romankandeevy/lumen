@@ -295,7 +295,9 @@ struct ChatView: View {
             }
             .scrollIndicators(.never)
             // к концу — когда страница уже разложена (иначе после смены вкладки переписка оказывалась пустой)
-            .onAppear { DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) } }
+            // разговор открывается сразу внизу и держится у низа, пока высоты сообщений досчитываются
+            // (раньше прокрутка «к низу» при открытии промахивалась мимо ленивого списка — экран был пустой)
+            .defaultScrollAnchor(.bottom)
             // перенесённый из Claude Code разговор: пока открыт — догоняет то, что пишется там (раз в 3 с, только если файл менялся)
             .task(id: chat.conversation?.id) {
                 while !Task.isCancelled {
@@ -306,9 +308,8 @@ struct ChatView: View {
                     try? await Task.sleep(for: .seconds(3))
                 }
             }
-            .onChange(of: chat.messages.count) { withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("bottom", anchor: .bottom) } }
+            .onChange(of: chat.messages.count) { proxy.scrollTo("bottom", anchor: .bottom) }
             .onChange(of: chat.streaming?.text.count) { proxy.scrollTo("bottom", anchor: .bottom) }
-            .onChange(of: chat.conversation?.id) { DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) } }
             .onChange(of: chat.pendingPermission?.request.id) { withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("bottom", anchor: .bottom) } }
             .onChange(of: chat.scrollTarget) { _, id in
                 guard let id else { return }
