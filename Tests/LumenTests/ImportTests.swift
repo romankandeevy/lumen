@@ -115,3 +115,44 @@ private func writeSession(dir: URL, id: String, cwd: String) throws -> URL {
     let own = MemoryTools(store: store, conversationID: c.id, conversationTitle: "Кнопка Shelf")
     #expect(try own.call("recall", ["query": "кнопка"]).contains("ничего не нашлось"))
 }
+
+@Test func claudeAppTitlesProjectsAndHiddenSessions() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-desktop-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let projects = dir.appendingPathComponent("projects")
+    // три разговора из приложения: переименованный в проекте, архивный и удалённый (в приложении его уже нет)
+    for id in ["renamed", "archived", "gone"] { _ = try writeSession(dir: projects, id: id, cwd: "/Users/test/Prog") }
+    for f in try FileManager.default.contentsOfDirectory(at: projects.appendingPathComponent("-proj"), includingPropertiesForKeys: nil) {
+        let text = try String(contentsOf: f, encoding: .utf8).replacingOccurrences(of: "\"cwd\"", with: "\"entrypoint\":\"claude-desktop\",\"cwd\"")
+        try text.write(to: f, atomically: true, encoding: .utf8)
+    }
+    let app = dir.appendingPathComponent("Claude")
+    let org = app.appendingPathComponent("claude-code-sessions/acc/org")
+    try FileManager.default.createDirectory(at: org, withIntermediateDirectories: true)
+    func json(_ o: Any, _ url: URL) throws { try JSONSerialization.data(withJSONObject: o).write(to: url) }
+    try json(["sessionId": "local_1", "cliSessionId": "renamed", "title": "Изучение", "isArchived": false], org.appendingPathComponent("local_1.json"))
+    try json(["sessionId": "local_2", "cliSessionId": "archived", "title": "Старое", "isArchived": true], org.appendingPathComponent("local_2.json"))
+    try "1792233563839".write(to: org.appendingPathComponent("deleted_3"), atomically: true, encoding: .utf8)
+    try json(["preferences": ["epitaxyPrefs": [
+        "dframe-code-sections": ["acc": ["org": ["sections": [
+            ["id": "pinned", "kind": "pinned", "name": "", "order": 0],
+            ["id": "g-en", "kind": "manual", "name": "Изучение английского", "order": 2],
+            ["id": "g-empty", "kind": "manual", "name": "Hermes", "order": 1],
+        ]]]],
+        "dframe-group-scopes": ["acc/org": ["groups": [["id": "g-en", "name": "Изучение английского"]],
+                                            "assignments": ["code:local_1": "g-en"]]],
+    ]]], app.appendingPathComponent("claude_desktop_config.json"))
+
+    let desktop = try #require(ClaudeHistory.Desktop.load(root: app))
+    #expect(desktop.groups.map(\.name) == ["Hermes", "Изучение английского"]) // порядок боковой панели, пустые тоже
+    let list = ClaudeHistory.sessions(root: projects, desktop: desktop)
+    #expect(list.map(\.id) == ["renamed"])            // архивный и удалённый скрыты
+    #expect(list.first?.title == "Изучение")          // название из приложения, а не из файла
+    #expect(list.first?.group?.name == "Изучение английского")
+    // без данных приложения — как раньше: всё по файлам
+    #expect(ClaudeHistory.sessions(root: projects).count == 3)
+}
+
+@Test func pastedContentWrapperIsRemoved() {
+    #expect(ClaudeHistory.clean("<pasted_content id=\"9601\">длинный текст</pasted_content>\nи вопрос") == "длинный текст\nи вопрос")
+}

@@ -15,8 +15,114 @@ public enum ClaudeHistory {
         public var firstPrompt: String
         public var updatedAt: Date
         public var bytes: Int
+        /// Проект (раздел) в приложении Claude, куда человек положил разговор
+        public var group: Desktop.Group?
+        /// Откуда запускали: claude-desktop — приложение Claude, cli — терминал
+        public var entrypoint: String?
+
+        public init(id: String, file: URL, cwd: String, title: String, firstPrompt: String, updatedAt: Date, bytes: Int,
+                    group: Desktop.Group? = nil, entrypoint: String? = nil) {
+            self.id = id
+            self.file = file
+            self.cwd = cwd
+            self.title = title
+            self.firstPrompt = firstPrompt
+            self.updatedAt = updatedAt
+            self.bytes = bytes
+            self.group = group
+            self.entrypoint = entrypoint
+        }
 
         public var folderName: String { URL(fileURLWithPath: cwd).lastPathComponent }
+    }
+
+    /// Что знает о разговорах приложение Claude (вкладка Code): названия после переименования, архив,
+    /// проекты-разделы боковой панели. Файлы Claude Code этого не хранят.
+    public struct Desktop: Sendable {
+        public struct Group: Sendable, Hashable, Identifiable {
+            public var id: String
+            public var name: String
+            public init(id: String, name: String) {
+                self.id = id
+                self.name = name
+            }
+        }
+        public struct Entry: Sendable {
+            public var title: String
+            public var archived: Bool
+            public var groupID: String?
+        }
+        /// Живые сессии приложения по id сессии claude
+        public var entries: [String: Entry] = [:]
+        /// Проекты-разделы, в порядке боковой панели (и пустые тоже)
+        public var groups: [Group] = []
+
+        public init(entries: [String: Entry] = [:], groups: [Group] = []) {
+            self.entries = entries
+            self.groups = groups
+        }
+
+        public static var root: URL {
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Claude", isDirectory: true)
+        }
+
+        /// nil — приложения Claude нет или его данные не читаются
+        public static func load(root: URL = root) -> Desktop? {
+            let fm = FileManager.default
+            let sessionsDir = root.appendingPathComponent("claude-code-sessions", isDirectory: true)
+            guard fm.fileExists(atPath: sessionsDir.path) else { return nil }
+            var d = Desktop()
+            // проекты: разделы вида manual и привязка сессий к ним
+            var assignments: [String: String] = [:]
+            if let data = try? Data(contentsOf: root.appendingPathComponent("claude_desktop_config.json")),
+               let cfg = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let ep = (cfg["preferences"] as? [String: Any])?["epitaxyPrefs"] as? [String: Any] {
+                var sections: [(Int, Group)] = []
+                for acc in (ep["dframe-code-sections"] as? [String: Any] ?? [:]).values {
+                    for org in (acc as? [String: Any] ?? [:]).values {
+                        for sec in (org as? [String: Any])?["sections"] as? [[String: Any]] ?? [] where sec["kind"] as? String == "manual" {
+                            guard let id = sec["id"] as? String, let name = sec["name"] as? String, !name.isEmpty else { continue }
+                            sections.append((sec["order"] as? Int ?? 0, Group(id: id, name: name)))
+                        }
+                    }
+                }
+                for scope in (ep["dframe-group-scopes"] as? [String: Any] ?? [:]).values {
+                    guard let scope = scope as? [String: Any] else { continue }
+                    for g in scope["groups"] as? [[String: Any]] ?? [] {
+                        if let id = g["id"] as? String, let name = g["name"] as? String, !sections.contains(where: { $0.1.id == id }) {
+                            sections.append((Int.max, Group(id: id, name: name)))
+                        }
+                    }
+                    for (k, v) in scope["assignments"] as? [String: String] ?? [:] {
+                        assignments[k.replacingOccurrences(of: "code:", with: "")] = v
+                    }
+                }
+                var seen = Set<String>()
+                d.groups = sections.sorted { $0.0 < $1.0 }.map(\.1).filter { seen.insert($0.id).inserted }
+            }
+            // сессии: local_*.json; удалённые лежат как deleted_* — их нет
+            let accounts = (try? fm.contentsOfDirectory(at: sessionsDir, includingPropertiesForKeys: nil)) ?? []
+            for acc in accounts {
+                for org in (try? fm.contentsOfDirectory(at: acc, includingPropertiesForKeys: nil)) ?? [] {
+                    var archived = Set<String>()
+                    if let idx = try? Data(contentsOf: org.appendingPathComponent("archived-sessions.idx")),
+                       let o = try? JSONSerialization.jsonObject(with: idx) as? [String: Any] {
+                        archived = Set(o["archived"] as? [String] ?? [])
+                    }
+                    for f in (try? fm.contentsOfDirectory(at: org, includingPropertiesForKeys: nil)) ?? []
+                    where f.lastPathComponent.hasPrefix("local_") && f.pathExtension == "json" {
+                        guard let data = try? Data(contentsOf: f), let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                              let sid = o["sessionId"] as? String, let cli = o["cliSessionId"] as? String else { continue }
+                        d.entries[cli] = Entry(title: (o["title"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+                                               archived: o["isArchived"] as? Bool == true || archived.contains(sid),
+                                               groupID: assignments[sid])
+                    }
+                }
+            }
+            return d
+        }
+
+        func group(_ id: String?) -> Group? { id.flatMap { id in groups.first { $0.id == id } } }
     }
 
     /// Разобранный разговор: сообщения в формате Lumen и последний план агента
@@ -34,7 +140,9 @@ public enum ClaudeHistory {
 
     /// Все разговоры, свежие сверху. Пропускает служебные: временные папки, разговоры самого Lumen
     /// (его папка `run`), пустые и уже импортированные (`skip` — id сессий, что уже есть в Lumen).
-    public static func sessions(root: URL = root, skip: Set<String> = [], lumenRoot: URL? = nil) -> [Session] {
+    /// `desktop` — данные приложения Claude: из него берутся названия и проекты, а разговоры приложения, которых в нём
+    /// уже нет (удалены, заменены продолжением, служебные), и архивные не показываются.
+    public static func sessions(root: URL = root, skip: Set<String> = [], lumenRoot: URL? = nil, desktop: Desktop? = nil) -> [Session] {
         let fm = FileManager.default
         guard let dirs = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else { return [] }
         var out: [Session] = []
@@ -42,8 +150,17 @@ public enum ClaudeHistory {
             let files = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey])) ?? []
             for f in files where f.pathExtension == "jsonl" {
                 let id = f.deletingPathExtension().lastPathComponent
-                guard !skip.contains(id), let s = summary(f) else { continue }
+                guard !skip.contains(id), var s = summary(f) else { continue }
                 if isService(s.cwd, lumenRoot: lumenRoot) { continue }
+                if let desktop {
+                    if let e = desktop.entries[id] {
+                        if e.archived { continue }
+                        if !e.title.isEmpty { s.title = e.title }
+                        s.group = desktop.group(e.groupID)
+                    } else if s.entrypoint == "claude-desktop" {
+                        continue
+                    }
+                }
                 out.append(s)
             }
         }
@@ -70,9 +187,11 @@ public enum ClaudeHistory {
         var first: String?
         var title: String?
         var date: Date?
+        var entry: String?
         for line in head.split(separator: UInt8(ascii: "\n")) {
             guard let o = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { continue }
             if cwd == nil, let c = o["cwd"] as? String { cwd = c }
+            if entry == nil, let e = o["entrypoint"] as? String { entry = e }
             if o["type"] as? String == "custom-title", let t = o["customTitle"] as? String { title = t }
             if first == nil, let p = userPrompt(o), !p.isSummary { first = p.text }
             if cwd != nil && first != nil { break }
@@ -91,7 +210,7 @@ public enum ClaudeHistory {
         let mtime = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
         let name = (title?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? shortTitle(first)
         return Session(id: file.deletingPathExtension().lastPathComponent, file: file, cwd: cwd, title: name,
-                       firstPrompt: String(first.prefix(300)), updatedAt: date ?? mtime ?? Date(), bytes: size)
+                       firstPrompt: String(first.prefix(300)), updatedAt: date ?? mtime ?? Date(), bytes: size, entrypoint: entry)
     }
 
     // MARK: разбор
@@ -129,6 +248,9 @@ public enum ClaudeHistory {
                 t.removeSubrange(a.lowerBound..<b.upperBound)
             }
         }
+        // вставленный текст — оставить, убрать только обёртку <pasted_content id="…">
+        t = t.replacingOccurrences(of: "<pasted_content[^>]*>", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "</pasted_content>", with: "")
         return t.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -217,6 +339,17 @@ public enum ClaudeHistory {
         guard line.count > 60 else { return line }
         let cut = line.prefix(60)
         return (cut.lastIndex(of: " ").map { String(cut[..<$0]) } ?? String(cut)) + "…"
+    }
+
+    /// Путь с настоящим регистром букв (Prog → prog): на Маке это одна папка, а проект должен быть один
+    public static func truePath(_ path: String) -> String {
+        let fm = FileManager.default
+        var url = URL(fileURLWithPath: "/")
+        for c in URL(fileURLWithPath: path).standardizedFileURL.pathComponents.dropFirst() {
+            let names = (try? fm.contentsOfDirectory(atPath: url.path)) ?? []
+            url.appendPathComponent(names.first { $0 == c } ?? names.first { $0.lowercased() == c.lowercased() } ?? c)
+        }
+        return url.path
     }
 
     static func parseDate(_ s: String) -> Date? {

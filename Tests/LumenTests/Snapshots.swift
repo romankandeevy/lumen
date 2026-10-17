@@ -126,14 +126,20 @@ enum Snap {
     try await Snap.save(RootView(app: app), "05-agent-session")
 
     let now = Date()
-    let sessions = [("Кнопка Shelf падает", "~/Documents/prog/shelf", "Почини двойной щелчок в Shelf", 1800.0),
-                    ("Остров: таймер", "~/Documents/prog/island", "Добавь кольцо таймера как в Apple Radar", 9000.0),
-                    ("Чем займёмся?", "~/Documents/prog", "Что поделаем?", 90000.0)].enumerated().map { i, s in
+    let lumenGroup = ClaudeHistory.Desktop.Group(id: "g1", name: "LUMEN")
+    let english = ClaudeHistory.Desktop.Group(id: "g2", name: "Изучение английского")
+    let hermes = ClaudeHistory.Desktop.Group(id: "g3", name: "Hermes")
+    let sessions = [("Агент с контекстом проектов", "~/Documents/prog", "Настрой Lumen, чтобы проекты работали", 600.0, lumenGroup),
+                    ("Люмен: дизайн и логика", "~/Documents/prog", "Сделай дизайн как в Claude", 7200.0, lumenGroup),
+                    ("Изучение", "~/Documents/prog", "ghbdtn", 3600.0, english),
+                    ("Кнопка Shelf падает", "~/Documents/prog/shelf", "Почини двойной щелчок в Shelf", 1800.0, nil),
+                    ("Чем займёмся?", "~/Documents/prog", "Что поделаем?", 90000.0, nil)].enumerated().map { i, s in
         ClaudeHistory.Session(id: "s\(i)", file: URL(fileURLWithPath: "/tmp/s\(i).jsonl"),
                               cwd: s.1.replacingOccurrences(of: "~", with: NSHomeDirectory()), title: s.0,
-                              firstPrompt: s.2, updatedAt: now.addingTimeInterval(-s.3), bytes: 1000)
+                              firstPrompt: s.2, updatedAt: now.addingTimeInterval(-s.3), bytes: 1000, group: s.4)
     }
-    try await Snap.save(ImportClaudeSheet(app: app, close: {}, preset: sessions, prepicked: ["s0"])
+    try await Snap.save(ImportClaudeSheet(app: app, close: {}, preset: .init(sessions: sessions, groups: [lumenGroup, english, hermes]),
+                                          prepicked: ["s0", "s1", "s3"])
         .environment(\.palette, Palette.of(.lumen)), "40-import-claude", size: CGSize(width: 680, height: 640))
 }
 
