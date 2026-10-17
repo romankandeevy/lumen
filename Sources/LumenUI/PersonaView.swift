@@ -196,7 +196,8 @@ struct PersonaView: View {
     }
 }
 
-/// Живое превью: тот же вопрос, ответ пишет настоящая модель с текущими настройками — через секунду после правки
+/// Превью: тот же вопрос, ответ пишет настоящая модель с текущими настройками — только по «Проверить»,
+/// чтобы правки не тратили лимиты (Рома, 17.10). Поменял после — прошлый ответ бледнеет с пометкой
 struct PersonaPreview: View {
     @Bindable var app: AppModel
     let persona: Persona
@@ -204,6 +205,8 @@ struct PersonaPreview: View {
     @Environment(\.palette) private var p
     @State private var question = PersonaPreview.questions[0]
     @State private var answers: [String: String] = [:]
+    /// Последний ответ на каждый вопрос (с какими бы настройками ни был) — пока не нажали «Проверить» снова
+    @State private var last: [String: String] = [:]
     @State private var loading = false
 
     static let questions = ["Что поделаем сегодня?", "Почему падает Shelf?", "Напиши коммит для правки"]
@@ -240,33 +243,51 @@ struct PersonaPreview: View {
                 }
                 HStack(alignment: .top, spacing: 12) {
                     Orb(state: loading ? .thinking : .idle, size: 20, animated: loading).padding(.top, 2)
-                    if let a = answers[key] {
-                        RichText(text: a, caret: false).transition(.opacity)
-                    } else if app.cli == nil {
-                        Text("Нужен Claude Code — без него превью не написать.").tw(13, lh: 18).foregroundStyle(p.mutedFg)
-                    } else {
-                        Text("Пишет…").tw(14, lh: 20).foregroundStyle(p.mutedFg).shimmer(p.foreground)
+                    VStack(alignment: .leading, spacing: 8) {
+                        if loading {
+                            Text("Пишет…").tw(14, lh: 20).foregroundStyle(p.mutedFg).shimmer(p.foreground)
+                        } else if let a = answers[key] {
+                            RichText(text: a, caret: false).transition(.opacity)
+                        } else if let old = last[question] {
+                            RichText(text: old, caret: false).opacity(0.45)
+                            Text("Это ответ со старыми настройками — нажми «Проверить»").tw(12, lh: 16).foregroundStyle(p.mutedFg)
+                        } else if app.cli == nil {
+                            Text("Нужен Claude Code — без него превью не написать.").tw(13, lh: 18).foregroundStyle(p.mutedFg)
+                        } else {
+                            Text("Нажми «Проверить» — модель ответит с этими настройками.").tw(13, lh: 18).foregroundStyle(p.mutedFg)
+                        }
                     }
                     Spacer(minLength: 0)
                 }
                 .animation(.easeOut(duration: 0.25), value: answers[key])
+                HStack {
+                    Spacer()
+                    LButton(title: "Проверить", icon: "sparkles", kind: answers[key] == nil ? .primary : .outline, small: true) { check() }
+                        .disabled(loading || app.cli == nil || answers[key] != nil)
+                        .help(answers[key] != nil ? "С этими настройками уже проверено" : "Один короткий ответ модели — тратит немного лимита")
+                }
             }
             .padding(16)
             .background(p.card.opacity(0.5), in: RoundedRectangle(cornerRadius: R.xxl))
             .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(p.border))
-            Text("Пишет настоящая модель (Haiku) с этими инструкциями. В разговоре ответит та модель, что выбрана в поле.")
+            Text("Отвечает настоящая модель (Haiku) с этими инструкциями — только когда нажмёшь «Проверить». В разговоре ответит та модель, что выбрана в поле.")
                 .tw(12, lh: 16).foregroundStyle(p.mutedFg)
         }
-        // правка — через секунду новый ответ; уже виденное — из памяти, без нового запроса
-        .task(id: key) {
-            guard answers[key] == nil, app.cli != nil else { return }
-            try? await Task.sleep(for: .milliseconds(900))
-            if Task.isCancelled { return }
-            let k = key
-            loading = true
-            let text = await app.quickAsk(question, system: soul + "\n\nЭто превью характера: ответь так, как ответил бы в настоящем разговоре, без оговорок, что это пример. Если для ответа нужны данные (файлы, проекты), придумай правдоподобные коротко.")
+    }
+
+    /// Один ответ модели с текущими настройками; тот же вопрос с теми же настройками второй раз не спрашиваем
+    private func check() {
+        let k = key, q = question, system = soul
+        guard answers[k] == nil, !loading else { return }
+        loading = true
+        Task {
+            let text = await app.quickAsk(q, system: system + "\n\nЭто превью характера: ответь так, как ответил бы в настоящем разговоре, без оговорок, что это пример. Если для ответа нужны данные (файлы, проекты), придумай правдоподобные коротко.")
             loading = false
-            if let text, !text.isEmpty { answers[k] = text.trimmingCharacters(in: .whitespacesAndNewlines) }
+            if let text, !text.isEmpty {
+                let a = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                answers[k] = a
+                last[q] = a
+            }
         }
     }
 }
