@@ -1,0 +1,117 @@
+import Foundation
+import Testing
+@testable import LumenCore
+@testable import LumenProviders
+@testable import LumenStorage
+
+// MARK: абзацы и шаги, как в Claude Code
+
+@Test func answerLayoutPutsStepsBetweenParagraphs() {
+    let text = "Смотрю код.\n\nНашёл причину.\n\nГотово."
+    let steps = [AgentStep(kind: .read, text: "Читает A.swift", at: 11),
+                 AgentStep(kind: .run, text: "Запускает: ls", at: 11),
+                 AgentStep(kind: .edit, text: "Правит A.swift", at: 28)]
+    let pieces = AnswerPiece.layout(text: text, steps: steps)
+    #expect(pieces == [.text("Смотрю код."), .steps(Array(steps[0...1])), .text("Нашёл причину."), .steps([steps[2]]), .text("Готово.")])
+}
+
+@Test func answerLayoutKeepsOldAnswersAndStepsAtEnd() {
+    // старые ответы без места — все шаги над текстом, как было
+    let old = [AgentStep(kind: .run, text: "Запускает: swift test")]
+    #expect(AnswerPiece.layout(text: "Тесты зелёные.", steps: old) == [.steps(old), .text("Тесты зелёные.")])
+    // шаг после всего текста (ход ещё идёт) — в конце; место чуть дальше конца — тоже в конце
+    let tail = [AgentStep(kind: .read, text: "Читает B", at: 40)]
+    #expect(AnswerPiece.layout(text: "Начинаю.", steps: tail) == [.text("Начинаю."), .steps(tail)])
+    // место сдвинулось на пару символов (текст обрезали) — шаг всё равно на границе абзаца, предложение целое
+    let shifted = [AgentStep(kind: .read, text: "Читает C", at: 9)]
+    #expect(AnswerPiece.layout(text: "Один два.\n\nТри.", steps: shifted) == [.text("Один два."), .steps(shifted), .text("Три.")])
+}
+
+// MARK: импорт из Claude Code
+
+private func line(_ o: [String: Any]) -> String {
+    String(decoding: try! JSONSerialization.data(withJSONObject: o), as: UTF8.self)
+}
+
+/// Маленький разговор в формате ~/.claude/projects/<папка>/<сессия>.jsonl
+private func writeSession(dir: URL, id: String, cwd: String) throws -> URL {
+    let folder = dir.appendingPathComponent("-proj", isDirectory: true)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    let ts = "2026-10-17T10:00:00.000Z"
+    let lines = [
+        line(["type": "file-history-snapshot", "snapshot": [:]]),
+        line(["type": "user", "cwd": cwd, "sessionId": id, "timestamp": ts, "isMeta": true,
+              "message": ["role": "user", "content": "<local-command-caveat>служебное</local-command-caveat>"]]),
+        line(["type": "user", "cwd": cwd, "sessionId": id, "timestamp": ts,
+              "message": ["role": "user", "content": "Почини кнопку в Shelf<system-reminder>скрыто</system-reminder>"]]),
+        line(["type": "assistant", "uuid": "a1", "timestamp": ts,
+              "message": ["role": "assistant", "model": "claude-opus-5-5", "content": [["type": "thinking", "thinking": "хм"]]]]),
+        line(["type": "assistant", "uuid": "a2", "timestamp": ts,
+              "message": ["role": "assistant", "model": "claude-opus-5-5", "content": [["type": "text", "text": "Смотрю код."]]]]),
+        line(["type": "assistant", "uuid": "a3", "timestamp": ts,
+              "message": ["role": "assistant", "content": [["type": "tool_use", "name": "Read", "input": ["file_path": "/x/Shelf.swift"]]]]]),
+        line(["type": "user", "timestamp": ts,
+              "message": ["role": "user", "content": [["type": "tool_result", "content": "..."]]]]),
+        line(["type": "assistant", "uuid": "a4", "timestamp": ts,
+              "message": ["role": "assistant", "content": [["type": "tool_use", "name": "TodoWrite",
+                                                             "input": ["todos": [["content": "Починить", "status": "completed"]]]]]]]),
+        line(["type": "assistant", "uuid": "a5", "timestamp": ts,
+              "message": ["role": "assistant", "content": [["type": "text", "text": "Готово, кнопка на месте."]]]]),
+        line(["type": "user", "isSidechain": true, "timestamp": ts, "message": ["role": "user", "content": "помощник"]]),
+        line(["type": "user", "timestamp": ts, "message": ["role": "user", "content": "<command-name>/compact</command-name>"]]),
+        line(["type": "user", "timestamp": "2026-10-17T11:00:00.000Z", "message": ["role": "user", "content": "Спасибо"]]),
+        line(["type": "custom-title", "customTitle": "Кнопка Shelf", "sessionId": id]),
+    ]
+    let file = folder.appendingPathComponent("\(id).jsonl")
+    try lines.joined(separator: "\n").write(to: file, atomically: true, encoding: .utf8)
+    return file
+}
+
+@Test func claudeHistoryListsAndParsesSession() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-history-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: dir) }
+    _ = try writeSession(dir: dir, id: "s1", cwd: "/Users/test/prog/shelf")
+    _ = try writeSession(dir: dir, id: "tmp", cwd: "/private/tmp/spike")
+
+    let list = ClaudeHistory.sessions(root: dir)
+    #expect(list.map(\.id) == ["s1"]) // временные папки — служебное
+    let s = try #require(list.first)
+    #expect(s.title == "Кнопка Shelf")
+    #expect(s.firstPrompt == "Почини кнопку в Shelf")
+    #expect(s.cwd == "/Users/test/prog/shelf")
+    #expect(ClaudeHistory.sessions(root: dir, skip: ["s1"]).isEmpty) // уже импортирован
+
+    let t = try ClaudeHistory.transcript(s, conversationID: "c")
+    #expect(t.messages.map(\.role) == [.user, .assistant, .user])
+    #expect(t.messages[0].text == "Почини кнопку в Shelf")
+    let a = t.messages[1]
+    #expect(a.text == "Смотрю код.\n\nГотово, кнопка на месте.")
+    #expect(a.steps.map(\.text) == ["Читает Shelf.swift", "Обновляет план"])
+    #expect(a.cliAnchor == "a5")
+    #expect(AnswerPiece.layout(text: a.text, steps: a.steps)
+        == [.text("Смотрю код."), .steps(a.steps), .text("Готово, кнопка на месте.")])
+    #expect(t.plan == [PlanItem(text: "Починить", state: .done)])
+    #expect(t.model == .opus)
+    #expect(t.messages[2].text == "Спасибо")
+}
+
+@Test func importedConversationIsFoundByRecall() throws {
+    let store = try Store()
+    var c = Conversation(title: "Кнопка Shelf", kind: .agent, folder: "/tmp", backend: .subscription, model: .opus, effort: .high,
+                         cliSessionID: "s1")
+    c.updatedAt = Date(timeIntervalSince1970: 1_800_000_000)
+    try store.importConversation(c, messages: [
+        ChatMessage(conversationID: c.id, role: .user, text: "Почини кнопку в Shelf"),
+        ChatMessage(conversationID: c.id, role: .assistant, text: "Кнопка падала из-за индекса в ShelfStorage"),
+    ])
+    #expect(try store.messages(in: c.id).count == 2)
+    #expect(try store.conversations().first?.updatedAt == c.updatedAt) // время как было, не «сейчас»
+
+    let tools = MemoryTools(store: store, conversationID: "другой", conversationTitle: "Новый")
+    let out = try tools.call("recall", ["query": "почему падала кнопка"])
+    #expect(out.contains("Из прошлых разговоров"))
+    #expect(out.contains("Кнопка Shelf"))
+    // в самом этом разговоре его же не подсовываем
+    let own = MemoryTools(store: store, conversationID: c.id, conversationTitle: "Кнопка Shelf")
+    #expect(try own.call("recall", ["query": "кнопка"]).contains("ничего не нашлось"))
+}

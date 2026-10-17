@@ -1134,6 +1134,9 @@ final class ChatController {
             if conversation?.id == c.id { app.orb = .idle }
         }
         if tr.message == nil { tr.message = ChatMessage(conversationID: c.id, role: .assistant, text: "", model: c.model); tr.message?.botID = tr.bot }
+        // место шага — конец уже написанного: следующий текст начнётся новым абзацем после шагов
+        var step = step
+        step.at = tr.received.count
         tr.message?.steps.append(step)
         tr.needBreak = true
     }
@@ -1301,6 +1304,7 @@ extension AppModel {
         } else {
             r.append("Сохраняй через remember только когда человек прямо просит запомнить.")
         }
+        r.append("Факт о проекте начинай с его названия («Lumen: …», «island: …») — так его найдут и разговоры других проектов.")
         r.append("Когда просят «запомни» — обязательно сохрани. Если ответ опирается на прошлое (что решили, что он просил, как зовут людей), сначала вызови recall. О вызовах не рассказывай: Lumen сам покажет, что запомнил.")
         return r.joined(separator: " ")
     }
@@ -1346,6 +1350,27 @@ extension AppModel {
         return p.promptBlock(files: files(of: p))
     }
 
+    /// Что Lumen знает к этому разговору: закреплённые факты и — в проекте — факты о самом проекте.
+    /// Агенту и чату одно и то же: память общая для всех проектов, проект только добавляет своё.
+    func knownBlock(for c: Conversation?) -> String? {
+        let all = (try? store.memories()) ?? []
+        let pinned = all.filter(\.pinned)
+        var lines: [String] = []
+        if !pinned.isEmpty {
+            lines.append("Что ты знаешь о нём:")
+            lines += pinned.map { "- \($0.text)" }
+        }
+        if let p = project(c?.projectID) {
+            let ids = Set(pinned.compactMap(\.id))
+            let about = ((try? store.searchMemories(p.name, limit: 10, anyWord: true)) ?? []).filter { !ids.contains($0.id ?? -1) }
+            if !about.isEmpty {
+                lines.append("Что известно о проекте «\(p.name)»:")
+                lines += about.map { "- \($0.text)" }
+            }
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
     func agentPrompt(for c: Conversation? = nil) -> String {
         var lines = ["Ты — Lumen, агент на Маке. Отвечай по-русски, по делу."]
         if !profile.name.isEmpty { lines.append("Собеседника зовут \(profile.name), обращайся на \(profile.address == .ty ? "«ты»" : "«вы»").") }
@@ -1355,6 +1380,7 @@ extension AppModel {
             <lumen-next>{"recap": "два-три коротких предложения: что теперь сделано и что не сделано или не проверено", "ask": "один вопрос, если следующий шаг решает человек, иначе null", "primary": {"label": "1–3 слова", "reply": "что отправится от человека"} или null, "secondary": такая же вторая кнопка, только если это реальная альтернатива, иначе null}</lumen-next>
             Этот блок Lumen показывает отдельной карточкой — в тексте ответа итог не повторяй.
             """)
+        if let known = knownBlock(for: c) { lines.append(known) }
         if let block = projectBlock(for: c) { lines.append(block) }
         if let skills = SkillLibrary.promptBlock(skillLibrary.enabled()) { lines.append(skills) }
         lines.append(selfRules)
@@ -1403,11 +1429,7 @@ extension AppModel {
         var lines = ["Ты — Lumen, личный помощник на Маке. Отвечай по-русски, если тебя не попросили иначе. Пиши по делу, без воды."]
         if !profile.name.isEmpty { lines.append("Собеседника зовут \(profile.name).") }
         lines.append(profile.address == .ty ? "Обращайся к нему на «ты»." : "Обращайся к нему на «вы».")
-        let pinned = ((try? store.memories()) ?? []).filter(\.pinned).map(\.text)
-        if !pinned.isEmpty {
-            lines.append("Что ты знаешь о нём:")
-            lines += pinned.map { "- \($0)" }
-        }
+        if let known = knownBlock(for: c) { lines.append(known) }
         lines.append("Это чат: у тебя нет доступа к файлам и командам этого Мака.")
         if let block = projectBlock(for: c) { lines.append(block) }
         if let skills = SkillLibrary.promptBlock(skillLibrary.enabled()) { lines.append(skills) }

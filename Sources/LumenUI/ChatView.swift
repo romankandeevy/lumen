@@ -376,13 +376,14 @@ struct MessageRow: View {
                     if let b = chat?.app.bot(message.botID), chat?.conversation?.kind != .bot {
                         Text("@\(b.id) · \(b.name)").tw(12, .medium, lh: 16).foregroundStyle(BotColor.accent(b.hue))
                     }
-                    if !message.steps.isEmpty {
-                        StepsView(steps: message.steps, live: streaming)
-                    }
-                    // блок «что дальше» пока пишется — не показывать сырым
-                    let shown = NextStep.split(message.text).text
-                    if !shown.isEmpty {
-                        RichText(text: shown, caret: streaming)
+                    // как в Claude Code: абзац — шаги — абзац; блок «что дальше» пока пишется — не показывать сырым
+                    let pieces = AnswerPiece.layout(text: NextStep.split(message.text).text, steps: message.steps)
+                    ForEach(Array(pieces.enumerated()), id: \.offset) { i, piece in
+                        let last = i == pieces.count - 1
+                        switch piece {
+                        case .text(let t): RichText(text: t, caret: streaming && last)
+                        case .steps(let s): StepsView(steps: s, live: streaming && last)
+                        }
                     }
                     if let changes = message.changes, let chat {
                         ChangeCard(message: message, changes: changes, chat: chat)

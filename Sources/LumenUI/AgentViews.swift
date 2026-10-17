@@ -180,14 +180,26 @@ struct StepsView: View {
         }
     }
 
-    private var summary: String {
-        let n = steps.count
-        var kinds: [String] = []
-        if steps.contains(where: { $0.kind == .read || $0.kind == .search }) { kinds.append("читал") }
-        if steps.contains(where: { $0.kind == .edit }) { kinds.append("правил") }
-        if steps.contains(where: { $0.kind == .run }) { kinds.append("запускал") }
-        if steps.contains(where: { $0.kind == .web }) { kinds.append("искал в интернете") }
-        return "\(n) " + Plural.form(n, "шаг", "шага", "шагов") + (kinds.isEmpty ? "" : ": " + kinds.joined(separator: ", "))
+    /// Как в Claude Code: один шаг — его строкой, несколько — «Выполнено 5 команд, прочитано 2 файла»
+    private var summary: String { Self.summary(steps) }
+
+    static func summary(_ steps: [AgentStep]) -> String {
+        if steps.count == 1, let s = steps.first { return s.text }
+        func count(_ kinds: Set<AgentStep.Kind>) -> Int { steps.filter { kinds.contains($0.kind) }.count }
+        func part(_ n: Int, _ verb: (String, String), _ noun: (String, String, String)) -> String? {
+            guard n > 0 else { return nil }
+            return "\(Plural.form(n, verb.0, verb.1, verb.1)) \(n) \(Plural.form(n, noun.0, noun.1, noun.2))"
+        }
+        let parts = [
+            part(count([.run]), ("выполнена", "выполнено"), ("команда", "команды", "команд")),
+            part(count([.edit]), ("изменён", "изменено"), ("файл", "файла", "файлов")),
+            part(count([.read]), ("прочитан", "прочитано"), ("файл", "файла", "файлов")),
+            part(count([.search]), ("сделан", "сделано"), ("поиск", "поиска", "поисков")),
+            part(count([.web]), ("открыт", "открыто"), ("сайт", "сайта", "сайтов")),
+            part(count([.think, .other]), ("сделан", "сделано"), ("шаг", "шага", "шагов")),
+        ].compactMap { $0 }
+        let line = parts.joined(separator: ", ")
+        return line.prefix(1).uppercased() + line.dropFirst()
     }
 
     static func icon(_ k: AgentStep.Kind) -> String {

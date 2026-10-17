@@ -166,10 +166,14 @@ public struct AgentStep: Codable, Sendable, Equatable, Hashable {
     public enum Kind: String, Codable, Sendable { case read, edit, run, search, web, think, other }
     public var kind: Kind
     public var text: String
+    /// Где в тексте ответа агент сделал этот шаг (число символов до него) — чтобы шаги стояли между абзацами,
+    /// как в Claude Code. nil — старые ответы: все шаги над текстом.
+    public var at: Int?
 
-    public init(kind: Kind, text: String) {
+    public init(kind: Kind, text: String, at: Int? = nil) {
         self.kind = kind
         self.text = text
+        self.at = at
     }
 
     /// Человеческая строка из имени инструмента и его входа
@@ -196,8 +200,66 @@ public struct AgentStep: Codable, Sendable, Equatable, Hashable {
         case "load_skill", "mcp__lumen__load_skill": return .init(kind: .think, text: "Берёт навык \(input["name"] as? String ?? "")")
         case "read_skill_file", "mcp__lumen__read_skill_file": return .init(kind: .read, text: "Читает навык: \(input["path"] as? String ?? "")")
         case "mcp__lumen__delegate": return .init(kind: .other, text: "Зовёт @\(input["bot"] as? String ?? ""): \((input["task"] as? String ?? "").prefix(60))")
-        default: return .init(kind: .other, text: tool.hasPrefix("mcp__") ? tool.components(separatedBy: "__").last ?? tool : tool)
+        default:
+            let name = tool.hasPrefix("mcp__") ? tool.components(separatedBy: "__").last ?? tool : tool
+            // инструменты приложения Claude Code — в разговорах, перенесённых оттуда
+            switch name {
+            case "update_plan": return .init(kind: .think, text: "Обновляет план")
+            case "wrap_up": return .init(kind: .think, text: "Подводит итог")
+            case "mark_chapter": return .init(kind: .think, text: "Отмечает главу")
+            case "start_session": return .init(kind: .other, text: "Предлагает отдельную задачу")
+            default: return .init(kind: .other, text: name)
+            }
         }
+    }
+}
+
+/// Кусок ответа агента: абзацы текста и группы шагов между ними, в том порядке, как он работал
+public enum AnswerPiece: Equatable, Sendable {
+    case text(String)
+    case steps([AgentStep])
+
+    /// Разложить ответ: шаги встают туда, где агент их сделал. Место подтягивается к ближайшей границе абзаца —
+    /// текст ответа после хода чуть обрезается (пробелы, блок «что дальше»), и шаг не должен рвать предложение.
+    public static func layout(text: String, steps: [AgentStep]) -> [AnswerPiece] {
+        let chars = Array(text)
+        // границы абзацев: позиции сразу после пустой строки
+        var breaks: [Int] = [0]
+        var i = 0
+        while i < chars.count - 1 {
+            if chars[i] == "\n" && chars[i + 1] == "\n" {
+                var j = i
+                while j < chars.count && chars[j] == "\n" { j += 1 }
+                breaks.append(j)
+                i = j
+            } else { i += 1 }
+        }
+        breaks.append(chars.count)
+        func snap(_ at: Int?) -> Int {
+            guard let at else { return 0 }
+            if at >= chars.count { return chars.count }
+            return breaks.min { abs($0 - at) < abs($1 - at) } ?? 0
+        }
+        var groups: [(Int, [AgentStep])] = []
+        for s in steps {
+            let pos = snap(s.at)
+            if let last = groups.last, last.0 == pos { groups[groups.count - 1].1.append(s) } else { groups.append((pos, [s])) }
+        }
+        groups.sort { $0.0 < $1.0 }
+        var out: [AnswerPiece] = []
+        var from = 0
+        func addText(_ a: Int, _ b: Int) {
+            guard b > a else { return }
+            let t = String(chars[a..<b]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !t.isEmpty { out.append(.text(t)) }
+        }
+        for (pos, ss) in groups {
+            addText(from, pos)
+            if case .steps(let prev) = out.last { out[out.count - 1] = .steps(prev + ss) } else { out.append(.steps(ss)) }
+            from = max(from, pos)
+        }
+        addText(from, chars.count)
+        return out
     }
 }
 

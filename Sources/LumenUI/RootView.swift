@@ -92,6 +92,7 @@ struct Sidebar: View {
     }
 
 
+    @State private var importing = false
     @Environment(\.palette) private var p
 
     var body: some View {
@@ -121,6 +122,8 @@ struct Sidebar: View {
                         BotsSidebar(app: app)
                     } else {
                         NewButton(title: "Новая задача") { app.newAgentTask() }
+                            .padding(.bottom, 4)
+                        NavRow(title: "Импорт из Claude Code", icon: "download", active: false) { importing = true }
                             .padding(.bottom, 12)
                         ProjectsSection(app: app, kind: .agent)
                         if !sessions.isEmpty {
@@ -163,6 +166,7 @@ struct Sidebar: View {
         // bg-sidebar/70 + backdrop-blur-sm
         .background(p.sidebar.opacity(0.7).ignoresSafeArea())
         .overlay(alignment: .trailing) { p.border.frame(width: 1).ignoresSafeArea() }
+        .sheet(isPresented: $importing) { ImportClaudeSheet(app: app) { importing = false }.environment(\.palette, p) }
     }
 
     private var sessions: [Conversation] {

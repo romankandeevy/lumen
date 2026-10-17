@@ -46,7 +46,7 @@ public struct MemoryTools: Sendable {
                      "description": "you — о самом человеке, project — проекты, decision — принятые решения, pref — как ему удобно, people — люди вокруг"],
           ]]),
         ("recall",
-         "Найти в памяти Lumen факты по словам: что человек рассказывал раньше, что решили, как зовут людей, детали проектов.",
+         "Найти в памяти Lumen факты по словам: что человек рассказывал раньше, что решили, как зовут людей, детали проектов. Ищет и по прошлым разговорам (в том числе перенесённым из Claude Code).",
          ["type": "object", "additionalProperties": false, "required": ["query"],
           "properties": ["query": ["type": "string", "description": "Слова для поиска"]]]),
     ]
@@ -72,8 +72,18 @@ public struct MemoryTools: Sendable {
             let query = input["query"] as? String ?? ""
             let found = try store.searchMemories(query, limit: 8, anyWord: true)
             for f in found { if let id = f.id { try store.logMemoryUse(id, conversationID: conversationID, action: "recall") } }
-            if found.isEmpty { return "В памяти ничего не нашлось по «\(query)»." }
-            return found.map { "- \($0.text) (\($0.kind.name.lowercased()), \($0.source))" }.joined(separator: "\n")
+            // и в прошлых разговорах — своих и импортированных из Claude Code; этот разговор не в счёт
+            let hits = ((try? store.searchConversations(query, limit: 6, anyWord: true)) ?? [])
+                .filter { $0.conversationID != conversationID }.prefix(4)
+            if found.isEmpty && hits.isEmpty { return "В памяти ничего не нашлось по «\(query)»." }
+            var out = found.map { "- \($0.text) (\($0.kind.name.lowercased()), \($0.source))" }
+            if !hits.isEmpty {
+                let f = DateFormatter()
+                f.dateFormat = "dd.MM.yyyy"
+                out.append("Из прошлых разговоров:")
+                out += hits.map { "- «\($0.title)», \(f.string(from: $0.date)): \($0.snippet)" }
+            }
+            return out.joined(separator: "\n")
         case "load_skill":
             let n = input["name"] as? String ?? ""
             guard let s = availableSkills.first(where: { $0.name == n }) else { return "Нет такого навыка: \(n)." }

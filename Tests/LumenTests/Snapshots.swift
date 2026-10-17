@@ -109,14 +109,32 @@ enum Snap {
     let c = Conversation(title: "Почему падает Shelf?", kind: .agent, folder: folders[1].path, backend: .subscription, model: .sonnet, effort: .high)
     try app.store.save(c)
     try app.store.save(ChatMessage(conversationID: c.id, role: .user, text: "Почему падает Shelf при двойном щелчке?"))
+    // как в Claude Code: абзац — шаги — абзац
+    let p1 = "Смотрю, где Shelf обрабатывает двойной щелчок."
+    let p2 = "Нашёл: `ShelfStorage.remove(at:)` вызывается дважды, второй раз — с индексом, которого уже нет. Добавляю проверку индекса."
+    let p3 = "Собрал и проверил: двойной щелчок больше не роняет Shelf."
+    let e1 = p1.count, e2 = p1.count + 2 + p2.count
     try app.store.save(ChatMessage(conversationID: c.id, role: .assistant,
-        text: "Нашёл: `ShelfStorage.remove(at:)` вызывается дважды, второй раз — с индексом, которого уже нет. Добавил проверку индекса.",
-        steps: [.init(kind: .read, text: "Читает ShelfStorage.swift"), .init(kind: .search, text: "Ищет «remove(at:»"),
-                .init(kind: .edit, text: "Правит ShelfStorage.swift"), .init(kind: .run, text: "Запускает: ./build.sh")],
+        text: [p1, p2, p3].joined(separator: "\n\n"),
+        steps: [.init(kind: .read, text: "Читает ShelfStorage.swift", at: e1), .init(kind: .search, text: "Ищет «remove(at:»", at: e1),
+                .init(kind: .read, text: "Читает ShelfView.swift", at: e1),
+                .init(kind: .edit, text: "Правит ShelfStorage.swift", at: e2), .init(kind: .run, text: "Запускает: ./build.sh", at: e2),
+                .init(kind: .run, text: "Запускает: swift test", at: e2)],
         changes: ChangeSet(files: [FileChange(path: "Sources/ShelfStorage.swift", status: "M", added: 2, removed: 1)])))
     app.reloadConversations()
     app.openChat(c)
     try await Snap.save(RootView(app: app), "05-agent-session")
+
+    let now = Date()
+    let sessions = [("Кнопка Shelf падает", "~/Documents/prog/shelf", "Почини двойной щелчок в Shelf", 1800.0),
+                    ("Остров: таймер", "~/Documents/prog/island", "Добавь кольцо таймера как в Apple Radar", 9000.0),
+                    ("Чем займёмся?", "~/Documents/prog", "Что поделаем?", 90000.0)].enumerated().map { i, s in
+        ClaudeHistory.Session(id: "s\(i)", file: URL(fileURLWithPath: "/tmp/s\(i).jsonl"),
+                              cwd: s.1.replacingOccurrences(of: "~", with: NSHomeDirectory()), title: s.0,
+                              firstPrompt: s.2, updatedAt: now.addingTimeInterval(-s.3), bytes: 1000)
+    }
+    try await Snap.save(ImportClaudeSheet(app: app, close: {}, preset: sessions, prepicked: ["s0"])
+        .environment(\.palette, Palette.of(.lumen)), "40-import-claude", size: CGSize(width: 680, height: 640))
 }
 
 @MainActor @Test(.enabled(if: snapDir != nil)) func snapshotMemory() async throws {

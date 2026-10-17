@@ -358,6 +358,17 @@ public final class Store: Sendable {
         try db.write { db in try c.save(db) }
     }
 
+    /// Импорт разговора целиком (из Claude Code): разговор и все сообщения одной записью, время — как было
+    public func importConversation(_ c: Conversation, messages: [ChatMessage]) throws {
+        try db.write { db in
+            try c.save(db)
+            for m in messages {
+                var m = m
+                try m.save(db)
+            }
+        }
+    }
+
     public func updatePlan(_ id: String, _ plan: [PlanItem]) throws {
         let json = String(decoding: try JSONEncoder().encode(plan), as: UTF8.self)
         try db.write { db in try db.execute(sql: "UPDATE conversation SET plan = ? WHERE id = ?", arguments: [json, id]) }
@@ -452,8 +463,8 @@ public final class Store: Sendable {
     }
 
     /// Поиск по прошлым разговорам: одно лучшее место на разговор
-    public func searchConversations(_ text: String, limit: Int = 20) throws -> [ConversationHit] {
-        guard let q = SearchQuery.fts(text) else { return [] }
+    public func searchConversations(_ text: String, limit: Int = 20, anyWord: Bool = false) throws -> [ConversationHit] {
+        guard let q = SearchQuery.fts(text, anyWord: anyWord) else { return [] }
         return try db.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT message.id, message.conversationID, message.createdAt, conversation.title, conversation.kind,
