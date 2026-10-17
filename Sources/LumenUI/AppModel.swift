@@ -19,6 +19,11 @@ public final class AppModel {
     /// Ширина панелей — отдельно от настроек: пока тянут, перерисовывается только панель, сохраняется в конце
     var sidebarWidth: Double = 256
     var panelWidth: Double = 320
+    /// Встроенный браузер сбоку (BrowserPane.swift): им пользуются и человек, и агенты
+    let browser = BrowserModel()
+    var browserOpen = false
+    var browserWidth: Double = 620
+    @ObservationIgnored var browserServer: BrowserServer?
     var orb: Orb.State = .idle
 
     // MARK: окно

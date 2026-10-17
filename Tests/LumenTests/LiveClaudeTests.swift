@@ -139,6 +139,33 @@ func pointToMCP() {
     #expect(log.stdout.split(separator: "\n").count == 2)
 }
 
+/// Lumen в чате сам работает во встроенном браузере: открывает страницу, вписывает, нажимает (Рома, 17.10)
+@MainActor @Test(.enabled(if: live)) func liveChatUsesBuiltInBrowser() async throws {
+    // путь к сокету должен быть короче 104 знаков — короткая папка в /tmp
+    let home = URL(fileURLWithPath: "/tmp/lb-\(UUID().uuidString.prefix(6))")
+    defer { try? FileManager.default.removeItem(at: home) }
+    pointToMCP()
+    let app = try AppModel(paths: AppPaths(root: home))
+    await app.refreshClaude()
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .subscription, theme: .lumen)
+    app.chat.set(model: .sonnet, effort: .low)
+    app.startBrowser()
+    let page = home.appendingPathComponent("form.html")
+    try """
+        <!doctype html><meta charset="utf-8"><title>Заявка</title>
+        <input id="n" placeholder="Имя"><button onclick="document.getElementById('o').textContent='Готово, ' + document.getElementById('n').value">Отправить</button>
+        <p id="o"></p>
+        """.write(to: page, atomically: true, encoding: .utf8)
+
+    app.chat.send("Открой во встроенном браузере файл \(page.path), впиши в поле «Имя» слово Ромашка и нажми «Отправить». Потом перепиши, что появилось на странице.")
+    while app.chat.busy { try await Task.sleep(for: .milliseconds(100)) }
+    let m = try #require(app.chat.messages.last)
+    #expect(m.error == nil, "\(m.error ?? "")")
+    #expect(m.text.contains("Готово, Ромашка"), "ответ: \(m.text)")
+    #expect(m.steps.contains { $0.text.hasPrefix("Нажимает") }, "\(m.steps.map(\.text))")
+    #expect(app.browser.url.hasSuffix("form.html"))
+}
+
 @MainActor @Test(.enabled(if: live)) func liveMemoryAcrossChats() async throws {
     let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-mem-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: home) }

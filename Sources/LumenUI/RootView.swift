@@ -29,11 +29,16 @@ public struct RootView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            if app.browserOpen { BrowserPane(app: app, browser: app.browser).transition(.move(edge: .trailing)) }
         }
         .environment(\.windowWidth, g.size.width)
         }
         .ignoresSafeArea(.container, edges: .top)
         .animation(.easeOut(duration: 0.2), value: app.prefs.sidebarHidden)
+        .animation(.easeOut(duration: 0.2), value: app.browserOpen)
+        // агент открыл страницу или показал макет — браузер выезжает сам
+        .onChange(of: app.browser.wantsOpen) { if !app.browserOpen { app.browserOpen = true } }
+        .task { app.startBrowser() }
         // панель спрятана — её кнопки остаются рядом с кнопками окна, как в Claude
         .overlay(alignment: .topLeading) {
             if app.prefs.sidebarHidden { WindowControls(app: app).padding(.leading, 76).ignoresSafeArea() }
@@ -46,6 +51,7 @@ public struct RootView: View {
                 Button("") { app.searchOpen.toggle() }.keyboardShortcut("k", modifiers: .command)
                 Button("") { app.newChat() }.keyboardShortcut("n", modifiers: .command)
                 Button("") { app.update { $0.sidebarHidden.toggle() } }.keyboardShortcut("\\", modifiers: .command)
+                Button("") { app.toggleBrowser() }.keyboardShortcut("b", modifiers: [.command, .shift])
             }
             .opacity(0)
         }

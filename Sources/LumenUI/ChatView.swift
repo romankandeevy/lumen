@@ -120,6 +120,9 @@ struct ChatView: View {
             Spacer()
             if let bot { IconButton(icon: "pencil", help: "Изменить бота") { app.page = .botEditor(bot.id) } }
             if let group { IconButton(icon: "pencil", help: "Изменить группу") { app.page = .groupEditor(group.id) } }
+            IconButton(icon: "globe", help: "Браузер сбоку (⇧⌘B): агенты работают в нём, ты входишь в аккаунты", active: app.browserOpen) {
+                app.toggleBrowser()
+            }
             IconButton(icon: "panel-right", help: bot == nil ? "Контекст: память, окно, расход" : "Паспорт бота: что может и что отрезано",
                        active: app.prefs.contextOpen) {
                 app.update { $0.contextOpen.toggle() }

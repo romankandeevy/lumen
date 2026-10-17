@@ -480,7 +480,7 @@ final class ChatController {
         tr.revealTask?.cancel()
         tr.revealTask = nil
         var m = ChatMessage(conversationID: c.id, role: .assistant, text: pre, model: c.model,
-                            steps: c.kind == .chat ? [] : (tr.message?.steps ?? []))
+                            steps: c.kind == .chat ? (tr.message?.steps ?? []).filter(\.shownInChat) : (tr.message?.steps ?? []))
         m.botID = tr.bot
         if let saved = try? app.store.save(m), conversation?.id == c.id { messages.append(saved) }
         tr.flushed += tr.received
@@ -929,6 +929,7 @@ final class ChatController {
                 config.allowedTools += ["mcp__lumen__remember", "mcp__lumen__recall", "mcp__lumen__load_skill", "mcp__lumen__read_skill_file",
                                         "mcp__lumen__list_skills", "mcp__lumen__create_skill", "mcp__lumen__find_skills", "mcp__lumen__install_skill"]
                     + CustomizeAdmin.names.sorted().map { "mcp__lumen__\($0)" }
+                    + BrowserTools.names.map { "mcp__lumen__\($0)" }
                 // включённые коннекторы — без вопросов: их подключил сам человек
                 config.allowedTools += app.connectorsFor(c).map { "mcp__\($0.name)" }
                 // Lumen сам зовёт ботов (delegate): бот может работать минутами
@@ -1155,7 +1156,9 @@ final class ChatController {
         // шаги показываем у агента; в чате вызовы памяти видны плашками «Запомнил» и «Опирался на»
         // у агента и ботов шаги видны; в чате вызовы памяти видны плашками «Запомнил» и «Опирался на»
         let turnBot = tr?.bot
-        let steps = c.kind != .chat || turnBot != nil ? (tr?.message?.steps ?? []) : []
+        // в чате — только шаги в браузере: их человек должен видеть, память и так видна плашками
+        let all = tr?.message?.steps ?? []
+        let steps = c.kind != .chat || turnBot != nil ? all : all.filter(\.shownInChat)
         tr?.message = nil
         let since = tr?.start ?? Date()
         let remembered = (try? app.store.memoryUses(conversationID: c.id, since: since, action: "remember")) ?? []
@@ -1385,6 +1388,7 @@ extension AppModel {
         if let skills = SkillLibrary.promptBlock(skillLibrary.enabled()) { lines.append(skills) }
         lines.append(selfRules)
         lines.append(memoryRules)
+        lines.append(BrowserTools.rules)
         return lines.joined(separator: "\n")
     }
 
@@ -1430,11 +1434,12 @@ extension AppModel {
         if !profile.name.isEmpty { lines.append("Собеседника зовут \(profile.name).") }
         lines.append(profile.address == .ty ? "Обращайся к нему на «ты»." : "Обращайся к нему на «вы».")
         if let known = knownBlock(for: c) { lines.append(known) }
-        lines.append("Это чат: у тебя нет доступа к файлам и командам этого Мака.")
+        lines.append("Это чат: у тебя нет доступа к файлам и командам этого Мака, но есть браузер сбоку.")
         if let block = projectBlock(for: c) { lines.append(block) }
         if let skills = SkillLibrary.promptBlock(skillLibrary.enabled()) { lines.append(skills) }
         lines.append(selfRules)
         lines.append(memoryRules)
+        lines.append(BrowserTools.rules)
         return lines.joined(separator: "\n")
     }
 }

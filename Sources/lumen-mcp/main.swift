@@ -58,6 +58,12 @@ func wait(_ work: @escaping @Sendable () async -> String) -> String {
     return wait { await SkillAdmin.call(name, a, library: lib) }
 }
 
+// встроенный браузер (панель сбоку) — у всех: Lumen, агента и ботов (Рома, 17.10). LUMEN_BROWSER=0 — выключить.
+let browserOn = env["LUMEN_BROWSER"] != "0"
+if browserOn { visible += BrowserTools.definitions }
+let browserSocket = AppPaths(root: URL(fileURLWithPath: dbPath).deletingLastPathComponent()).browserSocket.path
+let browserWho = caller.map { "@\($0.id)" } ?? "Lumen"
+
 if canDelegate {
     visible.append(("delegate", "Передать часть задачи другому боту Lumen и дождаться его ответа. Указывай задачу полностью: бот не видит этот разговор.",
                     ["type": "object", "additionalProperties": false, "required": ["bot", "task"],
@@ -193,6 +199,15 @@ while let line = readLine(strippingNewline: true) {
         }
         if SkillAdmin.names.contains(name) {
             reply(id ?? 0, ["content": [["type": "text", "text": manageSkill(name, args)]]])
+            continue
+        }
+        if browserOn, name.hasPrefix("browser_") {
+            let r = BrowserClient.call(socket: browserSocket, tool: name, args: args, who: browserWho)
+            var content: [[String: Any]] = [["type": "text", "text": r.text]]
+            if let png = r.image { content.append(["type": "image", "data": png.base64EncodedString(), "mimeType": "image/png"]) }
+            var out: [String: Any] = ["content": content]
+            if r.error { out["isError"] = true }
+            reply(id ?? 0, out)
             continue
         }
         if name == "delegate" {

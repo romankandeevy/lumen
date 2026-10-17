@@ -141,6 +141,11 @@ enum Snap {
     try await Snap.save(ImportClaudeSheet(app: app, close: {}, preset: .init(sessions: sessions, groups: [lumenGroup, english, hermes]),
                                           prepicked: ["s0", "s1", "s3"])
         .environment(\.palette, Palette.of(.lumen)), "40-import-claude", size: CGSize(width: 680, height: 640))
+
+    // браузер сбоку: пустой, с подсказкой про входы в аккаунты (страницу WebKit рисует сам, в снимок она не попадает)
+    app.browserOpen = true
+    try await Snap.save(RootView(app: app), "41-browser", size: CGSize(width: 1440, height: 820))
+    app.browserOpen = false
 }
 
 @MainActor @Test(.enabled(if: snapDir != nil)) func snapshotMemory() async throws {

@@ -100,6 +100,7 @@ extension Bot {
                 + "list_skills — что стоит; find_skills и install_skill — найти и поставить готовый из каталога skills.sh; create_skill — создать свой; "
                 + "list_customization, find_connectors, propose_connector, propose_hook — коннекторы MCP и хуки (подключает человек одним нажатием на карточке).")
         }
+        if can.contains(.browser) { lines.append(BrowserTools.rules) }
         if !learned.isEmpty {
             lines.append("Чему ты научился на прошлых задачах (учитывай):\n" + learned.map { "- \($0)" }.joined(separator: "\n"))
         }
@@ -116,10 +117,11 @@ extension Bot {
 
 /// Что боту разрешено. Push на GitHub не разрешается никому: его делает человек.
 public enum BotCapability: String, Codable, Sendable, CaseIterable, Hashable {
-    case read, write, run, web, git, memory, bots, skills
+    case read, write, run, web, git, memory, bots, skills, browser
 
     /// Есть у каждого бота всегда и не выключаются (Рома, 16.10): ничему не мешают и делают ботов полезнее
-    public static let always: Set<BotCapability> = [.memory, .bots]
+    /// Браузер сбоку — тоже у всех (Рома, 17.10: «дай им всем встроенный браузер»)
+    public static let always: Set<BotCapability> = [.memory, .bots, .browser]
     /// Что выбирает человек в конструкторе
     public static let choosable: [BotCapability] = [.read, .write, .run, .web, .git, .skills]
 
@@ -137,6 +139,7 @@ public enum BotCapability: String, Codable, Sendable, CaseIterable, Hashable {
         case .memory: "Писать в память"
         case .bots: "Звать других ботов"
         case .skills: "Навыки и коннекторы"
+        case .browser: "Браузер сбоку"
         }
     }
 
@@ -150,6 +153,7 @@ public enum BotCapability: String, Codable, Sendable, CaseIterable, Hashable {
         case .memory: "brain"
         case .bots: "at-sign"
         case .skills: "wrench"
+        case .browser: "globe"
         }
     }
 }
@@ -205,6 +209,7 @@ public struct BotPermissions: Sendable, Equatable {
             + (can.contains(.memory) ? ["mcp__lumen__remember"] : []) + (can.contains(.bots) ? ["mcp__lumen__delegate"] : [])
             + bot.connectors.map { "mcp__\($0)" }
             + (can.contains(.skills) ? BotCapability.skillTools.map { "mcp__lumen__\($0)" } : [])
+            + (can.contains(.browser) ? BrowserTools.names.map { "mcp__lumen__\($0)" } : [])
         self.memoryReadOnly = !can.contains(.memory)
         var never = ["Bash(git push:*)", "Bash(git push)"]
         if !can.contains(.git) { never += ["Bash(git commit:*)", "Bash(git reset:*)", "Bash(git checkout:*)"] }

@@ -30,6 +30,8 @@ public struct AppPaths: Sendable {
     public var hooks: URL { customize.appendingPathComponent("hooks.json") }
     /// Копии вложений (картинки и файлы из сообщений)
     public var attachments: URL { root.appendingPathComponent("attachments", isDirectory: true) }
+    /// Сокет встроенного браузера: lumen-mcp передаёт сюда действия агентов
+    public var browserSocket: URL { run.appendingPathComponent("browser.sock") }
 
     public func create() throws {
         // до 1.1 навыки лежали в Lumen/skills — переезжают в customize/skills

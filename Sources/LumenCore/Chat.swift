@@ -176,6 +176,9 @@ public struct AgentStep: Codable, Sendable, Equatable, Hashable {
         self.at = at
     }
 
+    /// В чате видны только шаги в браузере; память и навыки там показаны плашками
+    public var shownInChat: Bool { kind != .think && kind != .other && !text.hasPrefix("Читает навык") }
+
     /// Человеческая строка из имени инструмента и его входа
     public static func from(tool: String, input: [String: Any]) -> AgentStep {
         func file(_ k: String) -> String { ((input[k] as? String) ?? "").split(separator: "/").last.map(String.init) ?? "" }
@@ -200,6 +203,22 @@ public struct AgentStep: Codable, Sendable, Equatable, Hashable {
         case "load_skill", "mcp__lumen__load_skill": return .init(kind: .think, text: "Берёт навык \(input["name"] as? String ?? "")")
         case "read_skill_file", "mcp__lumen__read_skill_file": return .init(kind: .read, text: "Читает навык: \(input["path"] as? String ?? "")")
         case "mcp__lumen__delegate": return .init(kind: .other, text: "Зовёт @\(input["bot"] as? String ?? ""): \((input["task"] as? String ?? "").prefix(60))")
+        // встроенный браузер
+        case "mcp__lumen__browser_navigate":
+            let u = input["url"] as? String ?? ""
+            return .init(kind: .web, text: ["back": "Браузер: назад", "forward": "Браузер: вперёд", "reload": "Браузер: обновляет"][u.lowercased()]
+                         ?? "Открывает \(URL(string: u)?.host ?? String(u.prefix(60)))")
+        case "mcp__lumen__browser_show": return .init(kind: .web, text: "Показывает \(file("path"))")
+        case "mcp__lumen__browser_read_page", "mcp__lumen__browser_text": return .init(kind: .read, text: "Читает страницу")
+        case "mcp__lumen__browser_find": return .init(kind: .search, text: "Ищет на странице «\((input["query"] as? String ?? "").prefix(40))»")
+        case "mcp__lumen__browser_click": return .init(kind: .web, text: "Нажимает \(input["ref"] as? String ?? "")")
+        case "mcp__lumen__browser_type": return .init(kind: .web, text: "Вводит «\((input["text"] as? String ?? "").prefix(40))»")
+        case "mcp__lumen__browser_select": return .init(kind: .web, text: "Выбирает «\((input["value"] as? String ?? "").prefix(40))»")
+        case "mcp__lumen__browser_key": return .init(kind: .web, text: "Клавиша \(input["key"] as? String ?? "")")
+        case "mcp__lumen__browser_scroll": return .init(kind: .web, text: "Прокручивает страницу")
+        case "mcp__lumen__browser_screenshot": return .init(kind: .read, text: "Смотрит на страницу")
+        case "mcp__lumen__browser_js": return .init(kind: .run, text: "Скрипт на странице")
+        case "mcp__lumen__browser_wait": return .init(kind: .think, text: "Ждёт страницу")
         default:
             let name = tool.hasPrefix("mcp__") ? tool.components(separatedBy: "__").last ?? tool : tool
             // инструменты приложения Claude Code — в разговорах, перенесённых оттуда
