@@ -305,6 +305,8 @@ public enum ClaudeHistory {
         // текущий ответ агента: копится, пока не придёт новая реплика человека
         var answer: ChatMessage?
         var needBreak = false
+        // новый ход человека — первое «добавить пункт» начинает план заново (как в Lumen)
+        var planFresh = false
 
         func closeAnswer() {
             if var a = answer, !(a.text.isEmpty && a.steps.isEmpty && a.error == nil) {
@@ -341,6 +343,7 @@ public enum ClaudeHistory {
                                                 note: "Разговор сжат", createdAt: date ?? Date()))
                 } else {
                     messages.append(ChatMessage(conversationID: conversationID, role: .user, text: p.text, createdAt: date ?? Date()))
+                    planFresh = true
                 }
                 continue
             }
@@ -377,14 +380,18 @@ public enum ClaudeHistory {
                     switch name {
                     case "TodoWrite":
                         if let todos = input["todos"] as? [[String: Any]] { plan = PlanItem.apply(.replace(PlanItem.from(todos: todos)), to: plan) }
+                        planFresh = false
                     case "TaskCreate":
-                        if let subject = input["subject"] as? String { plan = PlanItem.apply(.add(subject), to: plan) }
+                        if let subject = input["subject"] as? String { plan = PlanItem.apply(.add(subject), to: plan, freshTurn: planFresh) }
+                        planFresh = false
                     case "TaskUpdate":
                         if let id = input["taskId"] as? String ?? (input["taskId"] as? Int).map(String.init) {
                             plan = PlanItem.apply(.update(id: id, status: input["status"] as? String, text: input["subject"] as? String), to: plan)
                         }
+                        planFresh = false
                     case let n where n.hasSuffix("update_plan"):
                         plan = Self.desktopPlan(input, plan)
+                        planFresh = false
                     default: break
                     }
                 default: break

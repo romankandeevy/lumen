@@ -73,9 +73,13 @@ public final class ClaudeSession: @unchecked Sendable {
             if let systemPrompt { a += ["--system-prompt", systemPrompt, "--system-prompt-snapshot", "off"] }
             if let appendSystemPrompt { a += ["--append-system-prompt", appendSystemPrompt] }
             if !allowedTools.isEmpty { a += ["--allowedTools"] + allowedTools }
-            if !disallowedTools.isEmpty { a += ["--disallowedTools"] + disallowedTools }
+            // навыки — только свои, Lumen (через lumen-mcp): инструмента Skill у claude нет, навыки и плагины Claude Code
+            // не видны и не вызываются (Рома, 17.10). Не --disable-slash-commands: он выключает и /compact.
+            let never = disallowedTools + (disallowedTools.contains("Skill") ? [] : ["Skill"])
+            a += ["--disallowedTools"] + never
             if let tools { a += ["--tools", tools.joined(separator: ",")] }
             if !userSettings { a += ["--setting-sources", "", "--strict-mcp-config"] }
+
             if let mcpConfig { a += ["--mcp-config", mcpConfig] }
             if let settings { a += ["--settings", settings] }
             a += resume ? ["--resume", sessionID] : ["--session-id", sessionID]

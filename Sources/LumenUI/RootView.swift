@@ -626,7 +626,8 @@ struct DotsButton: View {
             Icon("ellipsis", 16)
                 .foregroundStyle(hover ? p.foreground : p.mutedFg)
                 .frame(width: 26, height: 26)
-                .background(hover ? p.foreground.opacity(0.1) : p.foreground.opacity(0.06), in: RoundedRectangle(cornerRadius: R.md))
+                // подложка — только когда мышь на самих «…», иначе кажется, что на них уже навели
+                .background(hover ? p.foreground.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: R.md))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

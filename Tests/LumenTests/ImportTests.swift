@@ -326,3 +326,21 @@ private func writeSession(dir: URL, id: String, cwd: String) throws -> URL {
     }
     #expect(app.prefs.panelCollapsed.contains("log"))
 }
+
+/// 17.10: план не очищался между ходами — пункты дублировались
+@Test func newTurnStartsNewPlanWithContinuingIDs() {
+    var p: [PlanItem] = []
+    for t in ["Найти папку", "Прочитать файлы"] { p = PlanItem.apply(.add(t), to: p, freshTurn: p.isEmpty) }
+    p = PlanItem.apply(.update(id: "1", status: "completed", text: nil), to: p)
+    #expect(p.map(\.text) == ["Найти папку", "Прочитать файлы"])
+    // новый ход: агент снова добавляет пункты — это новый план, а не хвост к старому
+    p = PlanItem.apply(.add("Найти папку"), to: p, freshTurn: true)
+    p = PlanItem.apply(.add("Пересказать"), to: p, freshTurn: false)
+    #expect(p.map(\.text) == ["Найти папку", "Пересказать"])
+    #expect(p.map(\.id) == ["3", "4"]) // номера сквозные, как у claude: TaskUpdate попадёт в нужный пункт
+    p = PlanItem.apply(.update(id: "3", status: "completed", text: nil), to: p, freshTurn: false)
+    #expect(p.first?.state == .done)
+    // в новом ходе агент продолжает старый план (сначала отмечает пункт) — не сбрасываем
+    let kept = PlanItem.apply(.update(id: "4", status: "in_progress", text: nil), to: p, freshTurn: true)
+    #expect(kept.count == 2 && kept[1].state == .doing)
+}

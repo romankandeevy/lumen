@@ -41,6 +41,8 @@ final class ChatController {
         @ObservationIgnored var newInput = false
         /// Lumen позвал бота, и его ответ уже показан отдельным сообщением
         @ObservationIgnored var botShown = false
+        /// План в этом ходе уже менялся (первое «добавить пункт» в ходе начинает план заново)
+        @ObservationIgnored var planTouched = false
         /// Текст Lumen до вызова бота — уже сохранён отдельным сообщением над ответом бота
         @ObservationIgnored var flushed = ""
 
@@ -1227,7 +1229,9 @@ final class ChatController {
     }
 
     private func updatePlan(_ change: PlanItem.Change, _ c: Conversation) {
-        let items = PlanItem.apply(change, to: (turns[c.id]?.conversation ?? c).plan)
+        let fresh = turns[c.id].map { !$0.planTouched } ?? false
+        turns[c.id]?.planTouched = true
+        let items = PlanItem.apply(change, to: (turns[c.id]?.conversation ?? c).plan, freshTurn: fresh)
         turns[c.id]?.conversation.plan = items
         if conversation?.id == c.id { conversation?.plan = items }
         try? app.store.updatePlan(c.id, items)

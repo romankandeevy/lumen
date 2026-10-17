@@ -321,6 +321,16 @@ public struct PlanItem: Codable, Sendable, Equatable, Hashable {
         case update(id: String, status: String?, text: String?)
     }
 
+    /// `freshTurn` — первое изменение плана в новом ходе: если агент начинает добавлять пункты, это новый план,
+    /// старый не дописывается (иначе пункты дублируются из хода в ход). Номера продолжаются: у claude они сквозные.
+    public static func apply(_ change: Change, to plan: [PlanItem], freshTurn: Bool) -> [PlanItem] {
+        if freshTurn, case .add(let text) = change {
+            let base = plan.compactMap { $0.id.flatMap(Int.init) }.max() ?? 0
+            return [PlanItem(text: text, state: .todo, id: String(base + 1))]
+        }
+        return apply(change, to: plan)
+    }
+
     public static func apply(_ change: Change, to plan: [PlanItem]) -> [PlanItem] {
         switch change {
         case .replace(let items):
