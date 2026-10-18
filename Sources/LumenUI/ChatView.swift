@@ -336,6 +336,20 @@ struct ChatView: View {
                             }
                         }
                     }
+                    // питомец живёт в переписке: в конце, справа — и тогда, когда ничего не происходит (Рома, 18.10).
+                    // Пока идёт ход и он стоит вместо точек «работает», второй не нужен
+                    let pet = app.prefs.pet
+                    if pet.enabled, pet.alwaysInChat, !chat.messages.isEmpty, !(chat.busy && pet.inChat) {
+                        HStack {
+                            Spacer(minLength: 0)
+                            PetView(pet: pet, mood: chat.busy ? (chat.streaming != nil ? .writing : .thinking) : app.petMood,
+                                    size: pet.kind.isPixel ? 48 : 56)
+                        }
+                        // на одной строке с кнопками последнего ответа (копировать, ещё раз, время) — справа
+                        .padding(.top, chat.busy ? -4 : -54)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                    }
                     Color.clear.frame(height: 1).id("bottom")
                 }
                 // поля по бокам: на узком окне переписка не упирается в края

@@ -9,7 +9,7 @@ import Testing
 @Test func petPrefsDefaultWhenMissing() throws {
     let p = try JSONDecoder().decode(Preferences.self, from: Data(#"{"onboarded":true}"#.utf8))
     #expect(p.pet == PetPrefs())
-    #expect(!p.pet.enabled && p.pet.kind == .cat && p.pet.floating && p.pet.inChat && p.pet.side == 64)
+    #expect(!p.pet.enabled && p.pet.kind == .cat && p.pet.floating && p.pet.inChat && p.pet.side == 64 && p.pet.alwaysInChat)
     // размер вне пределов — в пределы
     let big = try JSONDecoder().decode(PetPrefs.self, from: Data(#"{"side":900}"#.utf8))
     #expect(big.side == PetPrefs.sideRange.upperBound)
@@ -139,4 +139,14 @@ private let petSnapDir = ProcessInfo.processInfo.environment["LUMEN_SNAP"]
     var cat = app.prefs.pet
     cat.kind = .cat
     try await Snap.save(marks.environment(\.petMark, cat), "pet-marks-cat", size: CGSize(width: 420, height: 200))
+
+    // питомец всегда в переписке: в конце, справа, когда ничего не происходит
+    app.update { $0.pet.kind = .cat }
+    let c = Conversation(title: "Про питомца", backend: .subscription, model: .sonnet, effort: .medium)
+    try app.store.save(c)
+    try app.store.save(ChatMessage(conversationID: c.id, role: .user, text: "Привет! Как дела?"))
+    try app.store.save(ChatMessage(conversationID: c.id, role: .assistant, text: "Привет, Рома! Всё хорошо: собрал 1.5, питомец сидит рядом."))
+    app.reloadConversations()
+    app.openChat(c)
+    try await Snap.save(RootView(app: app), "pet-in-chat")
 }

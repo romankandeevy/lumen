@@ -149,6 +149,8 @@ public struct PetPrefs: Codable, Sendable, Equatable {
     public var floating = true
     /// Вместо точек «работает» в переписке
     public var inChat = true
+    /// Всегда в переписке: в конце разговора справа, и когда ничего не происходит (Рома, 18.10)
+    public var alwaysInChat = true
     /// Сторона окна питомца поверх окон, pt: тянется за уголок, щипком или ползунком в настройках
     public var side: Double = PetPrefs.defaultSide
 
@@ -167,6 +169,7 @@ public struct PetPrefs: Codable, Sendable, Equatable {
         blob = (try? c.decodeIfPresent(BlobLook.self, forKey: .blob)) ?? BlobLook()
         floating = (try? c.decodeIfPresent(Bool.self, forKey: .floating)) ?? true
         inChat = (try? c.decodeIfPresent(Bool.self, forKey: .inChat)) ?? true
+        alwaysInChat = (try? c.decodeIfPresent(Bool.self, forKey: .alwaysInChat)) ?? true
         let v = (try? c.decodeIfPresent(Double.self, forKey: .side)) ?? PetPrefs.defaultSide
         side = min(max(v, PetPrefs.sideRange.lowerBound), PetPrefs.sideRange.upperBound)
     }
