@@ -57,6 +57,12 @@ public struct RootView: View {
         // агент открыл страницу или показал макет — браузер выезжает сам
         .onChange(of: app.browser.wantsOpen) { if !app.browserOpen && app.prefs.browserAutoOpen { app.browserOpen = true } }
         .task { app.startBrowser() }
+        // живая картинка из переписки — «открыть сбоку»
+        .onReceive(NotificationCenter.default.publisher(for: .lumenOpenInBrowser)) { n in
+            guard let u = n.object as? URL else { return }
+            app.browser.open(u)
+            app.browserOpen = true
+        }
         // панель спрятана — её кнопки остаются рядом с кнопками окна, как в Claude
         .overlay(alignment: .topLeading) {
             if app.prefs.sidebarHidden { WindowControls(app: app).padding(.leading, 76).ignoresSafeArea() }

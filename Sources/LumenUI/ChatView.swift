@@ -866,12 +866,14 @@ struct RichText: View {
                     CodeBlock(code: s, lang: lang)
                 case .table(let rows):
                     MarkdownTable(rows: rows)
+                case .visual(let code, let done):
+                    VisualBlock(code: code, done: done)
                 }
             }
         }
     }
 
-    enum Part: Equatable { case prose(String), code(String, lang: String?), table([[String]]) }
+    enum Part: Equatable { case prose(String), code(String, lang: String?), table([[String]]), visual(String, done: Bool) }
 
     /// Таблица markdown: строки «| a | b |», вторая — «|---|---|». Не таблица — nil
     static func table(_ para: String) -> [[String]]? {
@@ -889,7 +891,8 @@ struct RichText: View {
 
     static func parts(_ text: String) -> [Part] {
         var out: [Part] = []
-        for (i, chunk) in text.components(separatedBy: "```").enumerated() {
+        let chunks = text.components(separatedBy: "```")
+        for (i, chunk) in chunks.enumerated() {
             if i % 2 == 1 {
                 // первая строка блока — язык: он подписью над кодом
                 var lines = chunk.components(separatedBy: "\n")
@@ -900,7 +903,12 @@ struct RichText: View {
                     if !l.isEmpty { lang = l }
                 }
                 let code = lines.joined(separator: "\n").trimmingCharacters(in: .newlines)
-                if !code.isEmpty { out.append(.code(code, lang: lang)) }
+                // ```visual — живая картинка; пока блок не закрыт (ответ ещё пишется), рисовать нечего
+                if let l = lang?.lowercased(), Visuals.langs.contains(l) {
+                    out.append(.visual(code, done: i < chunks.count - 1))
+                } else if !code.isEmpty {
+                    out.append(.code(code, lang: lang))
+                }
             } else {
                 // абзацы — отдельными блоками, как <p> в макете
                 for para in chunk.components(separatedBy: "\n\n") {

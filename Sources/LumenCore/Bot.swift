@@ -101,6 +101,7 @@ extension Bot {
                 + "list_customization, find_connectors, propose_connector, propose_hook — коннекторы MCP и хуки (подключает человек одним нажатием на карточке).")
         }
         if can.contains(.browser) { lines.append(BrowserTools.rules) }
+        lines.append(Visuals.rules)
         if !learned.isEmpty {
             lines.append("Чему ты научился на прошлых задачах (учитывай):\n" + learned.map { "- \($0)" }.joined(separator: "\n"))
         }

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import WebKit
 import Testing
 @testable import LumenCore
 @testable import LumenStorage
@@ -584,4 +585,56 @@ enum Snap {
     for (name, pal) in [("dark", Palette.lumen), ("light", Palette.light)] {
         try await Snap.save(v.environment(\.palette, pal).background(pal.background), "84-steps-\(name)", size: CGSize(width: 640, height: 640))
     }
+}
+
+/// Живая картинка из блока ```visual: настоящий WebKit, график Chart.js с CDN и SVG — снимок как в переписке
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotVisualBlock() async throws {
+    let code = """
+        <div class="grid">
+          <div class="card"><div class="muted">Выручка</div><div style="font-size:26px;font-weight:600">1,2 млн</div></div>
+          <div class="card"><div class="muted">Рост</div><div style="font-size:26px;font-weight:600;color:var(--accent)">+18%</div></div>
+        </div>
+        <div class="card" style="margin-top:12px"><canvas id="c" height="160"></canvas></div>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+        <script>
+        const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+        new Chart(document.getElementById('c'), {type:'bar', data:{labels:['Янв','Фев','Мар','Апр','Май'],
+          datasets:[{label:'Продажи', data:[12,19,9,22,28], backgroundColor: css('--accent')}]},
+          options:{plugins:{legend:{labels:{color:css('--fg')}}}, scales:{x:{ticks:{color:css('--muted')},grid:{color:css('--border')}},
+          y:{ticks:{color:css('--muted')},grid:{color:css('--border')}}}}});
+        </script>
+        """
+    for (name, pal) in [("dark", Palette.lumen), ("light", Palette.light)] {
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 620, height: 380))
+        web.setValue(false, forKey: "drawsBackground")
+        // в окне, как в Lumen: без окна WebKit не крутит анимации, и график остаётся пустым
+        let window = NSWindow(contentRect: web.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = web
+        window.orderFrontRegardless()
+        defer { window.close() }
+        web.loadHTMLString(VisualBlock.page(code, palette: pal, standalone: true), baseURL: URL(string: "https://lumen.visual/"))
+        try await Task.sleep(for: .seconds(4))
+        let img = try await web.takeSnapshot(configuration: nil)
+        let rep = try #require(img.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)))
+        let png = try #require(rep.representation(using: .png, properties: [:]))
+        try png.write(to: URL(fileURLWithPath: snapDir!).appendingPathComponent("85-visual-\(name).png"))
+    }
+}
+
+/// Ответ настоящей модели с блоком ```visual (файл из LUMEN_VISUAL_FROM) — как он нарисуется
+@MainActor @Test(.enabled(if: snapDir != nil && ProcessInfo.processInfo.environment["LUMEN_VISUAL_FROM"] != nil)) func snapshotModelVisual() async throws {
+    let text = try String(contentsOfFile: ProcessInfo.processInfo.environment["LUMEN_VISUAL_FROM"]!, encoding: .utf8)
+    guard case .visual(let code, _)? = RichText.parts(text).first(where: { if case .visual = $0 { true } else { false } }) else { return }
+    let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 660, height: 520))
+    let window = NSWindow(contentRect: web.frame, styleMask: [.titled], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = web
+    window.orderFrontRegardless()
+    defer { window.close() }
+    web.loadHTMLString(VisualBlock.page(code, palette: .light, standalone: true), baseURL: URL(string: "https://lumen.visual/"))
+    try await Task.sleep(for: .seconds(4))
+    let img = try await web.takeSnapshot(configuration: nil)
+    let rep = try #require(img.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)))
+    try #require(rep.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: snapDir!).appendingPathComponent("86-model-visual.png"))
 }

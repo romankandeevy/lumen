@@ -1714,6 +1714,7 @@ extension AppModel {
         lines.append(selfRules)
         lines.append(memoryRules)
         lines.append(BrowserTools.rules)
+        lines.append(Visuals.rules)
         return lines.joined(separator: "\n")
     }
 
@@ -1766,6 +1767,7 @@ extension AppModel {
         lines.append(selfRules)
         lines.append(memoryRules)
         lines.append(BrowserTools.rules)
+        lines.append(Visuals.rules)
         return lines.joined(separator: "\n")
     }
 }
