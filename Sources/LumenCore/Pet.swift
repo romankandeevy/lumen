@@ -138,19 +138,6 @@ public struct BlobLook: Codable, Sendable, Equatable, Hashable {
     }
 }
 
-/// Размер питомца поверх окон
-public enum PetSize: String, Codable, Sendable, CaseIterable, Hashable {
-    case small, medium, large
-
-    public var points: Double {
-        switch self {
-        case .small: 96
-        case .medium: 128
-        case .large: 160
-        }
-    }
-}
-
 /// Настройки питомца (Настройки → Внешний вид → Питомец)
 public struct PetPrefs: Codable, Sendable, Equatable {
     /// Питомец включён
@@ -162,7 +149,14 @@ public struct PetPrefs: Codable, Sendable, Equatable {
     public var floating = true
     /// Вместо точек «работает» в переписке
     public var inChat = true
-    public var size = PetSize.medium
+    /// Сторона окна питомца поверх окон, pt: тянется за уголок, щипком или ползунком в настройках
+    public var side: Double = PetPrefs.defaultSide
+
+    public static let defaultSide: Double = 64
+    public static let sideRange: ClosedRange<Double> = 40...240
+
+    /// Сторона, на которой пиксели питомца ровные: кратно 16 pt (на Retina — целое число точек на пиксель)
+    public var crispSide: Double { kind.isPixel ? max(32, (side / 16).rounded(.down) * 16) : side }
 
     public init() {}
 
@@ -173,7 +167,8 @@ public struct PetPrefs: Codable, Sendable, Equatable {
         blob = (try? c.decodeIfPresent(BlobLook.self, forKey: .blob)) ?? BlobLook()
         floating = (try? c.decodeIfPresent(Bool.self, forKey: .floating)) ?? true
         inChat = (try? c.decodeIfPresent(Bool.self, forKey: .inChat)) ?? true
-        size = (try? c.decodeIfPresent(PetSize.self, forKey: .size)) ?? .medium
+        let v = (try? c.decodeIfPresent(Double.self, forKey: .side)) ?? PetPrefs.defaultSide
+        side = min(max(v, PetPrefs.sideRange.lowerBound), PetPrefs.sideRange.upperBound)
     }
 }
 

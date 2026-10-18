@@ -9,7 +9,10 @@ import Testing
 @Test func petPrefsDefaultWhenMissing() throws {
     let p = try JSONDecoder().decode(Preferences.self, from: Data(#"{"onboarded":true}"#.utf8))
     #expect(p.pet == PetPrefs())
-    #expect(!p.pet.enabled && p.pet.kind == .cat && p.pet.floating && p.pet.inChat)
+    #expect(!p.pet.enabled && p.pet.kind == .cat && p.pet.floating && p.pet.inChat && p.pet.side == 64)
+    // размер вне пределов — в пределы
+    let big = try JSONDecoder().decode(PetPrefs.self, from: Data(#"{"side":900}"#.utf8))
+    #expect(big.side == PetPrefs.sideRange.upperBound)
     var n = Preferences()
     n.pet.enabled = true; n.pet.kind = .blob; n.pet.blob = BlobLook(shape: .cloud, face: .happy, color: "#4a8df0")
     let back = try JSONDecoder().decode(Preferences.self, from: JSONEncoder().encode(n))
