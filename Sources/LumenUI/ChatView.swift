@@ -16,10 +16,8 @@ struct ChatView: View {
     @State private var dropping = false
     /// Переписка у самого низа — тогда кнопка «вниз» не нужна, а при смене ширины окна держимся низа
     @State private var atBottom = true
-    /// Верхнее видимое сообщение — к нему возвращаемся, если ширина поменялась (спрятали панель), а мы не внизу
-    @State private var topVisible: Int64?
-    /// Куда вернуть прокрутку после смены ширины (у низа ли, какое сообщение сверху) и счётчик изменений
-    @State private var restoreTo: (Bool, Int64?)?
+    /// Был ли внизу, когда начала меняться ширина, и счётчик изменений ширины
+    @State private var wasAtBottom: Bool?
     @State private var widthGeneration = 0
 
     private var chat: ChatController { controller ?? app.chat }
@@ -330,7 +328,6 @@ struct ChatView: View {
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
-                .scrollTargetLayout()
                 // поля по бокам: на узком окне переписка не упирается в края
                 .padding(.horizontal, 44).padding(.vertical, 32)
                 .frame(maxWidth: columnWidth)
@@ -366,20 +363,20 @@ struct ChatView: View {
                 if chat.messages.contains(where: \.chapter) { ChaptersButton(chat: chat).padding(16) }
             }
             // где мы в переписке: у низа ли и какое сообщение сверху
-            .modifier(ScrollTracking(atBottom: $atBottom, topVisible: $topVisible))
+            .modifier(ScrollTracking(atBottom: $atBottom))
             // ширина поменялась (спрятали или показали панель, потянули окно) — ленивый список теряет место:
             // вернуть к низу или к тому сообщению, что было сверху
-            // место запоминается в начале изменения (пока панель или браузер выезжают, оно «плывёт»),
-            // а возвращается, когда ширина успокоилась
+            // ширина поменялась (панель, браузер): был внизу — остаться внизу, когда ширина успокоится.
+            // Середину не трогаем: прыжок к сообщению в ленивом списке оставлял экран пустым до прокрутки
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { _ in
-                if restoreTo == nil { restoreTo = (atBottom, topVisible) }
+                if wasAtBottom == nil { wasAtBottom = atBottom }
                 widthGeneration += 1
                 let gen = widthGeneration
                 Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(320))
-                    guard gen == widthGeneration, let (bottom, top) = restoreTo else { return }
-                    restoreTo = nil
-                    if bottom { proxy.scrollTo("bottom", anchor: .bottom) } else if let top { proxy.scrollTo(Optional(top), anchor: .top) } // id строки — Int64?
+                    guard gen == widthGeneration, let bottom = wasAtBottom else { return }
+                    wasAtBottom = nil
+                    if bottom { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
             }
             // кнопка «вниз», когда отлистал вверх
@@ -1916,10 +1913,10 @@ struct MarkdownTable: View {
     }
 }
 
-/// Следит за прокруткой переписки (macOS 15+): у низа ли она и какое сообщение видно сверху
+/// Следит за прокруткой переписки (macOS 15+): у низа ли она. Состояние меняется только на границе —
+/// иначе переписка перерисовывалась бы на каждом шаге прокрутки и лагала
 private struct ScrollTracking: ViewModifier {
     @Binding var atBottom: Bool
-    @Binding var topVisible: Int64?
 
     func body(content: Content) -> some View {
         if #available(macOS 15.0, *) {
@@ -1929,10 +1926,6 @@ private struct ScrollTracking: ViewModifier {
                     g.contentSize.height - (g.contentOffset.y + g.containerSize.height)
                 } action: { _, gap in
                     if atBottom && gap > 160 { atBottom = false } else if !atBottom && gap < 40 { atBottom = true }
-                }
-                .onScrollTargetVisibilityChange(idType: Int64?.self) { ids in
-                    let first = ids.lazy.compactMap { $0 }.first
-                    if topVisible != first { topVisible = first }
                 }
         } else {
             content
