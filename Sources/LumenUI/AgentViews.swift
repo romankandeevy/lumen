@@ -493,22 +493,22 @@ struct NextStepCard: View {
     @Environment(\.palette) private var p
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(next.recap).font(.geist(15)).lineSpacing(5).foregroundStyle(p.foreground.opacity(0.85))
-                .fixedSize(horizontal: false, vertical: true).padding(.trailing, 28)
+        VStack(alignment: .leading, spacing: 9) {
+            Text(next.recap).font(.geist(13)).lineSpacing(3).foregroundStyle(p.foreground.opacity(0.85))
+                .fixedSize(horizontal: false, vertical: true).padding(.trailing, 22)
             if let ask = next.ask, !ask.isEmpty {
-                Text(ask).font(.geist(15)).fixedSize(horizontal: false, vertical: true)
+                Text(ask).font(.geist(13, .medium)).fixedSize(horizontal: false, vertical: true)
             }
             if next.primary != nil || next.secondary != nil {
                 HStack(spacing: 8) {
                     if let primary = next.primary {
                         Button { answer(primary) } label: {
                             HStack(spacing: 6) {
-                                Text(primary.label).font(.geist(14, .medium))
+                                Text(primary.label).font(.geist(13, .medium))
                                 HStack(spacing: 2) { Kbd("⌘"); Kbd("↵") }
                             }
                             .foregroundStyle(p.background)
-                            .padding(.leading, 14).padding(.trailing, 6).frame(height: 36)
+                            .padding(.leading, 12).padding(.trailing, 5).frame(height: 30)
                             .background(p.foreground, in: RoundedRectangle(cornerRadius: R.xl))
                             .contentShape(Rectangle())
                         }
@@ -517,8 +517,8 @@ struct NextStepCard: View {
                     }
                     if let secondary = next.secondary {
                         Button { answer(secondary) } label: {
-                            Text(secondary.label).font(.geist(14, .medium))
-                                .padding(.horizontal, 14).frame(height: 36)
+                            Text(secondary.label).font(.geist(13, .medium))
+                                .padding(.horizontal, 12).frame(height: 30)
                                 .background(p.secondary, in: RoundedRectangle(cornerRadius: R.xl))
                                 .contentShape(Rectangle())
                         }
@@ -527,13 +527,13 @@ struct NextStepCard: View {
                 }
             }
         }
-        .padding(.horizontal, 20).padding(.vertical, 16)
+        .padding(.horizontal, 14).padding(.vertical, 11)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(p.card.opacity(0.7), in: RoundedRectangle(cornerRadius: R.xxl))
-        .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(p.border))
+        .background(p.card.opacity(0.7), in: RoundedRectangle(cornerRadius: R.xl))
+        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
         .overlay(alignment: .topTrailing) {
             Button(action: close) { Icon("x", 14).foregroundStyle(p.mutedFg) }
-                .buttonStyle(.plain).help("Убрать").padding(14)
+                .buttonStyle(.plain).help("Убрать").padding(10)
         }
         .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
