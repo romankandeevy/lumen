@@ -1064,11 +1064,12 @@ private struct AboutSettings: View {
     @State private var automatic = true
 
     private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—" }
-    private var build: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—" }
-    /// Сборка, которую ещё не выпускали: номер сборки здесь не показываем, он совпадает с последним выпуском
+    /// Порядковый номер выпуска (1.0 — первый, 12 — двенадцатый). Не CFBundleVersion: тот — счётчик Sparkle и растёт не по выпускам
+    private var release: String { Bundle.main.object(forInfoDictionaryKey: "LumenReleaseNumber") as? String ?? "—" }
+    /// Сборка, которую ещё не выпускали: номер выпуска здесь не показываем, он совпадает с последним выпуском
     private var versionText: String {
         let unreleased = Bundle.main.object(forInfoDictionaryKey: "LumenUnreleased") as? Bool ?? false
-        return unreleased ? "\(version) (разработка)" : "\(version) (\(build))"
+        return unreleased ? "\(version) (разработка)" : "\(version) (\(release))"
     }
 
     var body: some View {
