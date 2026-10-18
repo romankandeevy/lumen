@@ -174,8 +174,10 @@ struct BrowserPane: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            tabBar
+            // сверху адрес на одном уровне с крестиком, под ним вкладки (Рома, 18.10)
             toolbar
+            tabBar
+            p.border.frame(height: 1)
             if let a = browser.activity {
                 HStack(spacing: 8) {
                     LiveDot(color: p.glow, size: 6)
@@ -234,60 +236,69 @@ struct BrowserPane: View {
         }
     }
 
+    /// Верхняя строка: назад, вперёд, обновить, адрес (со звёздочкой внутри), серверы, вид, «открыть в моём браузере», закрыть
     private var toolbar: some View {
-        HStack(spacing: 4) {
-            IconButton(icon: "arrow-left", help: "Назад") { browser.webView.goBack() }
-                .disabled(!browser.canGoBack).opacity(browser.canGoBack ? 1 : 0.4)
-            IconButton(icon: "arrow-right", help: "Вперёд") { browser.webView.goForward() }
-                .disabled(!browser.canGoForward).opacity(browser.canGoForward ? 1 : 0.4)
-            IconButton(icon: "rotate-ccw", help: browser.loading ? "Остановить" : "Обновить") {
+        HStack(spacing: 2) {
+            BrowserTool(icon: "arrow-left", help: "Назад", enabled: browser.canGoBack) { browser.webView.goBack() }
+            BrowserTool(icon: "arrow-right", help: "Вперёд", enabled: browser.canGoForward) { browser.webView.goForward() }
+            BrowserTool(icon: browser.loading ? "x" : "rotate-ccw", help: browser.loading ? "Остановить" : "Обновить") {
                 if browser.loading { browser.webView.stopLoading() } else { browser.webView.reload() }
             }
-            HStack(spacing: 6) {
-                Icon(browser.url.hasPrefix("https") ? "lock" : "globe", 12).foregroundStyle(p.mutedFg)
-                // не редактируется — красиво: хост крупно, путь приглушённо; наведёшь — полный адрес; клик — правка
-                ZStack(alignment: .leading) {
-                    TextField("", text: $address, prompt: Text("Введите URL").foregroundStyle(p.mutedFg.opacity(0.7)))
-                        .textFieldStyle(.plain).font(.geist(13)).focused($editing)
-                        .opacity(editing ? 1 : 0).allowsHitTesting(editing)
-                        .onSubmit {
-                            if let u = BrowserModel.address(address) { browser.open(u) }
-                            editing = false
-                        }
-                        .onExitCommand { editing = false }
-                    if !editing { addressLabel.font(.geist(13)).lineLimit(1).truncationMode(.middle).allowsHitTesting(false) }
-                }
-                .contentShape(Rectangle())
-                .onTapGesture { editing = true }
-                .onHover { hoverAddress = $0 }
-                if browser.loading { LiveDot(color: p.glow, size: 6) }
+            addressField.padding(.horizontal, 4)
+            serversButton
+            BrowserTool(icon: "laptop", help: viewportHelp, active: browser.viewport != .desktop) {
+                let next: BrowserModel.Viewport = browser.viewport == .desktop ? .mobile : (browser.viewport == .mobile ? .tablet : .desktop)
+                browser.setViewport(next)
             }
-            .padding(.horizontal, 10).frame(height: 28)
-            .background(p.input.opacity(0.3), in: RoundedRectangle(cornerRadius: R.md))
-            .overlay(RoundedRectangle(cornerRadius: R.md).strokeBorder(editing ? p.glow.opacity(0.35) : p.border))
-            if !blank {
+            BrowserTool(icon: "external-link", help: "Открыть в моём браузере", enabled: !blank) {
+                if let u = URL(string: browser.url), !blank { NSWorkspace.shared.open(u) }
+            }
+            p.border.frame(width: 1, height: 16).padding(.horizontal, 4)
+            BrowserTool(icon: "x", help: "Закрыть браузер · ⇧⌘B") { app.browserOpen = false }
+        }
+        .padding(.horizontal, 8).frame(height: 44)
+    }
+
+    /// Адрес: хост крупно, путь приглушённо; наведёшь — полный адрес; клик — правка. Звёздочка — внутри справа
+    private var addressField: some View {
+        HStack(spacing: 6) {
+            Icon(browser.url.hasPrefix("https") ? "lock" : "globe", 11).foregroundStyle(p.mutedFg)
+            ZStack(alignment: .leading) {
+                TextField("", text: $address, prompt: Text("Введите URL").foregroundStyle(p.mutedFg.opacity(0.7)))
+                    .textFieldStyle(.plain).font(.geist(12.5)).focused($editing)
+                    .opacity(editing ? 1 : 0).allowsHitTesting(editing)
+                    .onSubmit {
+                        if let u = BrowserModel.address(address) { browser.open(u) }
+                        editing = false
+                    }
+                    .onExitCommand { editing = false }
+                if !editing { addressLabel.font(.geist(12.5)).lineLimit(1).truncationMode(.middle).allowsHitTesting(false) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture { editing = true }
+            .onHover { hoverAddress = $0 }
+            if browser.loading { LiveDot(color: p.glow, size: 5) }
+            if !blank && !editing {
                 // звёздочка: страница в «Мои ссылки» на пустой вкладке (и обратно)
                 let saved = app.savedLinks.contains { $0.url == browser.url }
-                IconButton(icon: "star", help: saved ? "Убрать из сохранённых" : "Сохранить ссылку", active: saved) {
+                Button {
                     if saved {
                         app.removeLink(url: browser.url)
                     } else {
                         app.saveLink(title: browser.title.isEmpty ? (URL(string: browser.url)?.host ?? browser.url) : browser.title, url: browser.url)
                     }
+                } label: {
+                    Image(systemName: saved ? "star.fill" : "star").font(.system(size: 11))
+                        .foregroundStyle(saved ? p.glow : p.mutedFg).frame(width: 18, height: 18).contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .help(saved ? "Убрать из сохранённых" : "Сохранить ссылку")
             }
-            serversButton
-            IconButton(icon: "laptop", help: viewportHelp, active: browser.viewport != .desktop) {
-                let next: BrowserModel.Viewport = browser.viewport == .desktop ? .mobile : (browser.viewport == .mobile ? .tablet : .desktop)
-                browser.setViewport(next)
-            }
-            IconButton(icon: "external-link", help: "Открыть в Safari") {
-                if let u = URL(string: browser.url), !blank { NSWorkspace.shared.open(u) }
-            }
-            .disabled(blank)
         }
-        // одной высоты с шапкой разговора (56): линии под ними — на одном уровне
-        .padding(.horizontal, 8).frame(height: 56)
+        .padding(.leading, 10).padding(.trailing, 6).frame(height: 28)
+        .background(p.input.opacity(0.3), in: RoundedRectangle(cornerRadius: R.md))
+        .overlay(RoundedRectangle(cornerRadius: R.md).strokeBorder(editing ? p.glow.opacity(0.35) : p.border))
     }
 
     /// Адрес в строке, когда он не редактируется: ссылка — хост крупно и путь приглушённо, без «https://» и «www.»;
@@ -334,13 +345,13 @@ struct BrowserPane: View {
     private var serversButton: some View {
         Button { serversOpen.toggle() } label: {
             HStack(spacing: 4) {
-                Icon("square-terminal", 14)
+                Icon("square-terminal", 13)
                 if !browser.servers.isEmpty {
                     Text("\(browser.servers.count)").tw(12, .medium, lh: 16)
                 }
             }
             .foregroundStyle(browser.servers.isEmpty ? p.mutedFg : p.glow)
-            .padding(.horizontal, 6).frame(height: 28)
+            .padding(.horizontal, 5).frame(height: 26)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -381,29 +392,28 @@ struct BrowserPane: View {
         .foregroundStyle(p.foreground)
     }
 
-    /// Строка вкладок, как в Claude: вкладки, «+» сразу за ними, справа — закрыть браузер
+    /// Вкладки под адресом: у каждой крестик (виден у открытой и под курсором), «+» сразу за ними.
+    /// Последнюю вкладку закрыл — браузер прячется, в следующий раз откроется пустая
     private var tabBar: some View {
-        HStack(spacing: 4) {
-            ForEach(browser.tabs) { t in
-                let on = t.id == browser.activeID
-                HStack(spacing: 6) {
-                    Text(t.title.isEmpty ? (URL(string: t.url)?.host ?? "Новая вкладка") : t.title)
-                        .font(.geist(12)).lineLimit(1).frame(maxWidth: 160, alignment: .leading)
-                    // крестик у вкладки — только когда их несколько: одну закрывает кнопка панели
-                    if browser.tabs.count > 1 {
-                        Button { browser.close(t.id) } label: { Icon("x", 10) }.buttonStyle(.plain).foregroundStyle(p.mutedFg)
-                    }
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 2) {
+                ForEach(browser.tabs) { t in
+                    BrowserTabChip(title: t.title.isEmpty ? (URL(string: t.url)?.host ?? "Новая вкладка") : t.title,
+                                   on: t.id == browser.activeID,
+                                   select: { browser.select(t.id) },
+                                   close: { closeTab(t.id) })
                 }
-                .padding(.horizontal, 10).frame(height: 28)
-                .background(on ? p.secondary : .clear, in: RoundedRectangle(cornerRadius: R.md))
-                .contentShape(Rectangle())
-                .onTapGesture { browser.select(t.id) }
+                BrowserTool(icon: "plus", help: "Новая вкладка · ⌘T") { browser.newTab(configuration: nil) }
             }
-            IconButton(icon: "plus", help: "Новая вкладка") { browser.newTab(configuration: nil) }
-            Spacer(minLength: 0)
-            IconButton(icon: "x", help: "Закрыть браузер") { app.browserOpen = false }
+            .padding(.horizontal, 8)
         }
-        .padding(.horizontal, 8).frame(height: 40)
+        .frame(height: 34)
+    }
+
+    private func closeTab(_ id: Int) {
+        let last = browser.tabs.count == 1
+        browser.close(id)
+        if last { app.browserOpen = false }
     }
 
     /// Новая вкладка, как в браузере Claude: запущенные на Маке серверы, свои ссылки и подсказка внизу
@@ -547,5 +557,99 @@ struct WebViewHost: NSViewRepresentable {
             view.leadingAnchor.constraint(equalTo: box.leadingAnchor), view.trailingAnchor.constraint(equalTo: box.trailingAnchor),
             view.topAnchor.constraint(equalTo: box.topAnchor), view.bottomAnchor.constraint(equalTo: box.bottomAnchor),
         ])
+    }
+}
+
+/// Кнопка браузера: значок 14 в квадрате 26, подсветка под курсором
+struct BrowserTool: View {
+    let icon: String
+    let help: String
+    var active = false
+    var enabled = true
+    let action: () -> Void
+
+    @Environment(\.palette) private var p
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            Icon(icon, 14)
+                .foregroundStyle(active || (hover && enabled) ? p.foreground : p.mutedFg)
+                .frame(width: 26, height: 26)
+                .background(active ? p.secondary : (hover && enabled ? p.foreground.opacity(0.06) : .clear), in: RoundedRectangle(cornerRadius: R.md))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.35)
+        .onHover { hover = $0 }
+        .help(help)
+    }
+}
+
+/// Вкладка: название и крестик. Крестик — у открытой вкладки и под курсором; средняя кнопка мыши тоже закрывает
+struct BrowserTabChip: View {
+    let title: String
+    let on: Bool
+    let select: () -> Void
+    let close: () -> Void
+
+    @Environment(\.palette) private var p
+    @State private var hover = false
+    @State private var hoverClose = false
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Button(action: select) {
+                Text(title).font(.geist(12)).lineLimit(1)
+                    .foregroundStyle(on ? p.foreground : p.mutedFg)
+                    .frame(minWidth: 40, maxWidth: 150, alignment: .leading)
+                    .padding(.leading, 10).frame(height: 26)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            Button(action: close) {
+                Icon("x", 10)
+                    .foregroundStyle(hoverClose ? p.foreground : p.mutedFg)
+                    .frame(width: 18, height: 18)
+                    .background(hoverClose ? p.foreground.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 5))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .opacity(on || hover ? 1 : 0)
+            .onHover { hoverClose = $0 }
+            .help("Закрыть вкладку")
+            .padding(.trailing, 4)
+        }
+        .background(on ? p.secondary : (hover ? p.foreground.opacity(0.04) : .clear), in: RoundedRectangle(cornerRadius: R.md))
+        .onHover { hover = $0 }
+        .onMiddleClick(close)
+    }
+}
+
+private extension View {
+    /// Средняя кнопка мыши — как в обычном браузере: закрыть вкладку
+    func onMiddleClick(_ action: @escaping () -> Void) -> some View {
+        overlay(MiddleClick(action: action).allowsHitTesting(true))
+    }
+}
+
+/// Ловит только среднюю кнопку мыши; обычные клики проходят насквозь к кнопкам вкладки
+private struct MiddleClick: NSViewRepresentable {
+    let action: () -> Void
+
+    func makeNSView(context: Context) -> View { View(action: action) }
+    func updateNSView(_ v: View, context: Context) { v.action = action }
+
+    final class View: NSView {
+        var action: () -> Void
+        init(action: @escaping () -> Void) { self.action = action; super.init(frame: .zero) }
+        required init?(coder: NSCoder) { nil }
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            NSApp.currentEvent?.type == .otherMouseDown || NSApp.currentEvent?.type == .otherMouseUp ? super.hitTest(point) : nil
+        }
+        override func otherMouseUp(with event: NSEvent) {
+            if event.buttonNumber == 2 { action() } else { super.otherMouseUp(with: event) }
+        }
     }
 }

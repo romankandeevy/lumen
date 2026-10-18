@@ -31,6 +31,15 @@ extension AppModel {
         if let b = bots.first {
             shots.append(("bot-chat", { [self] in searchOpen = false; openBot(b.id) }))
         }
+        // браузер сбоку: адрес наверху у крестика, вкладки под ним
+        let browserWasOpen = browserOpen
+        shots.append(("browser", { [self] in
+            searchOpen = false; page = .chat; browserOpen = true
+            if let u = URL(string: "https://example.com") { browser.open(u) }
+            browser.newTab(configuration: nil)
+            if let u = URL(string: "https://www.wikipedia.org") { browser.open(u) }
+        }))
+        shots.append(("browser-restore", { [self] in browserOpen = browserWasOpen }))
         // правая панель блоками
         let panelWasOpen = prefs.contextOpen
         shots.append(("chat-panel", { [self] in update { $0.contextOpen = true }; tab = .chat; if let c = conversations.first(where: { $0.kind == .chat }) { openChat(c) } }))
