@@ -141,7 +141,7 @@ private let petSnapDir = ProcessInfo.processInfo.environment["LUMEN_SNAP"]
     try await Snap.save(marks.environment(\.petMark, cat), "pet-marks-cat", size: CGSize(width: 420, height: 200))
 
     // питомец всегда в переписке: в конце, справа, когда ничего не происходит
-    app.update { $0.pet.kind = .cat }
+    app.update { $0.pet.kind = .cat; $0.pet.floating = false }
     let c = Conversation(title: "Про питомца", backend: .subscription, model: .sonnet, effort: .medium)
     try app.store.save(c)
     try app.store.save(ChatMessage(conversationID: c.id, role: .user, text: "Привет! Как дела?"))

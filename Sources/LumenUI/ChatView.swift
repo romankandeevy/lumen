@@ -244,6 +244,19 @@ struct ChatView: View {
                         MessageRow(message: m, chat: chat, isLast: m.id == chat.messages.last?.id).id(m.id)
                             // новый вопрос отделён от прошлого ответа, а ответ стоит близко к вопросу
                             .padding(.top, m.role == .user && m.id != chat.messages.first?.id ? 18 : 0)
+                            // питомец живёт в переписке: слева от последнего ответа, в пустом поле — и когда ничего
+                            // не происходит (Рома, 18.10). Не здесь, если он поверх окон или уже стоит вместо точек «работает»
+                            .overlay(alignment: .topLeading) {
+                                let pet = app.prefs.pet
+                                if pet.enabled, pet.alwaysInChat, !pet.floating, !(chat.busy && pet.inChat),
+                                   m.role == .assistant, m.id == chat.messages.last(where: { $0.role == .assistant })?.id {
+                                    let side: CGFloat = pet.kind.isPixel ? 32 : 44
+                                    PetView(pet: pet, mood: chat.busy ? (chat.streaming != nil ? .writing : .thinking) : app.petMood, size: side)
+                                        .offset(x: -side - (pet.kind.isPixel ? 6 : 0), y: pet.kind.isPixel ? -6 : -12)
+                                        .allowsHitTesting(false)
+                                        .transition(.opacity)
+                                }
+                            }
                     }
                     if !chat.busy, let last = chat.messages.last, let next = last.next {
                         NextStepCard(next: next) { chat.answer($0, on: last) } close: { chat.dismissNext(last) }
@@ -335,20 +348,6 @@ struct ChatView: View {
                                 Text("Думает…").tw(14, lh: 20).foregroundStyle(p.mutedFg).shimmer(p.foreground)
                             }
                         }
-                    }
-                    // питомец живёт в переписке: в конце, справа — и тогда, когда ничего не происходит (Рома, 18.10).
-                    // Пока идёт ход и он стоит вместо точек «работает», второй не нужен
-                    let pet = app.prefs.pet
-                    if pet.enabled, pet.alwaysInChat, !chat.messages.isEmpty, !(chat.busy && pet.inChat) {
-                        HStack {
-                            Spacer(minLength: 0)
-                            PetView(pet: pet, mood: chat.busy ? (chat.streaming != nil ? .writing : .thinking) : app.petMood,
-                                    size: pet.kind.isPixel ? 48 : 56)
-                        }
-                        // на одной строке с кнопками последнего ответа (копировать, ещё раз, время) — справа
-                        .padding(.top, chat.busy ? -4 : -54)
-                        .allowsHitTesting(false)
-                        .transition(.opacity)
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }

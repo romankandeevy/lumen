@@ -259,8 +259,8 @@ struct PetSettingsContent: View {
                 row("Поверх всех окон", "Маленькое окно без рамки: тянется мышью, щелчок открывает Lumen", icon: "app-window") {
                     LSwitch(isOn: bind(\.floating)).disabled(!pet.enabled).opacity(pet.enabled ? 1 : 0.4)
                 }
-                row("Всегда в переписке", "В конце разговора справа — сидит и тогда, когда ничего не происходит", icon: "message-square") {
-                    LSwitch(isOn: bind(\.alwaysInChat)).disabled(!pet.enabled).opacity(pet.enabled ? 1 : 0.4)
+                row("Всегда в переписке", "Слева от последнего ответа — сидит и тогда, когда ничего не происходит. Если он поверх окон, в переписке его нет", icon: "message-square") {
+                    LSwitch(isOn: bind(\.alwaysInChat)).disabled(!pet.enabled || pet.floating).opacity(pet.enabled && !pet.floating ? 1 : 0.4)
                 }
                 row("Вместо точек «работает»", "В переписке вместо четырёх точек — питомец, у ботов — их капля", icon: "message-circle") {
                     LSwitch(isOn: bind(\.inChat)).disabled(!pet.enabled).opacity(pet.enabled ? 1 : 0.4)
