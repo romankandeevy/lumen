@@ -10,11 +10,15 @@ public struct Project: Codable, Sendable, Equatable, Identifiable, Hashable {
     /// Папка для задач агента (необязательно)
     public var folder: String?
     public var pinned: Bool
+    /// Чей проект: чата, агента или ботов (1.5). Они не связаны: у каждой вкладки свои проекты,
+    /// удалить проект в чате — не трогает проекты агента (Рома, 19.10)
+    public var kind: ConversationKind
     public var createdAt: Date
     public var updatedAt: Date
 
     public init(id: String = UUID().uuidString.lowercased(), name: String, instructions: String = "", folder: String? = nil,
-                pinned: Bool = false, createdAt: Date = Date(), updatedAt: Date = Date()) {
+                pinned: Bool = false, kind: ConversationKind = .chat, createdAt: Date = Date(), updatedAt: Date = Date()) {
+        self.kind = kind
         self.id = id
         self.name = name
         self.instructions = instructions

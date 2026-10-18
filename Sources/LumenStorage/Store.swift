@@ -240,6 +240,10 @@ public final class Store: Sendable {
             // капля бота вместо значка (1.5): форма, лицо, цвет
             try db.alter(table: "bot") { t in t.add(column: "look", .jsonText) }
         }
+        m.registerMigration("v20-project-kind") { db in
+            // проекты чата, агента и ботов — отдельные (1.5); старые делит AppModel.splitProjectsByKind
+            try db.alter(table: "project") { t in t.add(column: "kind", .text).notNull().defaults(to: "chat") }
+        }
         return m
     }
 

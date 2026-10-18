@@ -29,7 +29,7 @@ struct PetView: View {
 
     var body: some View {
         if pet.kind.isPixel {
-            PixelPetView(kind: pet.kind, mood: mood, size: size, animated: animated)
+            PixelPetView(kind: pet.kind, mood: mood, size: size, animated: animated, followsCursor: followsCursor)
         } else {
             BlobView(look: pet.blob, anim: blobAnim ?? mood.blob, size: size, animated: animated, followsCursor: followsCursor)
         }

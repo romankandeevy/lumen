@@ -185,19 +185,20 @@ struct Sidebar: View {
                         if !pinned.isEmpty || app.draggingChat != nil {
                             section("pinned", "Закреплённые", pinned, drop: .pin)
                         }
-                        // проекты — с папками, внутри их разговоры
-                        if !app.projects.isEmpty {
+                        // проекты — с папками, внутри их разговоры. У чата и агента они свои
+                        let projects = app.projects(of: kind)
+                        if !projects.isEmpty {
                             SidebarSectionHeader(app: app, title: "Проекты", collapsed: nil, project: nil, toggle: {},
-                                                 plus: { app.createProject(folder: app.tab == .agent ? app.agentFolder : nil) })
+                                                 plus: { app.createProject(folder: app.tab == .agent ? app.agentFolder : nil, kind: kind) })
                         }
-                        ForEach(app.projects) { pr in
+                        ForEach(projects) { pr in
                             let items = mine.filter { $0.projectID == pr.id && !$0.pinned }
                             section("p:" + pr.id, pr.name, items, project: pr)
                         }
-                        if !app.projects.isEmpty { Color.clear.frame(height: 8) }
+                        if !projects.isEmpty { Color.clear.frame(height: 8) }
                         // проектов нет — «Новый проект» там, где был бы их раздел: над разговорами
-                        if app.projects.isEmpty {
-                            Button { app.createProject(folder: app.tab == .agent ? app.agentFolder : nil) } label: {
+                        if projects.isEmpty {
+                            Button { app.createProject(folder: app.tab == .agent ? app.agentFolder : nil, kind: kind) } label: {
                                 HStack(spacing: 6) {
                                     Icon("folder-plus", 14)
                                     Text("Новый проект").tw(12, lh: 16)

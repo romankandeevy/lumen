@@ -622,7 +622,7 @@ enum BlobDraw {
     }
 }
 
-private struct AnchorView: NSViewRepresentable {
+struct AnchorView: NSViewRepresentable {
     let anchor: ScreenAnchor
     func makeNSView(context: Context) -> NSView { let v = NSView(); anchor.view = v; return v }
     func updateNSView(_ v: NSView, context: Context) { anchor.view = v }

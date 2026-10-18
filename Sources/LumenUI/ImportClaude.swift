@@ -176,8 +176,9 @@ extension AppModel {
     /// Проект Lumen для папки: уже есть — он, нет — новый, с именем папки
     func projectFor(folder: String) -> Project {
         let path = URL(fileURLWithPath: folder).standardizedFileURL.path
-        if let p = projects.first(where: { $0.folder.map { URL(fileURLWithPath: $0).standardizedFileURL.path } == path }) { return p }
-        let p = Project(name: URL(fileURLWithPath: path).lastPathComponent, folder: path)
+        if let p = projects(of: .agent).first(where: { $0.folder.map { URL(fileURLWithPath: $0).standardizedFileURL.path } == path }) { return p }
+        // разговоры Claude Code переносятся задачами агента — и проекты у них агентские
+        let p = Project(name: URL(fileURLWithPath: path).lastPathComponent, folder: path, kind: .agent)
         try? store.save(p)
         reloadProjects()
         return p
@@ -186,7 +187,7 @@ extension AppModel {
     /// Проект Lumen с таким названием (как проект в приложении Claude): есть — он (без папки получит эту), нет — новый
     func projectNamed(_ name: String, folder: String?) -> Project {
         let key = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if var p = projects.first(where: { $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == key }) {
+        if var p = projects(of: .agent).first(where: { $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == key }) {
             if p.folder == nil, let folder {
                 p.folder = folder
                 try? store.save(p)
@@ -194,7 +195,7 @@ extension AppModel {
             }
             return p
         }
-        let p = Project(name: name, folder: folder)
+        let p = Project(name: name, folder: folder, kind: .agent)
         try? store.save(p)
         reloadProjects()
         return p

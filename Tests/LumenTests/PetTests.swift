@@ -150,3 +150,41 @@ private let petSnapDir = ProcessInfo.processInfo.environment["LUMEN_SNAP"]
     app.openChat(c)
     try await Snap.save(RootView(app: app), "pet-in-chat")
 }
+
+/// Проекты чата, агента и ботов не связаны: старый общий проект делится по вкладкам, удаление в чате не трогает агента
+@MainActor @Test func projectsAreSeparatePerTab() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-proj-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let paths = AppPaths(root: root)
+    do {
+        let store = try Store(path: paths.database)
+        let shared = Project(name: "Lumen", instructions: "Пиши коротко")   // как до 1.5: один на все вкладки
+        try store.save(shared)
+        try store.save(ProjectFile(projectID: shared.id, name: "notes.md", text: "заметки"))
+        var chat = Conversation(title: "Чат", kind: .chat, backend: .subscription, model: .sonnet, effort: .medium)
+        chat.projectID = shared.id
+        var task = Conversation(title: "Задача", kind: .agent, backend: .subscription, model: .sonnet, effort: .medium)
+        task.projectID = shared.id
+        try store.save(chat); try store.save(task)
+    }
+    let app = try AppModel(paths: paths)
+    let chatProjects = app.projects(of: .chat), agentProjects = app.projects(of: .agent)
+    #expect(chatProjects.count == 1 && agentProjects.count == 1)
+    let cp = try #require(chatProjects.first), ap = try #require(agentProjects.first)
+    #expect(cp.id != ap.id && cp.name == "Lumen" && ap.name == "Lumen" && ap.instructions == "Пиши коротко")
+    #expect(app.files(of: ap).map(\.name) == ["notes.md"])
+    #expect(app.conversations(in: cp.id).map(\.kind) == [.chat])
+    #expect(app.conversations(in: ap.id).map(\.kind) == [.agent])
+    // делится один раз: при следующем запуске ничего не плодится
+    app.splitProjectsByKind()
+    #expect(app.projects.count == 2)
+    // удалил в чате — у агента остался
+    app.deleteProject(cp)
+    #expect(app.projects(of: .chat).isEmpty)
+    #expect(app.projects(of: .agent).map(\.id) == [ap.id])
+    // новый проект в чате не виден агенту, одно название на разных вкладках можно
+    let n = app.createProject(kind: .chat)
+    #expect(n.kind == .chat && !app.projects(of: .agent).contains { $0.id == n.id })
+    let again = app.createProject(kind: .agent)
+    #expect(again.kind == .agent && again.name == "Новый проект")
+}

@@ -205,6 +205,8 @@ public final class AppModel {
         projects = (try? store.projects()) ?? []
         // раньше «+» у «Проектов» мог создать второй проект той же папки
         mergeDuplicateProjects()
+        // 1.5: у чата, агента и ботов свои проекты — общие делятся один раз
+        splitProjectsByKind()
         bots = (try? store.bots()) ?? []
         groups = (try? store.groups()) ?? []
         skills = SkillLibrary(root: paths.skills).all()

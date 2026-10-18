@@ -15,10 +15,10 @@ struct ProjectsSection: View {
             HStack {
                 Text("Проекты").tw(12, lh: 16).foregroundStyle(p.mutedFg)
                 Spacer()
-                SmallPlus(help: "Новый проект") { app.createProject(folder: kind == .agent ? app.agentFolder : nil) }
+                SmallPlus(help: "Новый проект") { app.createProject(folder: kind == .agent ? app.agentFolder : nil, kind: kind) }
             }
             .padding(.leading, 10).padding(.trailing, 4).padding(.bottom, 4)
-            ForEach(app.projects) { pr in
+            ForEach(app.projects(of: kind)) { pr in
                 ProjectRow(app: app, project: pr, open: open.contains(pr.id),
                            count: app.conversations(in: pr.id).filter { $0.kind == kind }.count) {
                     if open.contains(pr.id) { open.remove(pr.id) } else { open.insert(pr.id) }
@@ -85,7 +85,7 @@ struct ProjectRow: View {
             if hover || dotsHover {
                 HStack(spacing: 0) {
                     // «+» — новый разговор прямо в проекте; того же размера, что «…», — стоят ровно в ряд
-                    SmallPlus(help: "Новый разговор в «\(project.name)»", side: 26) { app.newChat(in: project, agent: app.tab == .agent) }
+                    SmallPlus(help: "Новый разговор в «\(project.name)»", side: 26) { app.newChat(in: project) }
                     GeometryReader { g in
                         let f = g.frame(in: .global)
                         DotsButton { app.showProjectMenu(project, at: CGPoint(x: f.minX, y: f.maxY + 4)) }
@@ -132,11 +132,12 @@ struct ProjectView: View {
     @State private var instructions = ""
     @State private var editingInstructions = false
     @State private var draft = ""
-    @State private var agent = false
     @FocusState private var nameFocused: Bool
     @FocusState private var draftFocused: Bool
 
     private var project: Project? { app.project(projectID) }
+    /// Проект агента — задачи агента, проект чата — чаты (вкладки не смешиваются)
+    private var agent: Bool { project?.kind == .agent }
 
     var body: some View {
         if let pr = project {
@@ -233,12 +234,7 @@ struct ProjectView: View {
                 .focused($draftFocused)
                 .onSubmit { start(pr) }
             HStack(spacing: 10) {
-                HStack(spacing: 2) {
-                    modeButton("Чат", on: !agent) { agent = false }
-                    modeButton("Агент", on: agent) { agent = true }
-                }
-                .padding(2)
-                .background(p.foreground.opacity(0.05), in: RoundedRectangle(cornerRadius: R.lg))
+                Text(agent ? "Задача агента" : "Чат").tw(12, lh: 16).foregroundStyle(p.mutedFg)
                 Spacer()
                 let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 Button { start(pr) } label: {
@@ -257,23 +253,11 @@ struct ProjectView: View {
         .onTapGesture { draftFocused = true }
     }
 
-    private func modeButton(_ t: String, on: Bool, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(t).tw(13, lh: 18)
-                .foregroundStyle(on ? p.foreground : p.mutedFg)
-                .padding(.horizontal, 12).frame(height: 28)
-                .background(on ? p.background : .clear, in: RoundedRectangle(cornerRadius: R.md))
-                .overlay(RoundedRectangle(cornerRadius: R.md).strokeBorder(on ? p.border : .clear))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
     private func start(_ pr: Project) {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         draft = ""
-        app.newChat(in: pr, agent: agent)
+        app.newChat(in: pr)
         app.chat.send(text)
     }
 

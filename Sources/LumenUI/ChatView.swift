@@ -228,6 +228,23 @@ struct ChatView: View {
         }
     }
 
+    /// Питомец сидит в переписке (слева от последнего ответа или того, что сейчас пишется), если он включён «всегда в переписке»,
+    /// не висит поверх окон и не стоит сейчас на строке «работает» вместо точек — тогда двух не бывает, и паузы между ними нет
+    private var restingPet: Bool {
+        let pet = app.prefs.pet
+        guard pet.enabled, pet.alwaysInChat, !pet.floating, !chat.messages.isEmpty || chat.streaming != nil else { return false }
+        let stepLine = chat.busy && !chat.thinking && chat.pendingPermission == nil && chat.liveStep != nil && chat.streaming == nil
+        return !(pet.inChat && (chat.thinking || stepLine))
+    }
+
+    private func chatPet(_ mood: PetMood) -> some View {
+        let pet = app.prefs.pet
+        let side: CGFloat = pet.kind.isPixel ? 32 : 44
+        return PetView(pet: pet, mood: mood, size: side, followsCursor: true)
+            .offset(x: -side - (pet.kind.isPixel ? 6 : 0), y: pet.kind.isPixel ? -6 : -12)
+            .allowsHitTesting(false)
+    }
+
     private var transcript: some View {
         ScrollViewReader { proxy in
             transcriptScroll(proxy)
@@ -245,16 +262,11 @@ struct ChatView: View {
                             // новый вопрос отделён от прошлого ответа, а ответ стоит близко к вопросу
                             .padding(.top, m.role == .user && m.id != chat.messages.first?.id ? 18 : 0)
                             // питомец живёт в переписке: слева от последнего ответа, в пустом поле — и когда ничего
-                            // не происходит (Рома, 18.10). Не здесь, если он поверх окон или уже стоит вместо точек «работает»
+                            // не происходит (Рома, 18.10)
                             .overlay(alignment: .topLeading) {
-                                let pet = app.prefs.pet
-                                if pet.enabled, pet.alwaysInChat, !pet.floating, !(chat.busy && pet.inChat),
-                                   m.role == .assistant, m.id == chat.messages.last(where: { $0.role == .assistant })?.id {
-                                    let side: CGFloat = pet.kind.isPixel ? 32 : 44
-                                    PetView(pet: pet, mood: chat.busy ? (chat.streaming != nil ? .writing : .thinking) : app.petMood, size: side)
-                                        .offset(x: -side - (pet.kind.isPixel ? 6 : 0), y: pet.kind.isPixel ? -6 : -12)
-                                        .allowsHitTesting(false)
-                                        .transition(.opacity)
+                                if restingPet, chat.streaming == nil, m.role == .assistant,
+                                   m.id == chat.messages.last(where: { $0.role == .assistant })?.id {
+                                    chatPet(chat.busy ? .thinking : app.petMood)
                                 }
                             }
                     }
@@ -273,6 +285,7 @@ struct ChatView: View {
                         }
                         if let s = chat.streaming {
                             MessageRow(message: s, chat: chat, streaming: true)
+                                .overlay(alignment: .topLeading) { if restingPet { chatPet(.writing) } }
                         }
                     }
                     // позванный бот работает: что делает и что пишет — прямо в чате, пока не закончит

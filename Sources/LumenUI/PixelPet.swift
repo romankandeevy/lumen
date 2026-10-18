@@ -277,18 +277,23 @@ enum PixelPet {
     // MARK: кадр
 
     /// Параметры кадра по состоянию и тику
-    static func params(_ mood: PetMood, _ t: Int) -> P {
+    /// Взгляд за курсором: голова на пиксель в сторону курсора, глаза вверх, если он выше
+    struct Gaze: Hashable { var x = 0; var up = false }
+
+    static func params(_ mood: PetMood, _ t: Int, gaze: Gaze = Gaze()) -> P {
         var P = P()
         let blink = (t % 47) >= 44
         switch mood {
         case .idle:
-            P.hy = (t / 9) % 2; P.eyes = blink ? .blink : .open; P.tail = (t / 6) % 2; P.ears = P.hy; P.ray = P.hy
+            P.hy = (t / 9) % 2; P.eyes = blink ? .blink : (gaze.up ? .up : .open); P.tail = (t / 6) % 2; P.ears = P.hy; P.ray = P.hy
+            P.hx = gaze.x
             P.tongue = (t % 60) > 40
         case .thinking:
             P.hx = [0, 1, 0, -1][(t / 6) % 4]; P.hy = (t / 12) % 2; P.eyes = .up; P.ears = P.hy; P.tail = (t / 10) % 2; P.ray = P.hy
         case .writing:
             let a = (t / 2) % 2
             P.al = a != 0 ? 0 : -3; P.ar = a != 0 ? -3 : 0; P.hy = 1; P.eyes = .squint; P.tail = (t / 2) % 2; P.ears = 1; P.ray = a
+            P.hx = gaze.x
         case .remember:
             let p = t % 30
             P.p = p
@@ -403,8 +408,8 @@ enum PixelPet {
     }
 
     /// Кадр: RGBA 32×32 (не умноженный на прозрачность)
-    static func frame(_ kind: PetKind, _ mood: PetMood, _ t: Int) -> [UInt8] {
-        let sp = spec(kind), P = params(mood, t), g = Grid()
+    static func frame(_ kind: PetKind, _ mood: PetMood, _ t: Int, gaze: Gaze = Gaze()) -> [UInt8] {
+        let sp = spec(kind), P = params(mood, t, gaze: gaze), g = Grid()
         var ovs: [(Int, Int, RGB)] = []
         paint(kind, g, P) { x, y, c in if x >= 0, y >= 0, x < W, y < H { ovs.append((x, y, hex(c))) } }
         // свет сверху слева, тень снизу справа, обводка снаружи
@@ -454,10 +459,10 @@ enum PixelPet {
 
     @MainActor private static var cache: [String: CGImage] = [:]
 
-    @MainActor static func image(_ kind: PetKind, _ mood: PetMood, _ t: Int) -> CGImage {
-        let key = "\(kind.rawValue)|\(mood.rawValue)|\(t % 2820)"
+    @MainActor static func image(_ kind: PetKind, _ mood: PetMood, _ t: Int, gaze: Gaze = Gaze()) -> CGImage {
+        let key = "\(kind.rawValue)|\(mood.rawValue)|\(t % 2820)|\(gaze.x)|\(gaze.up)"
         if let img = cache[key] { return img }
-        var px = frame(kind, mood, t % 2820)
+        var px = frame(kind, mood, t % 2820, gaze: gaze)
         // CGImage ждёт цвет, умноженный на прозрачность
         for i in stride(from: 0, to: px.count, by: 4) where px[i + 3] < 255 {
             let a = Double(px[i + 3]) / 255
@@ -474,26 +479,55 @@ enum PixelPet {
     }
 }
 
-/// Пиксельный питомец: 10 кадров в секунду, без сглаживания пикселей
+/// Пиксельный питомец: 10 кадров в секунду, без сглаживания пикселей. Смотрит за курсором,
+/// из одного состояния в другое переходит плавно (кадры перетекают за 0,35 с)
 struct PixelPetView: View {
     let kind: PetKind
     var mood: PetMood = .idle
     var size: CGFloat = 64
     var animated = true
+    var followsCursor = false
 
     @Environment(\.lessMotion) private var lessMotion
     @State private var start = Date()
+    @State private var prev: (mood: PetMood, start: Date)?
+    @State private var changedAt = Date.distantPast
+    @State private var anchor = ScreenAnchor()
+
+    private static let fade = 0.35
 
     var body: some View {
         let still = !animated || lessMotion
         TimelineView(.animation(minimumInterval: 0.1, paused: still)) { ctx in
-            let t = still ? PixelPet.still(mood) : max(0, Int(ctx.date.timeIntervalSince(start) * 10))
-            Image(decorative: PixelPet.image(kind, mood, t), scale: 1)
-                .resizable()
-                .interpolation(.none)
-                .frame(width: size, height: size)
+            let gaze = followsCursor && !still ? Self.gaze(anchor.gaze()) : PixelPet.Gaze()
+            let k = still ? 1 : min(1, ctx.date.timeIntervalSince(changedAt) / Self.fade)
+            ZStack {
+                if k < 1, let prev {
+                    frame(prev.mood, start: prev.start, at: ctx.date, still: still, gaze: gaze).opacity(1 - k)
+                }
+                frame(mood, start: start, at: ctx.date, still: still, gaze: gaze).opacity(k)
+            }
+            .frame(width: size, height: size)
         }
-        .onChange(of: mood) { start = Date() }
+        .background { if followsCursor { AnchorView(anchor: anchor) } }
+        .onChange(of: mood) { old, _ in
+            prev = (old, start)
+            changedAt = Date()
+            start = Date()
+        }
         .accessibilityHidden(true)
+    }
+
+    private func frame(_ m: PetMood, start: Date, at date: Date, still: Bool, gaze: PixelPet.Gaze) -> some View {
+        let t = still ? PixelPet.still(m) : max(0, Int(date.timeIntervalSince(start) * 10))
+        return Image(decorative: PixelPet.image(kind, m, t, gaze: gaze), scale: 1)
+            .resizable()
+            .interpolation(.none)
+    }
+
+    /// Куда смотреть: голова в сторону курсора, глаза вверх, если он заметно выше
+    private static func gaze(_ g: CGPoint?) -> PixelPet.Gaze {
+        guard let g else { return PixelPet.Gaze() }
+        return PixelPet.Gaze(x: g.x > 0.35 ? 1 : (g.x < -0.35 ? -1 : 0), up: g.y < -0.45)
     }
 }
