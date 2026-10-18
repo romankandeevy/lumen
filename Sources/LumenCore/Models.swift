@@ -77,6 +77,11 @@ public enum ChatFont: String, Codable, Sendable, CaseIterable {
     case geist, system, serif, mono
 }
 
+/// Где открываются ссылки из переписки: в браузере сбоку или в браузере Мака по умолчанию (Chrome, Safari…)
+public enum LinkTarget: String, Codable, Sendable, CaseIterable {
+    case side, system
+}
+
 /// Ширина переписки: чат, агент и боты (`chatWidthClass` в макете)
 public enum ChatWidth: String, Codable, Sendable, CaseIterable {
     case normal, wide, full
@@ -116,6 +121,8 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var textScale: Double = 1
     /// Браузер выезжает сам, когда агент открывает страницу или показывает макет
     public var browserAutoOpen = true
+    /// Ссылки из переписки — в браузер сбоку или в свой (Рома, 18.10). ⌘-клик — в другое место
+    public var linkTarget = LinkTarget.side
     /// Свои цвета поверх темы: ключ — «id темы|light» или «id темы|dark»
     public var themeOverrides: [String: ThemeOverrides] = [:]
     /// Раздельные темы для светлого и тёмного света: тёмный берёт `darkThemeID`
@@ -191,6 +198,7 @@ public struct Preferences: Codable, Sendable, Equatable {
         chatFont = (try? c.decodeIfPresent(ChatFont.self, forKey: .chatFont)) ?? .geist
         textScale = (try? c.decodeIfPresent(Double.self, forKey: .textScale)) ?? 1
         browserAutoOpen = (try? c.decodeIfPresent(Bool.self, forKey: .browserAutoOpen)) ?? true
+        linkTarget = (try? c.decodeIfPresent(LinkTarget.self, forKey: .linkTarget)) ?? .side
         themeOverrides = (try? c.decodeIfPresent([String: ThemeOverrides].self, forKey: .themeOverrides)) ?? [:]
         separateModes = (try? c.decodeIfPresent(Bool.self, forKey: .separateModes)) ?? false
         darkThemeID = try? c.decodeIfPresent(String.self, forKey: .darkThemeID)

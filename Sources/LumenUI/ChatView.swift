@@ -866,8 +866,8 @@ struct RichText: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 case .prose(let s):
-                    Text(Self.markdown(s)).chatTw(15, lh: 24.75).textSelection(.enabled)
-                        .tint(p.glow)
+                    // ссылки кликаются без ⌘ и подчёркиваются под курсором (LinkText.swift)
+                    LinkText(text: Self.markdown(s))
                         .fixedSize(horizontal: false, vertical: true)
                 case .code(let s, let lang):
                     CodeBlock(code: s, lang: lang)
@@ -962,8 +962,27 @@ struct RichText: View {
             if let r = l.range(of: #"^#{1,6}\s+"#, options: .regularExpression) { return "**" + l[r.upperBound...] + "**" }
             return l
         }.joined(separator: "\n")
-        return (try? AttributedString(markdown: cleaned, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+        var out = (try? AttributedString(markdown: cleaned, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
             ?? AttributedString(s)
+        detectLinks(&out)
+        return out
+    }
+
+    /// Голые адреса в тексте («https://…», «www.…») — тоже ссылки. Имена файлов вроде README.md ссылками не становятся,
+    /// уже размеченные ссылки и код не трогаем
+    static func detectLinks(_ a: inout AttributedString) {
+        let plain = String(a.characters)
+        guard plain.contains("://") || plain.lowercased().contains("www."),
+              let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return }
+        for m in detector.matches(in: plain, range: NSRange(plain.startIndex..., in: plain)) {
+            guard let url = m.url, let r = Range(m.range, in: plain) else { continue }
+            let raw = plain[r].lowercased()
+            guard raw.contains("://") || raw.hasPrefix("www.") else { continue }
+            let lo = a.characters.index(a.startIndex, offsetBy: plain.distance(from: plain.startIndex, to: r.lowerBound))
+            let hi = a.characters.index(lo, offsetBy: plain.distance(from: r.lowerBound, to: r.upperBound))
+            if a[lo..<hi].runs.contains(where: { $0.link != nil || $0.inlinePresentationIntent?.contains(.code) == true }) { continue }
+            a[lo..<hi].link = url
+        }
     }
 }
 

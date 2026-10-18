@@ -65,9 +65,9 @@ public struct RootView: View {
             guard let u = n.object as? URL else { return }
             app.openInBrowser(u)
         }
-        // любая ссылка в тексте (markdown в переписке и памяти) — в браузер сбоку, а не в системный
+        // любая ссылка в тексте (markdown в переписке и памяти) — куда выбрано в настройках; ⌘-клик — в другое место
         .environment(\.openURL, OpenURLAction { u in
-            app.openInBrowser(u)
+            app.openLink(u, alternate: NSEvent.modifierFlags.contains(.command))
             return .handled
         })
         // панель спрятана — её кнопки остаются рядом с кнопками окна, как в Claude

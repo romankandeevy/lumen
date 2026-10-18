@@ -113,6 +113,18 @@ extension AppModel {
 
     /// Ссылка из переписки — в браузер сбоку. Занятая страница не теряется: ссылка идёт в новую вкладку,
     /// на пустой вкладке — в неё. Почта и прочие схемы — в системной программе, как раньше
+    /// Ссылка из переписки: туда, где выбрано в настройках; `alternate` (⌘-клик) — в другое место
+    func openLink(_ u: URL, alternate: Bool = false) {
+        let side = (prefs.linkTarget == .side) != alternate
+        if side { openInBrowser(u) } else { NSWorkspace.shared.open(u) }
+    }
+
+    /// Браузер Мака по умолчанию — подпись в настройках («Мой браузер — Google Chrome»)
+    static var defaultBrowserName: String? {
+        guard let probe = URL(string: "https://example.com"), let app = NSWorkspace.shared.urlForApplication(toOpen: probe) else { return nil }
+        return FileManager.default.displayName(atPath: app.path).replacingOccurrences(of: ".app", with: "")
+    }
+
     func openInBrowser(_ u: URL) {
         guard ["http", "https", "file"].contains(u.scheme?.lowercased() ?? "") else { NSWorkspace.shared.open(u); return }
         browserOpen = true

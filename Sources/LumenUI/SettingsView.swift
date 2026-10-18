@@ -296,6 +296,14 @@ struct SettingsView: View {
                     }
                 }
                 .frame(maxWidth: 680)
+                GroupTitle(text: "Ссылки", aside: "клик — открыть, ⌘-клик — открыть в другом месте").padding(.top, 32)
+                row("Где открывать ссылки", "Ссылки из ответов, памяти и проектов"
+                    + (AppModel.defaultBrowserName.map { ". Мой браузер — \($0)" } ?? "")) {
+                    Segmented(value: Binding(get: { app.prefs.linkTarget }, set: { v in app.update { $0.linkTarget = v } }),
+                              options: [(.side, "Браузер сбоку"), (.system, "Мой браузер")])
+                        .frame(width: 300)
+                }
+                .frame(maxWidth: 680)
             }
         }
     }
