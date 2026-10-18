@@ -47,7 +47,7 @@ extension AppModel {
             return
         }
         log("Проекты: завёл \(url.path)")
-        if p.ownFolder != nil {
+        if p.ownFolder != nil, prefs.projectContextAuto {
             let id = p.id
             ProjectContextQueue.running.insert(id)
             Task {
@@ -101,7 +101,7 @@ extension AppModel {
 
     /// После ответа в чате проекта: обновить разделы и компакт этого чата (фоном, по одному на проект)
     func updateProjectContext(after c: Conversation) {
-        guard let pid = c.projectID, project(pid) != nil, cli != nil else { return }
+        guard prefs.projectContextAuto, let pid = c.projectID, project(pid) != nil, cli != nil else { return }
         if ProjectContextQueue.running.contains(pid) {
             ProjectContextQueue.again[pid] = c
             return

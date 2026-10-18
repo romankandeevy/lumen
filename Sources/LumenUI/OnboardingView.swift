@@ -1,8 +1,9 @@
 import LumenCore
 import SwiftUI
 
-/// Знакомство при первом запуске (`pages/onboarding.tsx`): имя и обращение → через что думать → тема.
-/// Ответы сразу кладутся в память: Lumen с первого чата знает, с кем говорит.
+/// Знакомство при первом запуске (`pages/onboarding.tsx`): имя и обращение → о тебе → через что думать →
+/// что о тебе уже знают Claude Code, Codex, Claude и ChatGPT → тема.
+/// Ответы сразу кладутся в память: Lumen с первого чата знает, с кем говорит, чем он занят и как ему удобно (Рома, 18.10).
 struct OnboardingView: View {
     @Bindable var app: AppModel
 
@@ -12,9 +13,14 @@ struct OnboardingView: View {
     @State private var address: Address = .ty
     @State private var backend: Backend = .subscription
     @State private var key = ""
+    @State private var work = ""
+    @State private var now = ""
+    @State private var style = ""
 
     /// Шаг «Ключ» есть, только если выбран API
-    private var steps: [String] { backend == .api ? ["Знакомство", "Модель", "Ключ", "Тема"] : ["Знакомство", "Модель", "Тема"] }
+    private var steps: [String] {
+        ["Знакомство", "О тебе", "Модель"] + (backend == .api ? ["Ключ"] : []) + ["Что знают", "Тема"]
+    }
     private var current: String { steps[step] }
 
     var body: some View {
@@ -24,7 +30,7 @@ struct OnboardingView: View {
                 if step == -1 { hello } else { wizard }
             }
             .padding(40)
-            .frame(width: 512)
+            .frame(width: step >= 0 && current == "Что знают" ? 600 : 512)
             .background(LumenLight())
             .background(p.card.opacity(0.8), in: RoundedRectangle(cornerRadius: R.xxxl))
             .clipShape(RoundedRectangle(cornerRadius: R.xxxl))
@@ -34,6 +40,10 @@ struct OnboardingView: View {
         .onAppear {
             name = app.profile.name
             address = app.profile.address
+            // знакомство заново — что уже рассказал, видно в полях
+            work = app.memories.first { $0.key == "onboarding.work" }?.text.replacingOccurrences(of: "Чем занимается: ", with: "") ?? ""
+            now = app.memories.first { $0.key == "onboarding.now" }?.text.replacingOccurrences(of: "Сейчас работает над: ", with: "") ?? ""
+            style = app.memories.first { $0.key == "onboarding.style" }?.text.replacingOccurrences(of: "Как удобнее получать ответы: ", with: "") ?? ""
             backend = app.prefs.backend
         }
     }
@@ -75,7 +85,9 @@ struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 0) {
                 switch current {
                 case "Знакомство": nameStep
+                case "О тебе": aboutStep
                 case "Модель": backendStep
+                case "Что знают": knownStep
                 case "Ключ": keyStep
                 default: themeStep
                 }
@@ -91,7 +103,8 @@ struct OnboardingView: View {
                         .disabled(!canContinue)
                 } else {
                     LButton(title: "Начать", icon: "check", kind: .glow) {
-                        app.finishOnboarding(name: name, address: address, backend: backend, theme: app.prefs.theme)
+                        app.finishOnboarding(name: name, address: address, backend: backend, theme: app.prefs.theme,
+                                             about: ["work": work, "now": now, "style": style])
                     }
                 }
             }
@@ -125,6 +138,36 @@ struct OnboardingView: View {
             .padding(.top, 24)
             Segmented(value: $address, options: [(.ty, "Можно на «ты»"), (.vy, "Лучше на «вы»")])
                 .padding(.top, 16)
+        }
+    }
+
+    private var aboutStep: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            heading("Расскажи о себе", "Это ляжет в память, и Lumen будет учитывать это в каждом разговоре. Любое поле можно пропустить.")
+            VStack(alignment: .leading, spacing: 14) {
+                labeled("Чем занимаешься", "Например: делаю приложения для Mac, учусь в 11 классе", $work)
+                labeled("Над чем сейчас работаешь", "Проекты и цели на ближайшее время", $now)
+                labeled("Как тебе удобнее получать ответы", "Коротко и по делу, с примерами, без воды…", $style)
+            }
+            .padding(.top, 20)
+        }
+    }
+
+    private func labeled(_ title: String, _ hint: String, _ text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.geist(12)).foregroundStyle(p.mutedFg)
+            GlowField(placeholder: hint, text: text)
+        }
+    }
+
+    private var knownStep: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            heading("Что обо мне уже знают?", "Перенесу в память то, что о тебе знают Claude Code, Codex, Claude и ChatGPT. Перед сохранением всё покажу — лишнее снимешь.")
+            ScrollView {
+                KnownImportPanel(app: app, compact: true).padding(.top, 18).padding(.trailing, 6)
+            }
+            .scrollIndicators(.automatic)
+            .frame(maxHeight: 400)
         }
     }
 

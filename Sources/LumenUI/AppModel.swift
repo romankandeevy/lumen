@@ -491,7 +491,7 @@ public final class AppModel {
     }
 
     /// Знакомство: имя и обращение — первые факты о человеке
-    func finishOnboarding(name: String, address: Address, backend: Backend, theme: Theme) {
+    func finishOnboarding(name: String, address: Address, backend: Backend, theme: Theme, about: [String: String] = [:]) {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         profile = Profile(name: name, address: address)
         try? store.set("profile", profile)
@@ -500,6 +500,18 @@ public final class AppModel {
         }
         _ = try? store.save(MemoryFact(kind: .pref, text: address == .ty ? "Обращаться на «ты»" : "Обращаться на «вы»",
                                        source: "Знакомство", key: "onboarding.address", pinned: true))
+        // о себе: чем занимается, над чем работает, как удобнее — закреплёнными фактами; пустое поле — убрать старый ответ
+        let told: [(String, MemoryKind, String)] = [("work", .you, "Чем занимается: "), ("now", .project, "Сейчас работает над: "),
+                                                    ("style", .pref, "Как удобнее получать ответы: ")]
+        for (field, kind, lead) in told {
+            let key = "onboarding.\(field)"
+            let text = (about[field] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty {
+                _ = try? store.save(MemoryFact(kind: kind, text: lead + text, source: "Знакомство", key: key, pinned: true))
+            } else if about[field] != nil, let old = memories.first(where: { $0.key == key }), let id = old.id {
+                try? store.deleteMemory(id)
+            }
+        }
         reloadMemories()
         update {
             $0.onboarded = true

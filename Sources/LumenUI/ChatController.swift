@@ -1527,6 +1527,8 @@ final class ChatController {
            let q = all.first(where: { $0.role == .user })?.text {
             Task { await app.nameConversation(c, question: q, answer: visible) }
         }
+        // Lumen в фоне — уведомление и звук «ответ готов» (Настройки → Общие)
+        if error == nil && !stopped && !visible.isEmpty { app.answerReady(c, text: visible) }
         // контекст проекта: что поменялось и компакт этого чата — в PROJECT.md, фоном (Рома, 18.10)
         if error == nil && !stopped && c.projectID != nil && turnBot == nil { app.updateProjectContext(after: c) }
         // обучение на опыте: у ботов — выводы, у ботов и агента после большой задачи — предложенный навык

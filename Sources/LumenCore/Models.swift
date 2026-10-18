@@ -167,6 +167,13 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var activeKeyID: String?
     /// Режимы, которые не показывать в поле агента (Настройки → Внешний вид)
     public var hiddenModes: [AgentMode] = []
+    /// Ответ готов, а Lumen не на переднем плане: уведомление и звук (пусто — без звука). Настройки → Общие
+    public var notifyWhenDone = false
+    public var doneSound = ""
+    /// Отправка: Enter (Shift+Enter — новая строка) или ⌘Enter (Enter — новая строка)
+    public var sendWithCommand = false
+    /// Lumen сам ведёт PROJECT.md проектов: заполняет по папке и дописывает после ответов (тратит немного подписки)
+    public var projectContextAuto = true
 
     /// Режимы в поле: все, кроме скрытых; хотя бы один остаётся всегда
     public var visibleModes: [AgentMode] {
@@ -245,6 +252,10 @@ public struct Preferences: Codable, Sendable, Equatable {
         hiddenModes = (try? c.decodeIfPresent([AgentMode].self, forKey: .hiddenModes)) ?? []
         apiKeys = (try? c.decodeIfPresent([ApiKeyEntry].self, forKey: .apiKeys)) ?? []
         activeKeyID = try? c.decodeIfPresent(String.self, forKey: .activeKeyID)
+        notifyWhenDone = (try? c.decodeIfPresent(Bool.self, forKey: .notifyWhenDone)) ?? false
+        doneSound = (try? c.decodeIfPresent(String.self, forKey: .doneSound)) ?? ""
+        sendWithCommand = (try? c.decodeIfPresent(Bool.self, forKey: .sendWithCommand)) ?? false
+        projectContextAuto = (try? c.decodeIfPresent(Bool.self, forKey: .projectContextAuto)) ?? true
     }
 }
 

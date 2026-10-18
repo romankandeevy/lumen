@@ -1225,8 +1225,13 @@ struct Composer: View {
                 .onSubmit(send)
                 .onChange(of: draft) { absorbMention(); if slashIndex >= slashItems.count { slashIndex = 0 } }
                 // ⌫ в пустом поле — убрать чип; стрелки и Tab — по меню «/»
-                // Enter — отправить, Shift+Enter — новая строка
+                // Enter — отправить, Shift+Enter — новая строка; в настройках можно наоборот: ⌘Enter — отправить, Enter — строка
                 .onKeyPress(.return, phases: .down) { press in
+                    if app.prefs.sendWithCommand && slashItems.isEmpty {
+                        if press.modifiers.contains(.command) { send(); return .handled }
+                        draft += "\n"
+                        return .handled
+                    }
                     guard press.modifiers.contains(.shift) else { return .ignored }
                     draft += "\n"
                     return .handled

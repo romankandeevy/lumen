@@ -9,6 +9,9 @@ struct SettingsView: View {
     @Bindable var app: AppModel
 
     @Environment(\.palette) private var p
+    @State private var launchAtLogin = AppModel.launchesAtLogin
+    @State private var loginNote: String?
+    @State private var notifyNote: String?
     @State private var closed: Set<String> = []
 
     enum Section: String, CaseIterable, Hashable {
@@ -159,24 +162,34 @@ struct SettingsView: View {
         }
     }
 
-    /// Заголовок раздела крупно и пояснение под ним
+    /// Заголовок раздела: значок, название и пояснение; ниже — группы настроек карточками
     private func page<C: View>(_ lead: String?, aside: AnyView? = nil, @ViewBuilder content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(current.rawValue).tw(20, .semibold, lh: 28).tracking(-0.2)
-                    if let lead { Text(lead).tw(14, lh: 20).foregroundStyle(p.mutedFg).frame(maxWidth: 560, alignment: .leading) }
-                }
+            HStack(alignment: .center, spacing: 0) {
+                SettingsHeader(icon: current.icon, title: current.rawValue, lead: lead)
                 Spacer(minLength: 16)
                 if let aside { aside }
             }
-            content().padding(.top, 20)
+            VStack(alignment: .leading, spacing: 28) { content() }
+                .padding(.top, 24)
+                .frame(maxWidth: 700, alignment: .leading)
         }
     }
 
-    /// Строка настройки: название и пояснение слева, управление справа, линия снизу
-    private func row<C: View>(_ title: String, _ note: String? = nil, @ViewBuilder control: () -> C) -> some View {
-        HStack(alignment: .center, spacing: 16) {
+    /// Группа настроек карточкой: подпись сверху, строки внутри (линия между ними), пояснение снизу
+    private func group<C: View>(_ title: String? = nil, aside: String? = nil, footer: String? = nil,
+                                @ViewBuilder _ rows: () -> C) -> some View {
+        SettingsGroup(title: title, aside: aside, footer: footer, content: rows)
+    }
+
+    /// Строка настройки: значок, название и пояснение слева, управление справа, линия снизу
+    private func row<C: View>(_ title: String, _ note: String? = nil, icon: String? = nil, @ViewBuilder control: () -> C) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            if let icon {
+                Icon(icon, 15).foregroundStyle(p.foreground.opacity(0.75))
+                    .frame(width: 30, height: 30)
+                    .background(p.foreground.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).tw(14, lh: 20)
                 if let note { Text(note).tw(12, lh: 16).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true) }
@@ -184,7 +197,7 @@ struct SettingsView: View {
             Spacer(minLength: 16)
             control()
         }
-        .padding(.vertical, 14)
+        .padding(.vertical, 12)
         .overlay(alignment: .bottom) { p.border.frame(height: 1) }
     }
 
@@ -195,20 +208,45 @@ struct SettingsView: View {
     // MARK: общие
 
     private var general: some View {
-        page("Как выглядит Lumen целиком.") {
-            VStack(alignment: .leading, spacing: 0) {
-                row("Свет", "Тема подстраивается: у каждой есть светлые и тёмные цвета") {
-                    LightSwitch(value: lightBinding)
+        page("Как выглядит Lumen, когда он запускается и как сообщает, что ответ готов.") {
+            group("Вид") {
+                row("Свет", "У каждой темы есть светлые и тёмные цвета", icon: "sun-moon") {
+                    LightSwitch(value: lightBinding).fixedSize()
                 }
-                row("Тема", "Сейчас — «\(Palette.Family.find(app.prefs.themeID, app.prefs).name)»") {
-                    LButton(title: "Выбрать", icon: "palette", kind: .outline, small: true) { go(.theme) }
+                row("Тема", "Сейчас — «\(Palette.Family.find(app.prefs.themeID, app.prefs).name)»", icon: "palette") {
+                    LButton(title: "Выбрать", kind: .outline, small: true) { go(.theme) }
                 }
-                row("Меньше движения", "Сфера не дышит, свет не мерцает, значки не крутятся") {
+                row("Меньше движения", "Сфера не дышит, свет не мерцает, значки не крутятся", icon: "zap") {
                     PillPicker(value: Binding(get: { app.prefs.motion }, set: { v in app.update { $0.motion = v; $0.reducedMotion = v == .on } }),
                                options: [(.system, "Системный"), (.on, "Вкл."), (.off, "Выкл.")])
                 }
             }
-            .frame(maxWidth: 680)
+            group("Запуск", footer: loginNote) {
+                row("Открывать при входе в систему", "Lumen запускается сам, когда включаешь Мак", icon: "power") {
+                    LSwitch(isOn: Binding(get: { launchAtLogin }, set: { on in
+                        loginNote = AppModel.setLaunchAtLogin(on)
+                        launchAtLogin = AppModel.launchesAtLogin
+                    }))
+                }
+            }
+            group("Когда ответ готов", footer: notifyNote ?? "Только когда Lumen не на переднем плане: пока ты смотришь в окно, он не мешает.") {
+                row("Уведомление", "Название разговора и начало ответа", icon: "bell") {
+                    LSwitch(isOn: Binding(get: { app.prefs.notifyWhenDone }, set: { on in
+                        app.update { $0.notifyWhenDone = on }
+                        guard on else { notifyNote = nil; return }
+                        Task {
+                            let ok = await app.allowNotifications()
+                            notifyNote = ok ? "Уведомления включены" : "macOS не разрешила уведомления — включи их в Системных настройках → Уведомления → Lumen"
+                        }
+                    }))
+                }
+                row("Звук", nil, icon: "volume-2") {
+                    PillPicker(value: Binding(get: { app.prefs.doneSound }, set: { v in
+                        app.update { $0.doneSound = v }
+                        if !v.isEmpty { NSSound(named: NSSound.Name(v))?.play() }
+                    }), options: AppModel.doneSounds.filter { $0.0 != "Hero" })
+                }
+            }
         }
     }
 
@@ -216,94 +254,91 @@ struct SettingsView: View {
 
     private var fonts: some View {
         page("Текст переписки: чат, агент и боты.") {
-            VStack(alignment: .leading, spacing: 0) {
-                row("Шрифт") {
+            group("Текст") {
+                row("Шрифт", icon: "type") {
                     Segmented(value: Binding(get: { app.prefs.chatFont }, set: { v in app.update { $0.chatFont = v } }),
                               options: [(.geist, "Geist"), (.system, "Системный"), (.serif, "С засечками"), (.mono, "Моно")])
-                        .frame(width: 400)
+                        .frame(width: 380)
                 }
-                row("Размер", "\(Int((15 * app.prefs.textScale).rounded())) pt") {
+                row("Размер", "\(Int((15 * app.prefs.textScale).rounded())) pt", icon: "layers") {
                     Segmented(value: Binding(get: { app.prefs.textScale }, set: { v in app.update { $0.textScale = v } }),
                               options: [(0.87, "Мельче"), (1.0, "Обычный"), (1.13, "Крупнее"), (1.27, "Крупно")])
-                        .frame(width: 400)
+                        .frame(width: 380)
                 }
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Так будет выглядеть ответ").tw(12, lh: 16).foregroundStyle(p.mutedFg)
-                    RichText(text: "Привет! Это пример ответа: **жирный**, *курсив* и `код` в строке. Абзацы стоят свободно, чтобы читать было легко.")
-                        .padding(16)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(p.card.opacity(0.5), in: RoundedRectangle(cornerRadius: R.xl))
-                        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
-                }
-                .padding(.top, 20)
             }
-            .frame(maxWidth: 680)
+            group("Так будет выглядеть ответ") {
+                RichText(text: "Привет! Это пример ответа: **жирный**, *курсив*, `код` в строке и [ссылка](https://example.com). Абзацы стоят свободно, чтобы читать было легко.")
+                    .padding(.vertical, 16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
     // MARK: окно
 
     private var window: some View {
-        page("Панели по краям окна.") {
-            VStack(alignment: .leading, spacing: 0) {
-                row("Панель слева", "Её же прячет ⌘\\ и кнопка у кнопок окна") {
+        page("Панели по краям окна и браузер сбоку.") {
+            group("Панель слева") {
+                row("Показывать", "Её же прячет ⌘\\ и кнопка у кнопок окна", icon: "panel-left") {
                     LSwitch(isOn: Binding(get: { !app.prefs.sidebarHidden }, set: { v in app.update { $0.sidebarHidden = !v } }))
                 }
-                row("Ширина панели слева", "\(Int(app.sidebarWidth)) pt") {
+                row("Ширина", "\(Int(app.sidebarWidth)) pt", icon: "app-window") {
                     Slider(value: Binding(get: { app.sidebarWidth }, set: { v in app.sidebarWidth = v.rounded(); app.update { $0.sidebarWidth = v.rounded() } }),
                            in: 220...420).frame(width: 240)
                 }
-                row("Браузер выезжает сам", "Когда агент открывает страницу или показывает макет") {
+            }
+            group("Браузер сбоку", aside: "⇧⌘B") {
+                row("Выезжает сам", "Когда агент открывает страницу или показывает макет", icon: "globe") {
                     LSwitch(isOn: Binding(get: { app.prefs.browserAutoOpen }, set: { v in app.update { $0.browserAutoOpen = v } }))
                 }
+                linksRow
             }
-            .frame(maxWidth: 680)
+        }
+    }
+
+    /// Где открываются ссылки из переписки — в «Окне» и в «Отображении чата»
+    private var linksRow: some View {
+        row("Где открывать ссылки", "Клик — открыть, ⌘-клик — в другом месте"
+            + (AppModel.defaultBrowserName.map { ". Мой браузер — \($0)" } ?? ""), icon: "link") {
+            Segmented(value: Binding(get: { app.prefs.linkTarget }, set: { v in app.update { $0.linkTarget = v } }),
+                      options: [(.side, "Браузер сбоку"), (.system, "Мой браузер")])
+                .frame(width: 280)
         }
     }
 
     // MARK: переписка
 
     private var chatLook: some View {
-        page("Как выглядит разговор.") {
+        page("Как выглядит разговор и как в нём писать.") {
             VStack(alignment: .leading, spacing: 0) {
-                GroupTitle(text: "Ширина переписки агента", aside: "у чата и ботов — всегда обычная")
+                GroupTitle(text: "Ширина переписки агента", aside: "у чата и ботов — всегда обычная").padding(.horizontal, 4)
                 ThreeColumns(empty: 0) {
                     ForEach(ChatWidth.allCases, id: \.self) { w in WidthCard(app: app, width: w) }
                 }
-                GroupTitle(text: "Режимы агента в поле ввода", aside: "Shift+Tab — следующий из показанных").padding(.top, 32)
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(AgentMode.allCases) { m in
-                        let shown = !app.prefs.hiddenModes.contains(m)
-                        HStack(spacing: 12) {
-                            Icon(m.icon, 16).foregroundStyle(shown ? p.glow : p.mutedFg)
-                            VStack(alignment: .leading, spacing: 0) {
-                                Text(m.name).font(.geist(14))
-                                Text(m.note).font(.geist(12)).foregroundStyle(p.mutedFg)
+            }
+            group("Поле ввода") {
+                row("Отправка", app.prefs.sendWithCommand ? "Enter — новая строка" : "Shift+Enter — новая строка", icon: "keyboard") {
+                    Segmented(value: Binding(get: { app.prefs.sendWithCommand }, set: { v in app.update { $0.sendWithCommand = v } }),
+                              options: [(false, "Enter"), (true, "⌘ Enter")])
+                        .frame(width: 200)
+                }
+            }
+            group("Ссылки") { linksRow }
+            group("Режимы агента в поле ввода", aside: "Shift+Tab — следующий из показанных") {
+                ForEach(AgentMode.allCases) { m in
+                    let shown = !app.prefs.hiddenModes.contains(m)
+                    row(m.name, m.note, icon: m.icon) {
+                        LSwitch(isOn: Binding(get: { shown }, set: { on in
+                            app.update { prefs in
+                                if on { prefs.hiddenModes.removeAll { $0 == m } } else { prefs.hiddenModes.append(m) }
+                                // выбранный режим скрыли — встаёт первый из показанных
+                                if !prefs.visibleModes.contains(prefs.agentMode) { prefs.agentMode = prefs.visibleModes[0] }
                             }
-                            Spacer()
-                            LSwitch(isOn: Binding(get: { shown }, set: { on in
-                                app.update { prefs in
-                                    if on { prefs.hiddenModes.removeAll { $0 == m } } else { prefs.hiddenModes.append(m) }
-                                    // выбранный режим скрыли — встаёт первый из показанных
-                                    if !prefs.visibleModes.contains(prefs.agentMode) { prefs.agentMode = prefs.visibleModes[0] }
-                                }
-                            }))
-                            // последний показанный не выключить: без режима поле не работает
-                            .disabled(shown && app.prefs.visibleModes.count == 1)
-                        }
-                        .padding(.vertical, 10)
-                        .overlay(alignment: .bottom) { p.border.frame(height: 1) }
+                        }))
+                        // последний показанный не выключить: без режима поле не работает
+                        .disabled(shown && app.prefs.visibleModes.count == 1)
                     }
                 }
-                .frame(maxWidth: 680)
-                GroupTitle(text: "Ссылки", aside: "клик — открыть, ⌘-клик — открыть в другом месте").padding(.top, 32)
-                row("Где открывать ссылки", "Ссылки из ответов, памяти и проектов"
-                    + (AppModel.defaultBrowserName.map { ". Мой браузер — \($0)" } ?? "")) {
-                    Segmented(value: Binding(get: { app.prefs.linkTarget }, set: { v in app.update { $0.linkTarget = v } }),
-                              options: [(.side, "Браузер сбоку"), (.system, "Мой браузер")])
-                        .frame(width: 300)
-                }
-                .frame(maxWidth: 680)
             }
         }
     }
@@ -322,8 +357,8 @@ struct SettingsView: View {
                 }
             }
             .padding(20)
-            .frame(maxWidth: 680, alignment: .leading)
-            .background(p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xl))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(p.card.opacity(0.45), in: RoundedRectangle(cornerRadius: R.xl))
             .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
         }
     }
@@ -342,6 +377,24 @@ struct SettingsView: View {
                 }
                 Text("Касается новых чатов. Начатый разговор продолжается тем же способом.")
                     .font(.geist(12)).foregroundStyle(p.mutedFg).padding(.top, 8)
+            }
+            group("Модель в новых разговорах", footer: "В поле ввода её можно сменить для любого разговора.") {
+                row("Чат", nil, icon: "message-circle") {
+                    PillPicker(value: Binding(get: { app.prefs.model }, set: { v in app.update { $0.model = v } }),
+                               options: ChatModel.claude.map { ($0, $0.name) })
+                }
+                row("Сколько думать в чате", nil, icon: "lightbulb") {
+                    PillPicker(value: Binding(get: { app.prefs.effort }, set: { v in app.update { $0.effort = v } }),
+                               options: Effort.allCases.map { ($0, $0.short) })
+                }
+                row("Агент", nil, icon: "square-terminal") {
+                    PillPicker(value: Binding(get: { app.defaultAgentModel }, set: { v in app.update { $0.agentModel = v } }),
+                               options: ChatModel.claude.map { ($0, $0.name) })
+                }
+                row("Сколько думать агенту", nil, icon: "lightbulb") {
+                    PillPicker(value: Binding(get: { app.prefs.agentEffort ?? .high }, set: { v in app.update { $0.agentEffort = v } }),
+                               options: Effort.allCases.map { ($0, $0.short) })
+                }
             }
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .top, spacing: 16) {
@@ -454,9 +507,7 @@ struct ThemeSettings: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Тема").tw(20, .semibold, lh: 28).tracking(-0.2)
-            Text("Свет, цвета и шрифты. У каждой темы есть светлые и тёмные цвета — режим выбирает, какие сейчас.")
-                .tw(14, lh: 20).foregroundStyle(p.mutedFg).padding(.top, 4)
+            SettingsHeader(icon: "palette", title: "Тема", lead: "Свет, цвета и шрифты. У каждой темы есть светлые и тёмные цвета — режим выбирает, какие сейчас.").padding(.bottom, 4)
 
             card {
                 line("Режим") {
@@ -917,9 +968,7 @@ private struct DataSettings: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Данные").tw(20, .semibold, lh: 28).tracking(-0.2)
-            Text("Всё хранится на этом Маке. Ничего не уходит в облако, кроме самих запросов к модели; ключ API — в Связке ключей.")
-                .tw(14, lh: 20).foregroundStyle(p.mutedFg).padding(.top, 4).frame(maxWidth: 620, alignment: .leading)
+            SettingsHeader(icon: "database", title: "Данные", lead: "Всё хранится на этом Маке. Ничего не уходит в облако, кроме самих запросов к модели; ключ API — в Связке ключей.").padding(.bottom, 4)
 
             card("Хранилище", icon: "database") {
                 Text(app.paths.root.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
@@ -971,8 +1020,23 @@ private struct DataSettings: View {
                 .padding(.top, 14)
             }
 
+            card("Что Lumen о тебе знает", icon: "user") {
+                Text("Перенеси в память то, что о тебе уже знают Claude Code, Codex, Claude и ChatGPT. Перед сохранением всё видно — лишнее снимешь.")
+                    .tw(13, lh: 19).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, 12)
+                KnownImportPanel(app: app, compact: true)
+            }
+
+            card("Память и проекты", icon: "brain") {
+                toggle("Запоминать само", "Lumen сам сохраняет важное из разговора. Выключено — только по просьбе «запомни».",
+                       Binding(get: { app.prefs.autoRemember }, set: { v in app.update { $0.autoRemember = v }; app.chat.memoryChanged() }))
+                p.border.frame(height: 1).padding(.vertical, 10)
+                toggle("Вести PROJECT.md само", "Заполнять контекст проекта по папке и дописывать после ответов: статус, решения, сводки чатов. Тратит немного подписки (Haiku).",
+                       Binding(get: { app.prefs.projectContextAuto }, set: { v in app.update { $0.projectContextAuto = v } }))
+            }
+
             card("Знакомство", icon: "sparkles") {
-                Text("Имя, обращение и первые настройки — как при первом запуске. Память и разговоры остаются.")
+                Text("Имя, обращение, о тебе и первые настройки — как при первом запуске. Память и разговоры остаются.")
                     .tw(13, lh: 19).foregroundStyle(p.mutedFg)
                 LButton(title: "Пройти знакомство заново", icon: "sparkles", kind: .ghost, small: true) { app.restartOnboarding() }
                     .padding(.top, 10)
@@ -1001,6 +1065,17 @@ private struct DataSettings: View {
         .background(p.card.opacity(0.45), in: RoundedRectangle(cornerRadius: R.xl))
         .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
         .padding(.top, 16)
+    }
+
+    private func toggle(_ title: String, _ note: String, _ on: Binding<Bool>) -> some View {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).tw(14, lh: 20)
+                Text(note).tw(12, lh: 16).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 16)
+            LSwitch(isOn: on)
+        }
     }
 
     private func stat(_ n: String, _ label: String) -> some View {
@@ -1192,9 +1267,7 @@ private struct UninstallSettings: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Удалить Lumen").tw(20, .semibold, lh: 28).tracking(-0.2)
-            Text("Выбери, сколько убрать. Lumen закроется, файлы уйдут в Корзину — их можно вернуть, пока она не очищена.")
-                .tw(14, lh: 20).foregroundStyle(p.mutedFg).padding(.top, 4).frame(maxWidth: 560, alignment: .leading)
+            SettingsHeader(icon: "trash", title: "Удалить Lumen", lead: "Выбери, сколько убрать. Lumen закроется, файлы уйдут в Корзину — их можно вернуть, пока она не очищена.").padding(.bottom, 4)
             VStack(spacing: 12) {
                 option("Только приложение", "Убрать Lumen.app. Память, разговоры, настройки и ключ API остаются — поставишь снова, всё на месте.", all: false)
                 option("Приложение и все данные", "Ещё и папку Lumen: память, разговоры, боты, навыки, настройки. Ключ API в Связке ключей остаётся.", all: true)
@@ -1645,5 +1718,84 @@ private struct KeyRow: View {
         .onHover { hover = $0 }
         .onAppear { name = entry.name }
         .onChange(of: name) { _, n in app.renameKey(entry.id, n) }
+    }
+}
+
+/// Шапка раздела настроек: значок в светящейся плашке, название и пояснение
+struct SettingsHeader: View {
+    let icon: String
+    let title: String
+    var lead: String?
+
+    @Environment(\.palette) private var p
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            Icon(icon, 20).foregroundStyle(p.glow)
+                .frame(width: 44, height: 44)
+                .background(p.glow.opacity(0.1), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(p.glow.opacity(0.22)))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).tw(20, .semibold, lh: 28).tracking(-0.2)
+                if let lead {
+                    Text(lead).tw(13, lh: 18).foregroundStyle(p.mutedFg)
+                        .frame(maxWidth: 600, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+}
+
+/// Группа настроек карточкой: подпись сверху, строки внутри (между ними линия, под последней — нет), пояснение снизу
+struct SettingsGroup<Content: View>: View {
+    var title: String?
+    var aside: String?
+    var footer: String?
+    @ViewBuilder var content: Content
+
+    @Environment(\.palette) private var p
+
+    init(title: String? = nil, aside: String? = nil, footer: String? = nil, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.aside = aside
+        self.footer = footer
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let title {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(title).tw(13, .medium, lh: 18).foregroundStyle(p.foreground.opacity(0.85))
+                    Spacer()
+                    if let aside { Text(aside).tw(12, lh: 16).foregroundStyle(p.mutedFg) }
+                }
+                .padding(.horizontal, 4)
+            }
+            VStack(alignment: .leading, spacing: 0) { content }
+                // линия под последней строкой прячется: карточка на 1 pt короче и обрезает её
+                .padding(.bottom, -1)
+                .clipped()
+                .padding(.horizontal, 16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(p.card.opacity(0.45), in: RoundedRectangle(cornerRadius: R.xl))
+                .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
+            if let footer {
+                Text(footer).tw(12, lh: 16).foregroundStyle(p.mutedFg).padding(.horizontal, 4).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+extension Effort {
+    /// Коротко — для переключателей в настройках
+    var short: String {
+        switch self {
+        case .low: "Мало"
+        case .medium: "Средне"
+        case .high: "Много"
+        case .xhigh: "Очень"
+        case .max: "Максимум"
+        }
     }
 }
