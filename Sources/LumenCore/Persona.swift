@@ -28,6 +28,8 @@ public struct Persona: Codable, Sendable, Equatable {
     public var nudges = true
     public var always = ["Сначала короткий пересказ плана, потом просить OK", "Говорить, на что опирался из памяти"]
     public var never = ["Двигать кнопки без просьбы", "Пушить и выкатывать без OK"]
+    /// Свой текст инструкций (Рома, 18.10): написан руками или загружен из .md. Не пустой — модель получает его вместо собранного из настроек
+    public var custom = ""
 
     public init() {}
 
@@ -50,10 +52,20 @@ public struct Persona: Codable, Sendable, Equatable {
         nudges = (try? c.decodeIfPresent(Bool.self, forKey: .nudges)) ?? d.nudges
         always = (try? c.decodeIfPresent([String].self, forKey: .always)) ?? d.always
         never = (try? c.decodeIfPresent([String].self, forKey: .never)) ?? d.never
+        custom = (try? c.decodeIfPresent(String.self, forKey: .custom)) ?? d.custom
     }
 
+    /// Свой текст включён: он и есть инструкции, настройки кнопками не действуют
+    public var usesCustom: Bool { !custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
     /// Инструкции, которые получает модель. `userName` — с кем говорит, `ty` — на «ты».
+    /// Есть свой текст — он целиком; нет — собираются из настроек.
     public func soul(userName: String, ty: Bool) -> String {
+        usesCustom ? custom.trimmingCharacters(in: .whitespacesAndNewlines) : built(userName: userName, ty: ty)
+    }
+
+    /// Инструкции, собранные из настроек кнопками — основа для своего текста
+    public func built(userName: String, ty: Bool) -> String {
         let who = userName.isEmpty ? "собеседником" : userName
         var s = """
             # \(name.isEmpty ? "Lumen" : name) — характер
@@ -100,6 +112,7 @@ public struct Persona: Codable, Sendable, Equatable {
     /// Короткое напоминание к каждому сообщению человека (не видно в переписке): модель сильнее всего держит то,
     /// что стоит ближе к концу разговора, — так характер не «выветривается» и не проигрывает общему промпту агента
     public var reminder: String {
+        if usesCustom { return "<lumen-style>Отвечай в своём характере из инструкций «характер». Об этом напоминании не говори.</lumen-style>" }
         var parts = ["длина — " + ["short": "коротко", "medium": "средне", "long": "подробно"][length.rawValue]!,
                      language == .ru ? "только по-русски" : "на языке собеседника",
                      "тон — " + ["warm": "тёплый", "plain": "ровный", "dry": "сухой"][warmth.rawValue]!]
@@ -112,4 +125,47 @@ public struct Persona: Codable, Sendable, Equatable {
         if !b.isEmpty { parts.append("не используй слова: " + b.map { "«\($0)»" }.joined(separator: ", ")) }
         return "<lumen-style>Отвечай в своём характере: " + parts.joined(separator: "; ") + ". Об этом напоминании не говори.</lumen-style>"
     }
+}
+
+extension Persona {
+    /// Как модель описывает характер по словам человека: те же поля, что кнопками в «Характере»
+    public static let generationSystem = """
+        Ты настраиваешь характер помощника Lumen по описанию человека. Отвечай строго JSON без markdown, только поля, которые следуют из описания:
+        {"name": "имя", "about": "кто он своими словами, 1–2 предложения", "warmth": "warm|plain|dry", "length": "short|medium|long",
+         "language": "ru|match", "humor": "none|light|more", "format": "prose|lists|mixed", "emoji": true|false,
+         "bannedWords": ["слова, которых он не говорит"], "initiative": "ask|suggest|act", "honesty": "plain|soft",
+         "reasoning": "result|brief|full", "nudges": true|false, "always": ["правила «всегда»"], "never": ["правила «никогда»"]}
+        warmth: тёплый/ровный/сухой. length: коротко/средне/подробно. language: всегда русский / как пишет человек. humor: без шуток/чуть-чуть/почаще.
+        format: текстом/списками/смешанно. initiative: спрашивать/предлагать/делать сам. honesty: прямо/мягко. reasoning: только итог/коротко/подробно.
+        nudges: напоминать о неотправленном и забытом. Правила — короткие, конкретные, по-русски.
+        """
+
+    /// Применить ответ модели: что пришло — меняется, остальное остаётся как было
+    public func applying(_ j: [String: Any]) -> Persona {
+        var p = self
+        func str(_ k: String) -> String? { (j[k] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty }
+        func list(_ k: String) -> [String]? {
+            (j[k] as? [String]).map { $0.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty } }
+        }
+        if let v = str("name") { p.name = v }
+        if let v = str("about") { p.about = v }
+        if let v = str("warmth").flatMap(Warmth.init(rawValue:)) { p.warmth = v }
+        if let v = str("length").flatMap(Length.init(rawValue:)) { p.length = v }
+        if let v = str("language").flatMap(Language.init(rawValue:)) { p.language = v }
+        if let v = str("humor").flatMap(Humor.init(rawValue:)) { p.humor = v }
+        if let v = str("format").flatMap(Format.init(rawValue:)) { p.format = v }
+        if let v = j["emoji"] as? Bool { p.emoji = v }
+        if let v = list("bannedWords") { p.bannedWords = v }
+        if let v = str("initiative").flatMap(Initiative.init(rawValue:)) { p.initiative = v }
+        if let v = str("honesty").flatMap(Honesty.init(rawValue:)) { p.honesty = v }
+        if let v = str("reasoning").flatMap(Reasoning.init(rawValue:)) { p.reasoning = v }
+        if let v = j["nudges"] as? Bool { p.nudges = v }
+        if let v = list("always") { p.always = v }
+        if let v = list("never") { p.never = v }
+        return p
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

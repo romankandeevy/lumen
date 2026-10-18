@@ -46,9 +46,33 @@ public struct ProjectFile: Codable, Sendable, Equatable, Identifiable, Hashable 
 }
 
 extension Project {
-    /// Блок для системного промпта: инструкции и файлы проекта
-    public func promptBlock(files: [ProjectFile]) -> String {
-        var lines = ["Это разговор в проекте «\(name)»."]
+    /// Файл контекста проекта: его читают все чаты проекта, агент и Рома
+    public static let contextFileName = "PROJECT.md"
+
+    /// Своя папка проекта (не домашняя): в ней лежит PROJECT.md
+    public var ownFolder: URL? {
+        guard let folder, !folder.isEmpty else { return nil }
+        let url = URL(fileURLWithPath: folder, isDirectory: true).standardizedFileURL
+        return url.path == FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path ? nil : url
+    }
+
+    /// Где живёт контекст: в папке проекта (решение Ромы, 18.10), а без неё — в папке Lumen `projects/<id>`
+    public func contextFolder(fallback projectsRoot: URL) -> URL {
+        ownFolder ?? projectsRoot.appendingPathComponent(id, isDirectory: true)
+    }
+
+    public func contextURL(fallback projectsRoot: URL) -> URL {
+        contextFolder(fallback: projectsRoot).appendingPathComponent(Project.contextFileName)
+    }
+
+    /// Блок для системного промпта: папка, контекст из PROJECT.md, инструкции и файлы проекта
+    public func promptBlock(files: [ProjectFile], context: String? = nil, contextPath: String? = nil) -> String {
+        var lines = ["Это разговор в проекте «\(name)». Что это за проект, где он и что уже решено — в его контексте ниже: опирайся на него и не переспрашивай то, что там уже есть."]
+        if let ownFolder { lines.append("Папка проекта: \(ownFolder.path).") }
+        let ctx = (context ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !ctx.isEmpty { lines.append("Контекст проекта (\(contextPath ?? Project.contextFileName)):\n" + String(ctx.prefix(ProjectFile.maxChars))) }
+        lines.append("Человек может попросить добавить в проект текст, ссылки, файлы или картинки — делай это инструментом add_to_project: "
+                     + "он дописывает \(Project.contextFileName), и это увидят все чаты проекта. Остальное Lumen дописывает в контекст сам после ответа.")
         let ins = instructions.trimmingCharacters(in: .whitespacesAndNewlines)
         if !ins.isEmpty { lines.append("Инструкции проекта:\n" + ins) }
         if !files.isEmpty {

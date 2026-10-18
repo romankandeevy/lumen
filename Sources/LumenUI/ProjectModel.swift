@@ -29,6 +29,7 @@ extension AppModel {
         }
         let p = Project(name: freeProjectName(folder?.lastPathComponent ?? "Новый проект"), folder: folder?.path)
         try? store.save(p)
+        ensureContextFile(p)
         reloadProjects()
         page = .project(p.id)
         return p
@@ -72,6 +73,7 @@ extension AppModel {
         change(&updated)
         updated.name = freeProjectName(updated.name, except: updated.id)
         try? store.save(updated)
+        ensureContextFile(updated)
         reloadProjects()
         // инструкции и файлы — в системном промпте: следующий ход возьмёт новые
         chat.promptChanged(projectID: p.id)
@@ -92,6 +94,8 @@ extension AppModel {
     func newChat(in p: Project, agent: Bool = false) {
         tab = agent ? .agent : .chat
         if agent, let f = p.folder { agentFolder = URL(fileURLWithPath: f) }
+        // контекст проекта заводится заранее: первое сообщение уже уйдёт с ним
+        ensureContextFile(p)
         chat.startNew(projectID: p.id)
         page = .chat
     }

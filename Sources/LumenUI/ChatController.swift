@@ -206,8 +206,8 @@ final class ChatController {
     }
 
     /// Инструкции или файлы проекта поменялись — процессы его разговоров гасим, следующий ход возьмёт новый промпт
-    func promptChanged(projectID: String? = nil, conversationID: String? = nil, all: Bool = false) {
-        for (id, s) in sessions {
+    func promptChanged(projectID: String? = nil, conversationID: String? = nil, all: Bool = false, except: String? = nil) {
+        for (id, s) in sessions where id != except {
             let pid = id == conversation?.id ? conversation?.projectID : app.conversations.first { $0.id == id }?.projectID
             guard all || id == conversationID || (projectID != nil && pid == projectID) else { continue }
             // идущий ход не обрываем — процесс перезапустится сразу после ответа
@@ -927,7 +927,7 @@ final class ChatController {
                 return
             }
             let turn = attachments.isEmpty ? try session.send(text)
-                : try session.send(content: Attachment.userContent(text: text, attachments: attachments, agent: c.kind != .chat))
+                : try session.send(content: Attachment.userContent(text: text, attachments: attachments, agent: c.kind != .chat || c.projectID != nil))
             if isStopped(c) { session.interrupt() }
             // сторож: claude молчит не на инструменте (значит, ждёт API) дольше stallLimit — прервать, потом повторить
             var toolOpen = false
@@ -1215,7 +1215,7 @@ final class ChatController {
             config.mcpConfig = mcp.path
             // у бота разрешённое уже посчитано в BotPermissions
             if bot == nil {
-                config.allowedTools += ["mcp__lumen__remember", "mcp__lumen__recall", "mcp__lumen__load_skill", "mcp__lumen__read_skill_file",
+                config.allowedTools += ["mcp__lumen__remember", "mcp__lumen__recall", "mcp__lumen__load_skill", "mcp__lumen__read_skill_file", "mcp__lumen__add_to_project",
                                         "mcp__lumen__list_skills", "mcp__lumen__create_skill", "mcp__lumen__find_skills", "mcp__lumen__install_skill"]
                     + CustomizeAdmin.names.sorted().map { "mcp__lumen__\($0)" }
                     + BrowserTools.names.map { "mcp__lumen__\($0)" }
@@ -1256,7 +1256,8 @@ final class ChatController {
             await finish(c, text: "", error: stop)
             return
         }
-        let tools = MemoryTools(store: app.store, conversationID: c.id, conversationTitle: c.title, skills: app.skillLibrary)
+        var tools = MemoryTools(store: app.store, conversationID: c.id, conversationTitle: c.title, skills: app.skillLibrary)
+        tools.paths = app.paths
         var spent = APIChatEvent.Usage()
         var context = 0
         func log() {
@@ -1267,7 +1268,8 @@ final class ChatController {
         defer { log() }
         var request = AnthropicChatRequest(model: c.model, effort: c.effort, system: app.systemPrompt(for: c),
                                            messages: AnthropicChatRequest.history(history))
-        request.tools = (MemoryTools.definitions + (tools.availableSkills.isEmpty ? [] : MemoryTools.skillDefinitions) + SkillAdmin.definitions + CustomizeAdmin.definitions).map {
+        request.tools = (MemoryTools.definitions + (tools.availableSkills.isEmpty ? [] : MemoryTools.skillDefinitions)
+                         + (tools.project == nil ? [] : MemoryTools.projectDefinitions) + SkillAdmin.definitions + CustomizeAdmin.definitions).map {
             JSONBox(["name": $0.name, "description": $0.description, "input_schema": $0.schema, "strict": true])
         }
         // Lumen сам зовёт ботов — как delegate у lumen-mcp
@@ -1525,6 +1527,8 @@ final class ChatController {
            let q = all.first(where: { $0.role == .user })?.text {
             Task { await app.nameConversation(c, question: q, answer: visible) }
         }
+        // контекст проекта: что поменялось и компакт этого чата — в PROJECT.md, фоном (Рома, 18.10)
+        if error == nil && !stopped && c.projectID != nil && turnBot == nil { app.updateProjectContext(after: c) }
         // обучение на опыте: у ботов — выводы, у ботов и агента после большой задачи — предложенный навык
         if error == nil && !stopped && (c.kind != .chat || turnBot != nil) {
             let bot = app.bot(turnBot ?? (c.kind == .bot ? c.botID : nil))
@@ -1687,7 +1691,7 @@ extension AppModel {
     /// Инструкции и файлы проекта разговора — в конец системного промпта
     func projectBlock(for c: Conversation?) -> String? {
         guard let p = project(c?.projectID) else { return nil }
-        return p.promptBlock(files: files(of: p))
+        return p.promptBlock(files: files(of: p), context: projectContext(p), contextPath: contextURL(p).path)
     }
 
     /// Что Lumen знает к этому разговору: закреплённые факты и — в проекте — факты о самом проекте.

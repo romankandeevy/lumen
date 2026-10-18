@@ -11,6 +11,8 @@ public struct MemoryTools: Sendable {
     /// Навыки: библиотека и какие из неё доступны (nil — все включённые)
     public var skills: SkillLibrary?
     public var allowedSkills: Set<String>?
+    /// Папки Lumen: где PROJECT.md у проекта без своей папки. Нет — add_to_project недоступен
+    public var paths: AppPaths?
 
     public init(store: Store, conversationID: String, conversationTitle: String, skills: SkillLibrary? = nil, allowedSkills: Set<String>? = nil) {
         self.store = store
@@ -22,6 +24,28 @@ public struct MemoryTools: Sendable {
 
     /// Доступные навыки этого разговора
     public var availableSkills: [Skill] { skills?.enabled(only: allowedSkills) ?? [] }
+
+    /// Проект этого разговора (add_to_project есть только в проекте)
+    public var project: Project? {
+        guard paths != nil, let c = try? store.conversations().first(where: { $0.id == conversationID }), let pid = c.projectID else { return nil }
+        return try? store.projects().first { $0.id == pid }
+    }
+
+    /// Инструменты проекта: добавить в контекст проекта (PROJECT.md) текст, ссылки, файлы, картинки
+    nonisolated(unsafe) public static let projectDefinitions: [(name: String, description: String, schema: [String: Any])] = [
+        ("add_to_project",
+         "Добавить в контекст проекта (PROJECT.md) то, что человек просит сохранить для проекта: текст, ссылки, файлы, картинки. "
+            + "Это увидят все чаты проекта. Бери, когда пишут «добавь в проект», «запомни для проекта», «вот материалы к проекту».",
+         ["type": "object", "additionalProperties": false, "required": ["text", "section", "files", "links"],
+          "properties": [
+            "text": ["type": "string", "description": "Что добавить, в Markdown, коротко и по делу. Пусто — если только файлы или ссылки"],
+            "section": ["type": "string", "enum": ProjectContext.sections.filter { $0 != ProjectContext.chats },
+                        "description": "Раздел: «Заметки» — по умолчанию; другой — только если это явно про него"],
+            "files": ["type": "array", "items": ["type": "string"],
+                      "description": "Файлы и картинки: путь на Маке или имя вложения из этого разговора. Lumen скопирует их к PROJECT.md. Нет — пустой список"],
+            "links": ["type": "array", "items": ["type": "string"], "description": "Ссылки. Нет — пустой список"],
+          ]]),
+    ]
 
     nonisolated(unsafe) public static let skillDefinitions: [(name: String, description: String, schema: [String: Any])] = [
         ("load_skill",
@@ -84,6 +108,8 @@ public struct MemoryTools: Sendable {
                 out += hits.map { "- «\($0.title)», \(f.string(from: $0.date)): \($0.snippet)" }
             }
             return out.joined(separator: "\n")
+        case "add_to_project":
+            return addToProject(input)
         case "load_skill":
             let n = input["name"] as? String ?? ""
             guard let s = availableSkills.first(where: { $0.name == n }) else { return "Нет такого навыка: \(n)." }
@@ -98,6 +124,73 @@ public struct MemoryTools: Sendable {
             return String(text.prefix(60_000))
         default:
             return "Нет такого инструмента: \(name)"
+        }
+    }
+
+    /// Дописать в PROJECT.md проекта: текст — в раздел, файлы — копией в `context/` рядом, ссылки — списком
+    func addToProject(_ input: [String: Any]) -> String {
+        guard let p = project, let paths else { return "Этот разговор не в проекте — добавлять некуда. Предложи человеку перенести его в проект." }
+        let url = p.contextURL(fallback: paths.projects)
+        let dir = url.deletingLastPathComponent()
+        let fm = FileManager.default
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        var doc = (try? String(contentsOf: url, encoding: .utf8)) ?? ProjectContext.template(name: p.name, folder: p.ownFolder?.path)
+        var section = input["section"] as? String ?? ProjectContext.notes
+        if !ProjectContext.sections.contains(section) || section == ProjectContext.chats { section = ProjectContext.notes }
+        var parts: [String] = []
+        let text = (input["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty { parts.append(text) }
+        var missing: [String] = []
+        for ref in input["files"] as? [String] ?? [] {
+            guard let src = resolveFile(ref) else { missing.append(ref); continue }
+            let into = dir.appendingPathComponent(ProjectContext.filesFolder, isDirectory: true)
+            try? fm.createDirectory(at: into, withIntermediateDirectories: true)
+            let dest = Self.freeURL(into.appendingPathComponent(src.lastPathComponent))
+            do { try fm.copyItem(at: src, to: dest) } catch { missing.append(ref); continue }
+            let rel = ProjectContext.filesFolder + "/" + dest.lastPathComponent
+            let link = rel.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? rel
+            let image = ["png", "jpg", "jpeg", "gif", "webp", "heic", "svg"].contains(dest.pathExtension.lowercased())
+            parts.append((image ? "!" : "") + "[\(dest.lastPathComponent)](\(link))")
+        }
+        let links = (input["links"] as? [String] ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        parts += links.map { "- \($0)" }
+        guard !parts.isEmpty else {
+            return missing.isEmpty ? "Нечего добавлять: пусто." : "Не нашёл файлы: " + missing.joined(separator: ", ") + "."
+        }
+        let f = DateFormatter()
+        f.dateFormat = "dd.MM.yyyy"
+        doc = ProjectContext.appending("*\(f.string(from: Date())), из чата «\(conversationTitle)»:*\n" + parts.joined(separator: "\n"), to: section, in: doc)
+        do { try doc.write(to: url, atomically: true, encoding: .utf8) } catch {
+            return "Не смог записать \(url.path): \(error.localizedDescription)"
+        }
+        var out = "Добавил в контекст проекта «\(p.name)», раздел «\(section)» (\(url.path))."
+        if !missing.isEmpty { out += " Не нашёл: " + missing.joined(separator: ", ") + "." }
+        return out
+    }
+
+    /// Путь на Маке или имя вложения из этого разговора
+    func resolveFile(_ ref: String) -> URL? {
+        let r = ref.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !r.isEmpty else { return nil }
+        let path = (r as NSString).expandingTildeInPath
+        if path.hasPrefix("/"), FileManager.default.fileExists(atPath: path) { return URL(fileURLWithPath: path) }
+        for m in ((try? store.messages(in: conversationID)) ?? []).reversed() {
+            for a in m.attachments where (a.name == r || a.path.hasSuffix("/" + r)) && FileManager.default.fileExists(atPath: a.path) {
+                return URL(fileURLWithPath: a.path)
+            }
+        }
+        return nil
+    }
+
+    /// Свободное имя: «файл.png» занят — «файл 2.png», «файл 3.png»…
+    static func freeURL(_ url: URL) -> URL {
+        guard FileManager.default.fileExists(atPath: url.path) else { return url }
+        let base = url.deletingPathExtension().lastPathComponent, ext = url.pathExtension, dir = url.deletingLastPathComponent()
+        var n = 2
+        while true {
+            let next = dir.appendingPathComponent(ext.isEmpty ? "\(base) \(n)" : "\(base) \(n).\(ext)")
+            if !FileManager.default.fileExists(atPath: next.path) { return next }
+            n += 1
         }
     }
 

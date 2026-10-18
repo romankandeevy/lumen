@@ -25,6 +25,8 @@ struct ChatView: View {
     private var backend: Backend { chat.conversation?.backend ?? app.prefs.backend }
     private var agent: Bool { chat.conversation.map { $0.kind == .agent } ?? (app.tab == .agent) }
     private var folder: URL? { chat.conversation?.folder.map { URL(fileURLWithPath: $0) } ?? app.agentFolder }
+    /// Проект разговора — в шапке видно, что чат создан именно в нём (и у начатого, и у нового)
+    private var projectName: String? { app.project(chat.conversation?.projectID ?? chat.newProjectID)?.name }
     /// Открыт постоянный разговор бота
     private var bot: Bot? { chat.conversation?.kind == .bot ? app.bot(chat.conversation?.botID) : nil }
     private var group: BotGroup? { chat.conversation?.kind == .group ? app.group(chat.conversation?.groupID) : nil }
@@ -130,6 +132,10 @@ struct ChatView: View {
                 if bot != nil || group != nil {
                 } else if agent {
                     HStack(spacing: 6) {
+                        if let projectName {
+                            Text("Проект «\(projectName)»")
+                            Text("·").foregroundStyle(p.foreground.opacity(0.2))
+                        }
                         Text(folder.map { AppModel.isHome($0) ? "Агент во всех моих файлах" : "Агент в папке \($0.lastPathComponent)" } ?? "Агент во всех моих файлах")
                         Text("·").foregroundStyle(p.foreground.opacity(0.2))
                         Icon("laptop", 12)
@@ -137,7 +143,8 @@ struct ChatView: View {
                     }
                     .tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(1)
                 } else {
-                    Text("Чат — просто разговор, Lumen ничего не трогает" + (backend == .api ? " · через API" : ""))
+                    Text(projectName.map { "Проект «\($0)» · чат видит контекст проекта" + (backend == .api ? " · через API" : "") }
+                         ?? "Чат — просто разговор, Lumen ничего не трогает" + (backend == .api ? " · через API" : ""))
                         .tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(1)
                 }
             }

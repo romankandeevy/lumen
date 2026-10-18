@@ -25,6 +25,9 @@ if let dir = env["LUMEN_SKILLS_DIR"], !dir.isEmpty {
 }
 var visible = MemoryTools.definitions.filter { !readOnly || $0.name != "remember" }
 if !tools.availableSkills.isEmpty { visible += MemoryTools.skillDefinitions }
+// разговор в проекте — можно дописывать в его PROJECT.md (Рома, 18.10)
+tools.paths = AppPaths(root: URL(fileURLWithPath: dbPath).deletingLastPathComponent())
+if !readOnly, tools.project != nil { visible += MemoryTools.projectDefinitions }
 
 // delegate (§4.6): бот с правом «Звать других ботов» передаёт часть задачи другому боту.
 // Только один шаг: у позванного бота LUMEN_DEPTH=1, и delegate у него нет.

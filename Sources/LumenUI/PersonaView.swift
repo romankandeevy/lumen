@@ -1,6 +1,7 @@
 import AppKit
 import LumenCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// «Характер» (макет 10-persona): слева — как Lumen говорит, думает и действует; справа — живое превью: тот же вопрос,
 /// ответ пишет настоящая модель (Haiku) с этими инструкциями; внизу — сами инструкции, которые получает модель.
@@ -15,6 +16,10 @@ struct PersonaView: View {
     @State private var loaded = false
     @State private var showSoul = false
     @State private var saved = false
+    /// Описание словами — Lumen по нему выставляет настройки (Рома, 18.10)
+    @State private var describe = ""
+    @State private var generating = false
+    @State private var generateNote: String?
 
     private var dirty: Bool { loaded && draft != app.persona }
 
@@ -45,6 +50,7 @@ struct PersonaView: View {
                 // в настройках: всё одной колонкой, превью — под настройками
                 ScrollView {
                     VStack(alignment: .leading, spacing: 32) {
+                        generator
                         who
                         speech
                         thinking
@@ -59,6 +65,7 @@ struct PersonaView: View {
             HStack(alignment: .top, spacing: 32) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 32) {
+                        generator
                         who
                         speech
                         thinking
@@ -171,22 +178,128 @@ struct PersonaView: View {
         }
     }
 
+    /// Самое быстрое: описать характер словами — Haiku выставит настройки ниже, проверяешь и сохраняешь ты
+    private var generator: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Icon("sparkles", 18).foregroundStyle(p.glow)
+                    .frame(width: 34, height: 34)
+                    .background(p.glow.opacity(0.1), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Опиши, каким должен быть Lumen").tw(16, .semibold, lh: 22)
+                    Text("Lumen сам выставит настройки ниже. Посмотри, поправь и нажми «Сохранить».")
+                        .tw(12, lh: 16).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            HStack(alignment: .top, spacing: 8) {
+                TextField(text: $describe, axis: .vertical) {
+                    Text("Например: спокойный, отвечает коротко и по делу, без эмодзи, сам предлагает следующий шаг")
+                        .foregroundStyle(p.mutedFg.opacity(0.7))
+                }
+                .textFieldStyle(.plain)
+                .font(.geist(15))
+                .lineLimit(1...6)
+                .onSubmit { generate() }
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .frame(minHeight: 44)
+                .background(p.input.opacity(0.3), in: RoundedRectangle(cornerRadius: R.lg))
+                .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.glow.opacity(0.35)))
+                LButton(title: generating ? "Настраиваю…" : "Настроить", icon: "sparkles", kind: .primary, busy: generating) { generate() }
+                    .disabled(describe.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || generating || app.cli == nil)
+            }
+            if let generateNote {
+                IconLabel(text: generateNote, icon: "circle-check", size: 13).tw(12, lh: 16).foregroundStyle(p.mutedFg)
+            }
+        }
+        .padding(18)
+        .background(p.glow.opacity(0.05), in: RoundedRectangle(cornerRadius: R.xxl))
+        .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(p.glow.opacity(0.3)))
+    }
+
+    private func generate() {
+        let text = describe.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !generating else { return }
+        generating = true
+        generateNote = nil
+        Task {
+            let answer = await app.quickAsk("Каким должен быть помощник: \(text)", system: Persona.generationSystem)
+            generating = false
+            guard let answer, let j = AppModel.jsonObject(in: answer) else {
+                generateNote = "Не получилось — попробуй ещё раз или опиши иначе"
+                return
+            }
+            var next = draft.applying(j)
+            // свой текст включён — он пересобирается из новых настроек, чтобы описание сработало
+            if next.usesCustom { next.custom = next.built(userName: app.profile.name, ty: app.profile.address == .ty) }
+            draft = next
+            generateNote = "Настройки выставлены по описанию — проверь и нажми «Сохранить»"
+        }
+    }
+
+    private var userSoul: String { draft.built(userName: app.profile.name, ty: app.profile.address == .ty) }
+
+    /// Инструкции, которые получает модель: видно, правится текстом, грузится из .md и сохраняется в .md
     private var soulBlock: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Button { withAnimation(.easeOut(duration: 0.15)) { showSoul.toggle() } } label: {
-                IconLabel(text: (showSoul ? "Скрыть" : "Показать") + " инструкции, которые получает модель", icon: "code-xml", size: 14)
-                    .font(.geist(13)).foregroundStyle(p.mutedFg)
+            HStack(spacing: 8) {
+                Button { withAnimation(.easeOut(duration: 0.15)) { showSoul.toggle() } } label: {
+                    IconLabel(text: (showSoul ? "Скрыть" : "Показать") + " инструкции, которые получает модель", icon: "code-xml", size: 14)
+                        .font(.geist(13)).foregroundStyle(p.mutedFg)
+                }
+                .buttonStyle(.plain)
+                Spacer(minLength: 8)
+                LButton(title: "Загрузить .md", icon: "folder-open", kind: .ghost, small: true) { importSoul() }
+                    .help("Свой файл инструкций характера: модель будет получать его целиком")
+                LButton(title: "Сохранить в .md", icon: "download", kind: .ghost, small: true) { exportSoul() }
+                    .help("Сохранить инструкции, которые получает модель, в файл")
             }
-            .buttonStyle(.plain)
-            if showSoul {
-                Text(draft.soul(userName: app.profile.name, ty: app.profile.address == .ty))
+            if draft.usesCustom {
+                HStack(spacing: 8) {
+                    Text("Свой текст: модель получает его целиком, настройки выше не действуют.")
+                        .tw(12, lh: 16).foregroundStyle(p.mutedFg)
+                    Spacer(minLength: 8)
+                    LButton(title: "Вернуть собранный из настроек", icon: "rotate-ccw", kind: .ghost, small: true) { draft.custom = "" }
+                }
+                TextEditor(text: $draft.custom)
+                    .font(.system(size: 12, design: .monospaced))
+                    .scrollContentBackground(.hidden)
+                    .padding(12)
+                    .frame(minHeight: 280)
+                    .background(p.background.opacity(0.6), in: RoundedRectangle(cornerRadius: R.xl))
+                    .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.glow.opacity(0.35)))
+            } else if showSoul {
+                Text(userSoul)
                     .font(.system(size: 12, design: .monospaced)).foregroundStyle(p.foreground.opacity(0.85))
                     .textSelection(.enabled)
                     .padding(16).frame(maxWidth: .infinity, alignment: .leading)
                     .background(p.background.opacity(0.6), in: RoundedRectangle(cornerRadius: R.xl))
                     .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
+                LButton(title: "Править текстом", icon: "pencil", kind: .outline, small: true) { draft.custom = userSoul }
+                    .help("Взять эти инструкции за основу и дописать руками")
             }
         }
+    }
+
+    private func importSoul() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText, .plainText]
+        panel.prompt = "Загрузить"
+        panel.message = "Инструкции характера (.md или .txt): модель будет получать этот текст целиком"
+        guard panel.runModal() == .OK, let url = panel.url, let text = try? String(contentsOf: url, encoding: .utf8),
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        draft.custom = text
+        showSoul = true
+    }
+
+    private func exportSoul() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "SOUL.md"
+        panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        try? draft.soul(userName: app.profile.name, ty: app.profile.address == .ty).write(to: url, atomically: true, encoding: .utf8)
     }
 
     // MARK: раскладка

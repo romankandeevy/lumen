@@ -381,6 +381,24 @@ struct ProjectView: View {
             }
             .frame(height: 6).padding(.top, 10)
             Text("Занято \(Int((share * 100).rounded())) % места проекта").tw(12, lh: 16).foregroundStyle(p.mutedFg).padding(.top, 8)
+            // PROJECT.md: Lumen ведёт его сам по разговорам, его видит каждый чат проекта
+            HStack(spacing: 8) {
+                Icon("file-text", 14).foregroundStyle(p.glow)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(Project.contextFileName).tw(13, .medium, lh: 18)
+                    Text("Lumen ведёт сам: что это, где, статус, решения, сводки чатов").tw(12, lh: 16).foregroundStyle(p.mutedFg)
+                }
+                Spacer(minLength: 8)
+                LButton(title: "Открыть", kind: .ghost, small: true) {
+                    _ = app.projectContext(pr)
+                    NSWorkspace.shared.open(app.contextURL(pr))
+                }
+            }
+            .padding(12)
+            .background(p.card.opacity(0.5), in: RoundedRectangle(cornerRadius: R.lg))
+            .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
+            .help(app.contextURL(pr).path)
+            .padding(.top, 14)
             if files.isEmpty {
                 Button { app.addFiles(to: pr) } label: {
                     Text("Добавь заметки, код или документы — их видит каждый разговор проекта.")

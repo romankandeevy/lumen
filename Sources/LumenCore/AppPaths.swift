@@ -28,6 +28,8 @@ public struct AppPaths: Sendable {
     public var mcp: URL { customize.appendingPathComponent("mcp.json") }
     /// Хуки: `{"hooks": {…}}`
     public var hooks: URL { customize.appendingPathComponent("hooks.json") }
+    /// PROJECT.md проектов без своей папки: `projects/<id>/PROJECT.md`
+    public var projects: URL { root.appendingPathComponent("projects", isDirectory: true) }
     /// Копии вложений (картинки и файлы из сообщений)
     public var attachments: URL { root.appendingPathComponent("attachments", isDirectory: true) }
     /// Сокет встроенного браузера: lumen-mcp передаёт сюда действия агентов

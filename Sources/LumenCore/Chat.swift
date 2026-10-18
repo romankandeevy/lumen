@@ -278,6 +278,7 @@ public struct AgentStep: Codable, Sendable, Equatable, Hashable {
         case "ToolSearch", "TaskList", "TaskGet": return .init(kind: .think, text: "Готовит инструменты")
         case "Task", "Agent": return .init(kind: .think, text: "Отдаёт часть работы помощнику")
         case "remember", "mcp__lumen__remember": return .init(kind: .think, text: "Запоминает")
+        case "add_to_project", "mcp__lumen__add_to_project": return .init(kind: .think, text: "Добавляет в контекст проекта")
         case "recall", "mcp__lumen__recall": return .init(kind: .think, text: "Вспоминает")
         case "load_skill", "mcp__lumen__load_skill": return .init(kind: .think, text: "Берёт навык \(input["name"] as? String ?? "")")
         case "read_skill_file", "mcp__lumen__read_skill_file": return .init(kind: .read, text: "Читает навык \(input["path"] as? String ?? "")")
