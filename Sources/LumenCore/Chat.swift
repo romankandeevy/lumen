@@ -208,6 +208,8 @@ public struct AgentStep: Codable, Sendable, Equatable, Hashable {
     /// Где в тексте ответа агент сделал этот шаг (число символов до него) — чтобы шаги стояли между абзацами,
     /// как в Claude Code. nil — старые ответы: все шаги над текстом.
     public var at: Int?
+    /// Подробности, которые раскрываются в чате: полный путь, команда, что поменяли. nil — раскрывать нечего
+    public var detail: String? = nil
 
     public init(kind: Kind, text: String, at: Int? = nil) {
         self.kind = kind
@@ -218,8 +220,43 @@ public struct AgentStep: Codable, Sendable, Equatable, Hashable {
     /// В чате видны только шаги в браузере; память и навыки там показаны плашками
     public var shownInChat: Bool { kind != .think && kind != .other && !text.hasPrefix("Читает навык") }
 
-    /// Человеческая строка из имени инструмента и его входа
+    /// Шаг: строка для ленты и подробности для раскрытия
     public static func from(tool: String, input: [String: Any]) -> AgentStep {
+        var step = label(tool: tool, input: input)
+        step.detail = detail(tool: tool, input: input)
+        return step
+    }
+
+    /// Подробности: что агент реально сделал. Правки — строки «было» (−) и «стало» (+), не больше 12 на замену
+    static func detail(tool: String, input: [String: Any]) -> String? {
+        func str(_ k: String) -> String { input[k] as? String ?? "" }
+        func opt(_ s: String) -> String? { s.isEmpty ? nil : s }
+        func clip(_ s: String, _ n: Int) -> String { s.count > n ? String(s.prefix(n)) + "…" : s }
+        func diff(_ old: String, _ new: String) -> String {
+            let minus = old.components(separatedBy: "\n").prefix(12).map { "- " + $0 }
+            let plus = new.components(separatedBy: "\n").prefix(12).map { "+ " + $0 }
+            return (minus + plus).joined(separator: "\n")
+        }
+        switch tool {
+        case "Read", "Write": return opt(str("file_path"))
+        case "NotebookEdit": return opt(str("notebook_path"))
+        case "Edit": return clip(str("file_path") + "\n" + diff(str("old_string"), str("new_string")), 1500)
+        case "MultiEdit":
+            let edits = (input["edits"] as? [[String: Any]] ?? []).map { diff($0["old_string"] as? String ?? "", $0["new_string"] as? String ?? "") }
+            return clip(([str("file_path")] + edits).joined(separator: "\n…\n"), 1500)
+        case "Bash": return opt(clip(str("command"), 1200))
+        case "Grep": return "«\(str("pattern"))»" + (str("path").isEmpty ? "" : " в " + str("path"))
+        case "Glob": return opt(str("pattern"))
+        case "WebSearch": return opt(str("query"))
+        case "WebFetch": return opt(str("url"))
+        case "mcp__lumen__browser_navigate": return opt(str("url"))
+        case "mcp__lumen__browser_type": return opt(clip(str("text"), 400))
+        default: return nil
+        }
+    }
+
+    /// Человеческая строка из имени инструмента и его входа
+    private static func label(tool: String, input: [String: Any]) -> AgentStep {
         func file(_ k: String) -> String { ((input[k] as? String) ?? "").split(separator: "/").last.map(String.init) ?? "" }
         switch tool {
         case "Read": return .init(kind: .read, text: "Читает \(file("file_path"))")

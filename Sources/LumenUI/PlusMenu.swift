@@ -24,8 +24,8 @@ struct PlusMenu: View {
 
     var body: some View {
         Button { page = .main; open.toggle() } label: {
-            Icon("plus", 16).foregroundStyle(hover || open ? p.foreground : p.mutedFg)
-                .frame(width: 30, height: 30)
+            Icon("plus", 14).foregroundStyle(hover || open ? p.foreground : p.mutedFg)
+                .frame(width: 26, height: 26)
                 .background(hover || open ? p.foreground.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: R.lg))
                 .contentShape(Rectangle())
         }
@@ -36,7 +36,8 @@ struct PlusMenu: View {
             // ⌘U — сразу файлы, без меню
             Button("") { addFiles() }.keyboardShortcut("u", modifiers: .command).opacity(0).allowsHitTesting(false)
         }
-        .popover(isPresented: $open, arrowEdge: .top) {
+        // меню открывается сбоку от «+», а не над ним по центру
+        .popover(isPresented: $open, arrowEdge: .trailing) {
             VStack(alignment: .leading, spacing: 2) {
                 switch page {
                 case .main: main
@@ -46,8 +47,8 @@ struct PlusMenu: View {
                 case .artifacts: artifactsPage
                 }
             }
-            .padding(6)
-            .frame(width: 300)
+            .padding(4)
+            .frame(width: 232)
             .background(p.popover)
             .environment(\.palette, p)
             .preferredColorScheme(p.scheme)
@@ -175,16 +176,16 @@ struct PlusMenu: View {
         var body: some View {
             Button(action: action) {
                 HStack(spacing: 10) {
-                    Icon(icon, 15).foregroundStyle(p.foreground.opacity(0.85)).frame(width: 18)
+                    Icon(icon, 14).foregroundStyle(p.foreground.opacity(0.85)).frame(width: 16)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(title).font(.geist(13.5)).lineLimit(1)
+                        Text(title).font(.geist(12.5)).lineLimit(1)
                         if let note { Text(note).font(.geist(11)).foregroundStyle(p.mutedFg).lineLimit(1) }
                     }
                     Spacer(minLength: 8)
                     if let trailing { Text(trailing).font(.geist(12)).foregroundStyle(p.mutedFg) }
                     if chevron { Icon("chevron-right", 13).foregroundStyle(p.mutedFg) }
                 }
-                .padding(.horizontal, 10).frame(minHeight: 36)
+                .padding(.horizontal, 8).frame(minHeight: 30)
                 .contentShape(Rectangle())
             }
             .buttonStyle(MenuRowStyle())

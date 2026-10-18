@@ -43,6 +43,10 @@ final class BrowserModel: NSObject {
     var url = ""
     var title = ""
     var loading = false
+    /// Пустая вкладка — на ней показывается страница «Новая вкладка» (список серверов и свои ссылки)
+    var blankPage: Bool { url.isEmpty || url == "about:blank" }
+    /// Счётчик: ⌘L увеличивает, адресная строка берёт фокус
+    var focusAddress = 0
     var canGoBack = false
     var canGoForward = false
     /// Кто сейчас работает в браузере и что делает («@designer · Нажимает «Войти»»); nil — никто

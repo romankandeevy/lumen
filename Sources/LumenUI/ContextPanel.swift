@@ -3,6 +3,11 @@ import LumenCore
 import LumenProviders
 import SwiftUI
 
+/// Правые панели: ширина фиксированная, только подстраивается под окно (мышью не тянется)
+enum RightPanel {
+    static func width(_ window: CGFloat) -> CGFloat { min(320, max(260, window * 0.3)) }
+}
+
 /// Правая панель «Контекст» (`ContextPanel` в макете): сессия агента, память в ответе, окно контекста, расход.
 /// «Характер» появится, когда заработает.
 struct ContextPanel: View {
@@ -63,12 +68,8 @@ struct ContextPanel: View {
             .padding(12)
         }
         .scrollIndicators(.never)
-        .frame(width: CGFloat(ResizeHandle.clamp(app.panelWidth, min: 280, window: Double(windowWidth))))
+        .frame(width: RightPanel.width(windowWidth))
         .background(p.sidebar.opacity(0.5))
-        .overlay(alignment: .leading) { p.border.frame(width: 1) }
-        .overlay(alignment: .leading) {
-            ResizeHandle(side: .leading, width: $app.panelWidth, minWidth: 280) { app.update { $0.panelWidth = app.panelWidth } }.offset(x: -4)
-        }
         .foregroundStyle(p.foreground)
     }
 

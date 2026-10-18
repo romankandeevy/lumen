@@ -48,7 +48,16 @@ public enum Shell {
                                                   stderr: String(decoding: e, as: UTF8.self)))
                 }
             }
-            do { try p.run() } catch { cont.resume(throwing: error) }
+            // у родителя остаётся только чтение: без закрытой записи читатели не получат конца трубы.
+            // Так же при ошибке запуска — иначе фоновые читатели висят навсегда
+            let closeWriters = { try? out.fileHandleForWriting.close(); try? err.fileHandleForWriting.close() }
+            do {
+                try p.run()
+                closeWriters()
+            } catch {
+                closeWriters()
+                cont.resume(throwing: error)
+            }
         }
     }
 

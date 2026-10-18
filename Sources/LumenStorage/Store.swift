@@ -1,6 +1,7 @@
 import Foundation
 import GRDB
 import LumenCore
+import os
 
 /// База Lumen: SQLite в режиме WAL через GRDB (§10.4).
 /// Таблицы добавляются миграциями по мере того, как появляются функции.
@@ -438,8 +439,35 @@ public final class Store: Sendable {
         }
     }
 
-    public var profile: Profile { (try? value("profile", as: Profile.self)) ?? Profile() }
-    public var preferences: Preferences { (try? value("preferences", as: Preferences.self)) ?? Preferences() }
+    public var profile: Profile { setting("profile", default: Profile()) }
+    public var preferences: Preferences { setting("preferences", default: Preferences()) }
+
+    private static let log = Logger(subsystem: "com.roman.lumen", category: "store")
+
+    /// Настройка, которая не должна ломать приложение. Если строки нет — значение по умолчанию.
+    /// Если JSON не читается, это ошибка: пишем в журнал и копируем битый текст в `<key>.corrupt`,
+    /// чтобы следующее сохранение не стёрло его молча.
+    private func setting<T: Codable>(_ key: String, default fallback: T) -> T {
+        do {
+            return try value(key, as: T.self) ?? fallback
+        } catch {
+            Self.log.error("Настройка \(key, privacy: .public) не читается: \(error.localizedDescription, privacy: .public)")
+            keepCorrupt(key)
+            return fallback
+        }
+    }
+
+    /// Копия битой строки; если копия уже есть, оставляем первую (она ближе к настоящим данным)
+    private func keepCorrupt(_ key: String) {
+        do {
+            try db.write { db in
+                guard let raw = try String.fetchOne(db, sql: "SELECT value FROM setting WHERE key = ?", arguments: [key]) else { return }
+                try db.execute(sql: "INSERT OR IGNORE INTO setting(key, value) VALUES(?, ?)", arguments: [key + ".corrupt", raw])
+            }
+        } catch {
+            Self.log.error("Копия битой настройки \(key, privacy: .public) не сохранилась: \(error.localizedDescription, privacy: .public)")
+        }
+    }
 
     // MARK: память
 

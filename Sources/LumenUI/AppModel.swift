@@ -21,10 +21,16 @@ public final class AppModel {
     var persona: Persona
     /// Ширина панелей — отдельно от настроек: пока тянут, перерисовывается только панель, сохраняется в конце
     var sidebarWidth: Double = 256
-    var panelWidth: Double = 320
     /// Встроенный браузер сбоку (BrowserPane.swift): им пользуются и человек, и агенты
     let browser = BrowserModel()
-    var browserOpen = false
+    /// Свои ссылки браузера: звёздочка в адресной строке и «Добавить ссылку» на пустой вкладке
+    var savedLinks: [SavedLink] = []
+    /// Браузер и правая панель не открываются вместе: открыли браузер — правая панель прячется
+    var browserOpen = false {
+        didSet {
+            if browserOpen, !oldValue, prefs.contextOpen { update { $0.contextOpen = false } }
+        }
+    }
     var browserWidth: Double = 620
     @ObservationIgnored var browserServer: BrowserServer?
     /// Перенесённые разговоры: когда файл сессии claude менялся в последний раз (живое слежение за Claude Code)
@@ -175,8 +181,8 @@ public final class AppModel {
         profile = store.profile
         prefs = store.preferences
         persona = (try? store.value("persona", as: Persona.self)) ?? Persona()
+        savedLinks = (try? store.value("browser.links", as: [SavedLink].self)) ?? []
         sidebarWidth = prefs.sidebarWidth
-        panelWidth = prefs.panelWidth
         // при запуске Связку ключей не трогаем: если macOS спросит доступ, окно не должно висеть.
         // Есть ли ключ и его хвост — из настроек; сам ключ читается, только когда нужен.
         if let id = prefs.activeKeyID, let e = prefs.apiKeys.first(where: { $0.id == id }) {
@@ -477,8 +483,11 @@ public final class AppModel {
         // правка над копией: если внутри кто-то читает app.prefs, это не конфликт доступа (так Lumen падал 17.10)
         var next = prefs
         change(&next)
+        let rightOpened = next.contextOpen && !prefs.contextOpen
         prefs = next
         try? store.set("preferences", prefs)
+        // правая панель и браузер не открываются вместе: открыли правую — браузер прячется
+        if rightOpened, browserOpen { browserOpen = false }
     }
 
     /// Знакомство: имя и обращение — первые факты о человеке

@@ -157,7 +157,8 @@ struct VisualWeb: NSViewRepresentable {
         /// Сама страница грузится, а переходы по ссылкам — в обычный браузер
         func webView(_ w: WKWebView, decidePolicyFor a: WKNavigationAction, decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
             if a.navigationType == .linkActivated, let u = a.request.url {
-                NSWorkspace.shared.open(u)
+                // в браузер сбоку, как и остальные ссылки из переписки
+                NotificationCenter.default.post(name: .lumenOpenInBrowser, object: u)
                 decisionHandler(.cancel)
                 return
             }

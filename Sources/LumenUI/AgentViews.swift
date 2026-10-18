@@ -155,6 +155,8 @@ struct StepsView: View {
     @Environment(\.palette) private var p
     @State private var open = false
     @State private var hover = false
+    /// Какой шаг раскрыт: что он делал (путь, команда, правка)
+    @State private var detailRow: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -207,9 +209,25 @@ struct StepsView: View {
                     .frame(width: 22, height: 22)
                     .background(p.background, in: Circle())
                     .overlay(Circle().strokeBorder(current ? (live?.tint ?? p.glow).opacity(0.5) : p.border))
-                    Self.styled(s.text, p: p, current: current)
-                        .lineLimit(2).textSelection(.enabled)
-                        .padding(.top, 2)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            Self.styled(s.text, p: p, current: current).lineLimit(2).textSelection(.enabled)
+                            if s.detail != nil {
+                                Icon(detailRow == i ? "chevron-down" : "chevron-right", 11).foregroundStyle(p.mutedFg.opacity(0.7))
+                            }
+                        }
+                        if detailRow == i, let d = s.detail {
+                            Text(d).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(p.mutedFg)
+                                .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(8).background(p.foreground.opacity(0.04), in: RoundedRectangle(cornerRadius: R.md))
+                        }
+                    }
+                    .padding(.top, 2)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        guard s.detail != nil else { return }
+                        withAnimation(.easeOut(duration: 0.15)) { detailRow = detailRow == i ? nil : i }
+                    }
                 }
                 .padding(.vertical, 3)
                 .background(alignment: .topLeading) {
@@ -235,13 +253,13 @@ struct StepsView: View {
     static func styled(_ text: String, p: Palette, current: Bool) -> Text {
         let parts = text.split(separator: " ", maxSplits: 1).map(String.init)
         guard parts.count == 2, parts[0].first?.isUppercase == true else {
-            return Text(text).font(.geist(13)).foregroundColor(current ? p.foreground : p.foreground.opacity(0.8))
+            return Text(text).font(.geist(13)).foregroundColor(current ? p.foreground : p.mutedFg)
         }
         let object = parts[1]
         let code = object.contains("/") || object.contains("*") || object.contains("«") == false && object.contains("_")
         let tail = code ? Text(object).font(.system(size: 12, design: .monospaced)) : Text(object).font(.geist(13))
         return Text(parts[0] + " ").font(.geist(13)).foregroundColor(p.mutedFg)
-            + tail.foregroundColor(current ? p.foreground : p.foreground.opacity(0.85))
+            + tail.foregroundColor(current ? p.foreground : p.mutedFg)
     }
 
     /// Как в Claude Code: один шаг — его строкой, несколько — «Выполнено 5 команд, прочитано 2 файла»

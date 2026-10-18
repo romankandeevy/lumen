@@ -25,26 +25,48 @@ public struct Keychain: Sendable {
     public func read(_ account: String) -> String? {
         let key = service + "/" + account
         if let v = Self.cache.withLock({ $0[key] }) { return v }
-        var q = base(account)
-        q[kSecReturnData as String] = true
-        q[kSecMatchLimit as String] = kSecMatchLimitOne
-        var out: CFTypeRef?
-        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let data = out as? Data,
-              let value = String(data: data, encoding: .utf8) else { return nil }
+        guard let value = load(account) ?? load(account + Self.stagingSuffix) else { return nil }
         Self.cache.withLock { $0[key] = value }
         // запись могла остаться от старой сборки — тогда macOS спрашивает доступ при каждом запуске.
         // Переписываем её от имени этой сборки (подпись постоянная): дальше вопросов не будет.
         // только сам Lumen.app: переписанная тестами запись принадлежала бы тестам (так и случилось 16.10)
         if Self.isApp, !Self.adopted.withLock({ $0.contains(key) }) {
             Self.adopted.withLock { _ = $0.insert(key) }
-            let done = UserDefaults.standard.stringArray(forKey: "lumen.keychainAdopted.v2") ?? []
-            if !done.contains(key) {
-                SecItemDelete(base(account) as CFDictionary)
-                try? add(value, account)
-                UserDefaults.standard.set(done + [key], forKey: "lumen.keychainAdopted.v2")
-            }
+            adopt(value, account)
         }
         return value
+    }
+
+    private static let stagingSuffix = ".adopting"
+    private static let log = Logger(subsystem: "com.roman.lumen", category: "keychain")
+
+    private func load(_ account: String) -> String? {
+        var q = base(account)
+        q[kSecReturnData as String] = true
+        q[kSecMatchLimit as String] = kSecMatchLimitOne
+        var out: CFTypeRef?
+        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    /// Перенос в запись этой сборки. Сначала копия под временным именем, потом старая запись удаляется
+    /// и заводится новая, и только после этого копия. Если что-то падает, секрет остаётся хотя бы в одной записи:
+    /// `read` возьмёт копию, а перенос повторится при следующем запуске (отметка ставится только при успехе).
+    private func adopt(_ value: String, _ account: String) {
+        let done = UserDefaults.standard.stringArray(forKey: "lumen.keychainAdopted.v2") ?? []
+        let key = service + "/" + account
+        guard !done.contains(key) else { return }
+        let staging = account + Self.stagingSuffix
+        do {
+            SecItemDelete(base(staging) as CFDictionary)
+            try add(value, staging)
+            SecItemDelete(base(account) as CFDictionary)
+            try add(value, account)
+            SecItemDelete(base(staging) as CFDictionary)
+            UserDefaults.standard.set(done + [key], forKey: "lumen.keychainAdopted.v2")
+        } catch {
+            Self.log.error("Перенос ключа \(account) не удался: \(error.localizedDescription, privacy: .public). Копия в \(staging, privacy: .public)")
+        }
     }
 
     /// Прочитанное за запуск — второй раз Связку не трогаем
@@ -61,7 +83,6 @@ public struct Keychain: Sendable {
     }
 
     public func save(_ value: String, for account: String) throws {
-        Self.cache.withLock { $0[service + "/" + account] = value }
         let data = Data(value.utf8)
         let status = SecItemUpdate(base(account) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
         if status == errSecItemNotFound {
@@ -73,6 +94,8 @@ public struct Keychain: Sendable {
         } else if status != errSecSuccess {
             throw KeychainError(status: status)
         }
+        // кэш — только после записи: иначе при ошибке приложение считало бы ключ сохранённым
+        Self.cache.withLock { $0[service + "/" + account] = value }
     }
 
     private func add(_ value: String, _ account: String) throws {

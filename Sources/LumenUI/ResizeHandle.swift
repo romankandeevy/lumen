@@ -26,10 +26,26 @@ struct ResizeHandle: View {
     @State private var hover = false
 
     var body: some View {
-        // широкая невидимая зона за краем; при наведении — тонкая линия, без свечения
+        // широкая невидимая зона за краем; при наведении — тонкая линия, ручка посередине и подсказка
         Color.clear
             .frame(width: 10)
             .overlay { Rectangle().fill(p.foreground.opacity(hover || start != nil ? 0.25 : 0)).frame(width: 1) }
+            .overlay {
+                Capsule()
+                    .fill(p.mutedFg.opacity(0.9))
+                    .frame(width: 4, height: 44)
+                    .overlay(alignment: .leading) {
+                        Text("Изменить размер")
+                            .font(.geist(13)).foregroundStyle(.white)
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(Color.black.opacity(0.85), in: RoundedRectangle(cornerRadius: R.md))
+                            .fixedSize()
+                            .offset(x: 14)
+                    }
+                    .opacity(hover || start != nil ? 1 : 0)
+                    .allowsHitTesting(false)
+            }
+            .zIndex(1)
             .contentShape(Rectangle())
             .onHover { inside in
                 hover = inside
@@ -50,7 +66,6 @@ struct ResizeHandle: View {
                     if !hover { NSCursor.pop() }
                     save()
                 })
-            .help("Потяни, чтобы изменить ширину")
     }
 
     /// Не уже минимума и не шире половины окна

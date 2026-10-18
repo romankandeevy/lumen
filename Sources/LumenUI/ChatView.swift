@@ -31,7 +31,8 @@ struct ChatView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            content
+            // переписка меняет ширину сразу (см. RootView): анимирует только выезжающая панель
+            content.transaction { $0.animation = nil }
             if app.prefs.contextOpen && !isSplit {
                 Group {
                     if let group { GroupPanel(app: app, group: group) } else if let bot { BotPassport(app: app, bot: bot) } else { ContextPanel(app: app) }
@@ -161,7 +162,6 @@ struct ChatView: View {
         // панель спрятана — слева кнопки окна и «показать панель»
         .padding(.leading, app.prefs.sidebarHidden ? 150 : 0)
         .frame(height: 56)
-        .overlay(alignment: .bottom) { p.border.frame(height: 1) }
     }
 
     /// Пустой экран как в Claude: крупное приветствие, под ним сразу поле ввода, ниже — подсказки
@@ -241,20 +241,23 @@ struct ChatView: View {
                     if !chat.busy, let last = chat.messages.last, let next = last.next {
                         NextStepCard(next: next) { chat.answer($0, on: last) } close: { chat.dismissNext(last) }
                     }
-                    if let s = chat.streaming {
-                        MessageRow(message: s, chat: chat, streaming: true)
+                    // план — над идущим ответом, близко к нему; что агент делает сейчас — уже под планом
+                    VStack(alignment: .leading, spacing: 6) {
+                        // план — в самой переписке, после последнего сообщения: листается вместе с чатом и не закрывает экран
+                        // план — только пока идёт ход (здесь или в приложении Claude) и в нём есть несделанное.
+                        // Ход кончился — план уходит, даже если агент не отметил шаги; весь сделан — тоже уходит,
+                        // и новый ход в Claude не показывает старый план, пока не составит свой (Рома, 17.10)
+                        if let c = chat.conversation, c.kind != .chat, !c.plan.isEmpty,
+                           chat.busy || app.claudeBusy(c.id), c.plan.contains(where: { $0.state != .done }) {
+                            PlanCard(items: c.plan)
+                        }
+                        if let s = chat.streaming {
+                            MessageRow(message: s, chat: chat, streaming: true)
+                        }
                     }
                     // позванный бот работает: что делает и что пишет — прямо в чате, пока не закончит
                     if let c = chat.conversation, let w = chat.liveWork[c.id] {
                         LiveBotWork(work: w, bot: app.bot(w.bot))
-                    }
-                    // план — в самой переписке, после последнего сообщения: листается вместе с чатом и не закрывает экран
-                    // план — только пока идёт ход (здесь или в приложении Claude) и в нём есть несделанное.
-                    // Ход кончился — план уходит, даже если агент не отметил шаги; весь сделан — тоже уходит,
-                    // и новый ход в Claude не показывает старый план, пока не составит свой (Рома, 17.10)
-                    if let c = chat.conversation, c.kind != .chat, !c.plan.isEmpty,
-                       chat.busy || app.claudeBusy(c.id), c.plan.contains(where: { $0.state != .done }) {
-                        PlanCard(items: c.plan)
                     }
                     // разговор сейчас идёт в приложении Claude — видно здесь (по записям сессии, а не по времени файла)
                     if !chat.busy, let c = chat.conversation, let live = app.claudeLive[c.id] {
@@ -1230,19 +1233,13 @@ struct Composer: View {
                 }
             }
                 .frame(minHeight: big ? 96 : 48, alignment: .topLeading)
-            // узко — кнопки уходят на вторую строку целиком, а не сжимаются до одних стрелок
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 2) {
-                    leftControls
-                    Spacer(minLength: 8)
-                    rightControls
-                }
-                .frame(height: big ? 32 : 28)
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 2) { leftControls; Spacer(minLength: 0) }.frame(height: 28)
-                    HStack(spacing: 2) { Spacer(minLength: 0); rightControls }.frame(height: 28)
-                }
+            // один ряд: слева «+», папка и режим, справа модель, «сколько думать» и отправить
+            HStack(spacing: 2) {
+                leftControls
+                Spacer(minLength: 8)
+                rightControls
             }
+            .frame(height: big ? 32 : 28)
         }
         .padding(big ? 16 : 12)
         .background(p.card.opacity(0.6), in: RoundedRectangle(cornerRadius: R.xxl))
@@ -1288,7 +1285,7 @@ struct Composer: View {
         PlusMenu(app: app, agent: agent, canPickFolder: agent && chat.conversation == nil, draft: $draft, attachments: $attachments).fixedSize()
         if agent { folderPicker.fixedSize(); modePicker.fixedSize() }
         if let b = currentBot { botChip(b).fixedSize(); botFolderPicker(b).fixedSize(); botEffortPicker(b).fixedSize() }
-        ElsewherePill(app: app).fixedSize()
+        ElsewherePill(app: app)
     }
 
     /// Справа: модель, «сколько думать», отправить
@@ -1717,7 +1714,7 @@ private struct ElsewherePill: View {
                 .padding(.horizontal, 10).frame(height: 26)
                 .background(p.glow.opacity(hover ? 0.12 : 0.07), in: Capsule())
                 .overlay(Capsule().strokeBorder(p.glow.opacity(0.22)))
-                .frame(maxWidth: 260, alignment: .leading)
+                .frame(maxWidth: 150, alignment: .leading)
                 .contentShape(Capsule())
             }
             .buttonStyle(.plain)

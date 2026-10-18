@@ -177,7 +177,8 @@ extension AppModel {
         if !Bot.isValidID(id) { id = "bot-\(Int.random(in: 10...99))" }
         while bot(id) != nil { id += "-2" }
         let installed = Set(skillLibrary.enabled().map(\.name))
-        return Bot(id: id, name: j["name"] as? String ?? "Бот", icon: Bot.icons.contains(j["icon"] as? String ?? "") ? j["icon"] as! String : "bot",
+        let icon = j["icon"] as? String ?? ""
+        return Bot(id: id, name: j["name"] as? String ?? "Бот", icon: Bot.icons.contains(icon) ? icon : "bot",
                    hue: (j["hue"] as? Double) ?? Double(j["hue"] as? Int ?? 200), role: j["role"] as? String ?? "",
                    instructions: j["instructions"] as? String ?? "",
                    capabilities: Set((j["capabilities"] as? [String] ?? []).compactMap(BotCapability.init(rawValue:))),

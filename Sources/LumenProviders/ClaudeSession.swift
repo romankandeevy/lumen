@@ -76,8 +76,8 @@ public final class ClaudeSession: @unchecked Sendable {
         }
 
         /// Агент в папке проекта: все инструменты Claude Code, настройки пользователя (сессия видна на острове),
-    /// push запрещён в любом режиме (docs/spikes.md, спайк агента). Режим решает, что спрашивать у человека:
-    /// чтение и план всегда без вопросов, остальное — по режиму (`--permission-mode` + вопросы через stdio).
+        /// push запрещён в любом режиме (docs/spikes.md, спайк агента). Режим решает, что спрашивать у человека:
+        /// чтение и план всегда без вопросов, остальное — по режиму (`--permission-mode` + вопросы через stdio).
     public static func agent(model: String, effort: String?, persona: String, folder: URL, sessionID: String, resume: Bool,
                              mode: String = "auto") -> Config {
         let quiet = ["Read", "Glob", "Grep", "TodoWrite", "Task", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "ToolSearch", "WebSearch"]
@@ -87,7 +87,7 @@ public final class ClaudeSession: @unchecked Sendable {
         return c
     }
 
-    /// Аргументы командной строки. Флаги-списки (`--tools`) съедают следующий аргумент,
+        /// Аргументы командной строки. Флаги-списки (`--tools`) съедают следующий аргумент,
         /// поэтому текст запроса в аргументы не кладём никогда — он идёт через stdin.
         public var arguments: [String] {
             var a = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",

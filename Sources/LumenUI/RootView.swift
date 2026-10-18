@@ -46,6 +46,9 @@ public struct RootView: View {
                 case .skillEditor(let name): SkillEditor(app: app, name: name).id(name ?? "new")
                 }
             }
+            // колонка переписки меняет ширину сразу, без покадровой анимации: иначе каждый кадр переписка
+            // перекладывается и прокрутка уезжает вверх. Анимируется только выезжающая панель
+            .transaction { $0.animation = nil }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             if app.browserOpen { BrowserPane(app: app, browser: app.browser).transition(.move(edge: .trailing)) }
         }
@@ -60,9 +63,13 @@ public struct RootView: View {
         // живая картинка из переписки — «открыть сбоку»
         .onReceive(NotificationCenter.default.publisher(for: .lumenOpenInBrowser)) { n in
             guard let u = n.object as? URL else { return }
-            app.browser.open(u)
-            app.browserOpen = true
+            app.openInBrowser(u)
         }
+        // любая ссылка в тексте (markdown в переписке и памяти) — в браузер сбоку, а не в системный
+        .environment(\.openURL, OpenURLAction { u in
+            app.openInBrowser(u)
+            return .handled
+        })
         // панель спрятана — её кнопки остаются рядом с кнопками окна, как в Claude
         .overlay(alignment: .topLeading) {
             if app.prefs.sidebarHidden { WindowControls(app: app).padding(.leading, 76).ignoresSafeArea() }
@@ -76,6 +83,12 @@ public struct RootView: View {
                 Button("") { app.newChat() }.keyboardShortcut("n", modifiers: .command)
                 Button("") { app.update { $0.sidebarHidden.toggle() } }.keyboardShortcut("\\", modifiers: .command)
                 Button("") { app.toggleBrowser() }.keyboardShortcut("b", modifiers: [.command, .shift])
+                // браузер: адрес, новая вкладка, обновить, назад и вперёд — как в обычном браузере
+                Button("") { app.showBrowser(); app.browser.focusAddress += 1 }.keyboardShortcut("l", modifiers: .command)
+                Button("") { app.showBrowser(); app.browser.newTab(configuration: nil) }.keyboardShortcut("t", modifiers: .command)
+                Button("") { app.browser.webView.reload() }.keyboardShortcut("r", modifiers: .command)
+                Button("") { app.browser.webView.goBack() }.keyboardShortcut("[", modifiers: .command)
+                Button("") { app.browser.webView.goForward() }.keyboardShortcut("]", modifiers: .command)
             }
             .opacity(0)
         }
@@ -203,7 +216,7 @@ struct Sidebar: View {
             Button { app.page = .settings(.general) } label: { profile }
                 .buttonStyle(.plain)
                 .help("Настройки")
-                .padding(12)
+                .padding(.horizontal, 10).padding(.vertical, 6)
                 .overlay(alignment: .top) { p.border.frame(height: 1) }
         }
         .foregroundStyle(p.foreground)
@@ -285,12 +298,13 @@ struct Sidebar: View {
         ProfileCard(name: app.profile.name, plan: plan)
     }
 
+    /// Чем платит человек: по подписке — тариф из `claude auth status` (Max, Pro…), по API — сумма в долларах за месяц
     private var plan: String {
         switch app.prefs.backend {
-        case .api: return "Anthropic API · ключ"
+        case .api: return "$" + Money.string(app.apiSpentThisMonth)
         case .subscription:
-            if case .signedIn(_, let a) = app.claude { return "Claude \(a.planName ?? "") · подписка" }
-            return "Claude Code · подписка"
+            if case .signedIn(_, let a) = app.claude, let name = a.planName, !name.isEmpty { return name }
+            return "Подписка"
         }
     }
 }
@@ -342,7 +356,7 @@ struct SidebarSectionHeader: View {
     }
 }
 
-/// Карточка профиля внизу панели: m-3 rounded-xl border bg-card/40 px-2.5 py-2
+/// Профиль внизу панели, как в Claude: круглая буква, имя и тариф серым, стрелка справа. Без рамки
 struct ProfileCard: View {
     let name: String
     let plan: String
@@ -354,17 +368,17 @@ struct ProfileCard: View {
         HStack(spacing: 10) {
             Text(String(name.prefix(1)).uppercased())
                 .font(.geist(12, .medium))
-                .frame(width: 28, height: 28)
-                .background(p.foreground.opacity(0.1), in: Circle())
-            VStack(alignment: .leading, spacing: 0) {
+                .frame(width: 24, height: 24)
+                .background(p.foreground.opacity(0.08), in: Circle())
+            HStack(spacing: 6) {
                 Text(name.isEmpty ? "Без имени" : name).tw(14, lh: 20).lineLimit(1)
-                Text(plan).tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(1)
+                Text("· " + plan).tw(14, lh: 20).foregroundStyle(p.mutedFg).lineLimit(1)
             }
             Spacer(minLength: 0)
+            Icon("chevron-down", 12).foregroundStyle(p.mutedFg)
         }
-        .padding(.horizontal, 10).padding(.vertical, 8)
-        .background(hover ? p.card : p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xl))
-        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
+        .padding(.horizontal, 8).padding(.vertical, 6)
+        .background(hover ? p.foreground.opacity(0.05) : .clear, in: RoundedRectangle(cornerRadius: R.xl))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
     }

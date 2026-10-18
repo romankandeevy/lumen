@@ -152,7 +152,10 @@ final class ChatController {
 
     /// Разговор затих в приложении Claude — отправить, что ждало в очереди (ChatView проверяет раз в 3 с)
     func claudeWentIdle(_ id: String) {
-        guard turns[id] == nil, !app.claudeBusy(id), queue[id]?.isEmpty == false else { return }
+        guard turns[id] == nil, !app.claudeBusy(id) else { return }
+        // ход в приложении Claude кончился — план уходит целиком
+        clearPlan(id)
+        guard queue[id]?.isEmpty == false else { return }
         dispatchQueue(id, stopped: false)
     }
 
@@ -473,6 +476,7 @@ final class ChatController {
             }
             let stopped = tr.stopRequested
             self.turns[c.id] = nil
+            self.clearPlan(c.id)
             if self.stalePrompt.remove(c.id) != nil {
                 self.sessions[c.id]?.close()
                 self.sessions[c.id] = nil
@@ -1422,6 +1426,16 @@ final class ChatController {
         if conversation?.id == c.id { conversation?.plan = items }
         try? app.store.updatePlan(c.id, items)
         // панель сбоку сама не открывается: план и так виден в переписке (Рома, 18.10)
+    }
+
+    /// Ход кончился — план убираем целиком, даже с несделанными шагами. Новый план агент составит сам и вернёт его
+    func clearPlan(_ id: String) {
+        let hasPlan = conversation?.id == id ? conversation?.plan.isEmpty == false : false
+        let stored = app.conversations.first { $0.id == id }?.plan.isEmpty == false
+        guard hasPlan || stored else { return }
+        if conversation?.id == id { conversation?.plan = [] }
+        if let i = app.conversations.firstIndex(where: { $0.id == id }) { app.conversations[i].plan = [] }
+        try? app.store.updatePlan(id, [])
     }
 
     /// Картинка или файл от агента — под идущий ответ (снимок браузера, show_in_chat). Бот, позванный через @, кладёт в чат, откуда позвали.

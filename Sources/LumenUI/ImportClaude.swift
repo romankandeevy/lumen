@@ -516,7 +516,8 @@ extension AppModel {
         if target != sid || !t.plan.isEmpty {
             var updated = (try? store.conversations().first { $0.id == c.id }) ?? c
             updated.cliSessionID = target
-            if !t.plan.isEmpty { updated.plan = t.plan }
+            // план из файла сессии — только пока сессия работает: иначе уже убранный план вернулся бы при каждой синхронизации
+            if !t.plan.isEmpty, claudeBusy(c.id) || chat.busy { updated.plan = t.plan }
             try? store.save(updated)
         }
         reloadConversations()

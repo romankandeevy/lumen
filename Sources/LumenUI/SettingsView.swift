@@ -253,10 +253,6 @@ struct SettingsView: View {
                     Slider(value: Binding(get: { app.sidebarWidth }, set: { v in app.sidebarWidth = v.rounded(); app.update { $0.sidebarWidth = v.rounded() } }),
                            in: 220...420).frame(width: 240)
                 }
-                row("Ширина панели справа", "Контекст разговора и паспорт бота · \(Int(app.panelWidth)) pt") {
-                    Slider(value: Binding(get: { app.panelWidth }, set: { v in app.panelWidth = v.rounded(); app.update { $0.panelWidth = v.rounded() } }),
-                           in: 260...480).frame(width: 240)
-                }
                 row("Браузер выезжает сам", "Когда агент открывает страницу или показывает макет") {
                     LSwitch(isOn: Binding(get: { app.prefs.browserAutoOpen }, set: { v in app.update { $0.browserAutoOpen = v } }))
                 }
@@ -1069,12 +1065,17 @@ private struct AboutSettings: View {
 
     private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—" }
     private var build: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—" }
+    /// Сборка, которую ещё не выпускали: номер сборки здесь не показываем, он совпадает с последним выпуском
+    private var versionText: String {
+        let unreleased = Bundle.main.object(forInfoDictionaryKey: "LumenUnreleased") as? Bool ?? false
+        return unreleased ? "\(version) (разработка)" : "\(version) (\(build))"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 88, height: 88)
             Text("Lumen").tw(24, .semibold, lh: 30).padding(.top, 10)
-            Text("Версия \(version) (\(build))").tw(14, lh: 20).foregroundStyle(p.mutedFg)
+            Text("Версия " + versionText).tw(14, lh: 20).foregroundStyle(p.mutedFg)
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
                     Icon("refresh-cw", 15)
@@ -1141,7 +1142,7 @@ private struct AboutSettings: View {
 
     private var info: some View {
         VStack(spacing: 0) {
-            line("Версия", "\(version) (\(build))")
+            line("Версия", versionText)
             line("Канал", app.prefs.betaUpdates ? "бета" : "стабильный")
             line("Приложение", Bundle.main.bundleURL.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"), mono: true)
             line("Данные", app.paths.root.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"), mono: true)

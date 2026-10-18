@@ -91,8 +91,52 @@ extension AppModel {
         NSWorkspace.shared.activateFileViewerSelecting([dest])
     }
 
+    /// Сохранить ссылку (звёздочка или «Добавить ссылку»); тот же адрес второй раз не добавляется
+    func saveLink(title: String, url: String) {
+        guard !savedLinks.contains(where: { $0.url == url }) else { return }
+        savedLinks.append(SavedLink(title: title, url: url))
+        persistLinks()
+    }
+
+    func removeLink(url: String) {
+        savedLinks.removeAll { $0.url == url }
+        persistLinks()
+    }
+
+    private func persistLinks() {
+        do { try store.set("browser.links", savedLinks) } catch { log("Ссылки браузера не сохранились: \(error.localizedDescription)") }
+    }
+
     func toggleBrowser() {
         browserOpen.toggle()
+    }
+
+    /// Ссылка из переписки — в браузер сбоку. Занятая страница не теряется: ссылка идёт в новую вкладку,
+    /// на пустой вкладке — в неё. Почта и прочие схемы — в системной программе, как раньше
+    func openInBrowser(_ u: URL) {
+        guard ["http", "https", "file"].contains(u.scheme?.lowercased() ?? "") else { NSWorkspace.shared.open(u); return }
+        browserOpen = true
+        if !browser.blankPage { browser.newTab(configuration: nil) }
+        browser.open(u)
+    }
+
+    /// Показать браузер сбоку (⌘T и ⌘L открывают его, даже если он был спрятан)
+    func showBrowser() {
+        browserOpen = true
+    }
+}
+
+/// Ссылка, которую человек сохранил в браузере. Адрес — он же и ключ.
+struct SavedLink: Codable, Identifiable, Hashable {
+    var id: String { url }
+    var title: String
+    let url: String
+
+    /// Адрес без «https://» и последнего «/» — для строки в списке
+    var short: String {
+        var s = url
+        for scheme in ["https://", "http://"] where s.hasPrefix(scheme) { s.removeFirst(scheme.count) }
+        return s.hasSuffix("/") ? String(s.dropLast()) : s
     }
 }
 
@@ -104,14 +148,22 @@ struct BrowserPane: View {
     @Environment(\.windowWidth) private var windowWidth
     @State private var address = ""
     @State private var serversOpen = false
+    /// «Показать все» на пустой вкладке: по умолчанию первые четыре сервера
+    @State private var serversAll = false
+    /// Курсор над адресом: тогда показываем полную ссылку
+    @State private var hoverAddress = false
+    /// Форма «Добавить ссылку» на пустой вкладке
+    @State private var adding = false
+    @State private var newTitle = ""
+    @State private var newURL = ""
     @FocusState private var editing: Bool
 
     private var blank: Bool { browser.url.isEmpty || browser.url == "about:blank" }
 
     var body: some View {
         VStack(spacing: 0) {
+            tabBar
             toolbar
-            if browser.tabs.count > 1 { tabStrip }
             if let a = browser.activity {
                 HStack(spacing: 8) {
                     LiveDot(color: p.glow, size: 6)
@@ -142,18 +194,25 @@ struct BrowserPane: View {
             }
         }
         .frame(width: CGFloat(max(360, min(app.browserWidth, Double(windowWidth) * 0.6))))
-        .background(p.background)
+        // отдельный блок, как вкладка в Claude: скруглённая карточка с отступами от краёв окна
+        .background(p.background, in: RoundedRectangle(cornerRadius: R.xl))
+        .clipShape(RoundedRectangle(cornerRadius: R.xl))
+        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
+        .shadow(color: .black.opacity(0.12), radius: 14, y: 4)
         .overlay(alignment: .leading) {
             ResizeHandle(side: .leading, width: $app.browserWidth, minWidth: 360) {}
                 .offset(x: -4)
         }
-        .overlay(alignment: .leading) { p.border.frame(width: 1) }
+        .padding(.vertical, 8).padding(.trailing, 8)
         .animation(.easeOut(duration: 0.15), value: browser.activity)
         .onChange(of: browser.url) { _, u in if !editing { address = u == "about:blank" ? "" : u } }
         .onChange(of: browser.viewport) { _, v in
             if let w = v.size?.width, app.browserWidth < Double(w) + 40 { app.browserWidth = Double(w) + 40 }
         }
         .onAppear { address = blank ? "" : browser.url }
+        .onChange(of: browser.focusAddress) { _, _ in editing = true }
+        // вышли из правки — в строке снова то, что открыто (а не недописанное)
+        .onChange(of: editing) { _, on in if !on { address = blank ? "" : browser.url } }
         // запущенные localhost — раз в 5 секунд, пока панель открыта
         .task {
             while !Task.isCancelled {
@@ -167,24 +226,45 @@ struct BrowserPane: View {
         HStack(spacing: 4) {
             IconButton(icon: "arrow-left", help: "Назад") { browser.webView.goBack() }
                 .disabled(!browser.canGoBack).opacity(browser.canGoBack ? 1 : 0.4)
+            IconButton(icon: "arrow-right", help: "Вперёд") { browser.webView.goForward() }
+                .disabled(!browser.canGoForward).opacity(browser.canGoForward ? 1 : 0.4)
             IconButton(icon: "rotate-ccw", help: browser.loading ? "Остановить" : "Обновить") {
                 if browser.loading { browser.webView.stopLoading() } else { browser.webView.reload() }
             }
             HStack(spacing: 6) {
                 Icon(browser.url.hasPrefix("https") ? "lock" : "globe", 12).foregroundStyle(p.mutedFg)
-                TextField("", text: $address, prompt: Text("Адрес, файл или поиск").foregroundStyle(p.mutedFg.opacity(0.7)))
-                    .textFieldStyle(.plain).font(.geist(13)).focused($editing)
-                    .onSubmit {
-                        if let u = BrowserModel.address(address) { browser.open(u) }
-                        editing = false
-                    }
+                // не редактируется — красиво: хост крупно, путь приглушённо; наведёшь — полный адрес; клик — правка
+                ZStack(alignment: .leading) {
+                    TextField("", text: $address, prompt: Text("Введите URL").foregroundStyle(p.mutedFg.opacity(0.7)))
+                        .textFieldStyle(.plain).font(.geist(13)).focused($editing)
+                        .opacity(editing ? 1 : 0).allowsHitTesting(editing)
+                        .onSubmit {
+                            if let u = BrowserModel.address(address) { browser.open(u) }
+                            editing = false
+                        }
+                        .onExitCommand { editing = false }
+                    if !editing { addressLabel.font(.geist(13)).lineLimit(1).truncationMode(.middle).allowsHitTesting(false) }
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { editing = true }
+                .onHover { hoverAddress = $0 }
                 if browser.loading { LiveDot(color: p.glow, size: 6) }
             }
             .padding(.horizontal, 10).frame(height: 28)
             .background(p.input.opacity(0.3), in: RoundedRectangle(cornerRadius: R.md))
             .overlay(RoundedRectangle(cornerRadius: R.md).strokeBorder(editing ? p.glow.opacity(0.35) : p.border))
+            if !blank {
+                // звёздочка: страница в «Мои ссылки» на пустой вкладке (и обратно)
+                let saved = app.savedLinks.contains { $0.url == browser.url }
+                IconButton(icon: "star", help: saved ? "Убрать из сохранённых" : "Сохранить ссылку", active: saved) {
+                    if saved {
+                        app.removeLink(url: browser.url)
+                    } else {
+                        app.saveLink(title: browser.title.isEmpty ? (URL(string: browser.url)?.host ?? browser.url) : browser.title, url: browser.url)
+                    }
+                }
+            }
             serversButton
-            IconButton(icon: "plus", help: "Новая вкладка") { browser.newTab(configuration: nil) }
             IconButton(icon: "laptop", help: viewportHelp, active: browser.viewport != .desktop) {
                 let next: BrowserModel.Viewport = browser.viewport == .desktop ? .mobile : (browser.viewport == .mobile ? .tablet : .desktop)
                 browser.setViewport(next)
@@ -193,11 +273,41 @@ struct BrowserPane: View {
                 if let u = URL(string: browser.url), !blank { NSWorkspace.shared.open(u) }
             }
             .disabled(blank)
-            IconButton(icon: "x", help: "Закрыть браузер") { app.browserOpen = false }
         }
         // одной высоты с шапкой разговора (56): линии под ними — на одном уровне
         .padding(.horizontal, 8).frame(height: 56)
-        .overlay(alignment: .bottom) { p.border.frame(height: 1) }
+    }
+
+    /// Адрес в строке, когда он не редактируется: ссылка — хост крупно и путь приглушённо, без «https://» и «www.»;
+    /// файл — имя крупно и папка приглушённо. Курсор над строкой — полный адрес
+    @ViewBuilder private var addressLabel: some View {
+        if blank {
+            Text("Введите URL").foregroundStyle(p.mutedFg.opacity(0.7))
+        } else if hoverAddress {
+            Text(Self.fullAddress(browser.url)).foregroundStyle(p.foreground)
+        } else {
+            let parts = Self.addressParts(browser.url)
+            (Text(parts.head).foregroundStyle(p.foreground) + Text(parts.tail).foregroundStyle(p.mutedFg))
+        }
+    }
+
+    static func addressParts(_ s: String) -> (head: String, tail: String) {
+        guard let u = URL(string: s) else { return (s, "") }
+        if u.isFileURL {
+            let folder = (u.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath
+            return (u.lastPathComponent, folder == "/" ? "" : "  " + folder)
+        }
+        guard let host = u.host else { return (s, "") }
+        var head = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+        if let port = u.port { head += ":\(port)" }
+        var tail = u.path
+        if let q = u.query { tail += "?" + q }
+        return (head, tail == "/" ? "" : tail)
+    }
+
+    static func fullAddress(_ s: String) -> String {
+        guard let u = URL(string: s), u.isFileURL else { return s }
+        return (u.path as NSString).abbreviatingWithTildeInPath
     }
 
     private var viewportHelp: String {
@@ -259,50 +369,147 @@ struct BrowserPane: View {
         .foregroundStyle(p.foreground)
     }
 
-    private var tabStrip: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 4) {
-                ForEach(browser.tabs) { t in
-                    let on = t.id == browser.activeID
-                    HStack(spacing: 6) {
-                        Text(t.title.isEmpty ? (URL(string: t.url)?.host ?? "Новая вкладка") : t.title)
-                            .tw(12, lh: 16).lineLimit(1).frame(maxWidth: 160, alignment: .leading)
+    /// Строка вкладок, как в Claude: вкладки, «+» сразу за ними, справа — закрыть браузер
+    private var tabBar: some View {
+        HStack(spacing: 4) {
+            ForEach(browser.tabs) { t in
+                let on = t.id == browser.activeID
+                HStack(spacing: 6) {
+                    Text(t.title.isEmpty ? (URL(string: t.url)?.host ?? "Новая вкладка") : t.title)
+                        .font(.geist(12)).lineLimit(1).frame(maxWidth: 160, alignment: .leading)
+                    // крестик у вкладки — только когда их несколько: одну закрывает кнопка панели
+                    if browser.tabs.count > 1 {
                         Button { browser.close(t.id) } label: { Icon("x", 10) }.buttonStyle(.plain).foregroundStyle(p.mutedFg)
                     }
-                    .padding(.horizontal, 10).frame(height: 26)
-                    .background(on ? p.foreground.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: R.md))
-                    .contentShape(Rectangle())
-                    .onTapGesture { browser.select(t.id) }
                 }
+                .padding(.horizontal, 10).frame(height: 28)
+                .background(on ? p.secondary : .clear, in: RoundedRectangle(cornerRadius: R.md))
+                .contentShape(Rectangle())
+                .onTapGesture { browser.select(t.id) }
             }
-            .padding(.horizontal, 8).padding(.vertical, 4)
+            IconButton(icon: "plus", help: "Новая вкладка") { browser.newTab(configuration: nil) }
+            Spacer(minLength: 0)
+            IconButton(icon: "x", help: "Закрыть браузер") { app.browserOpen = false }
         }
-        .scrollIndicators(.never)
-        .overlay(alignment: .bottom) { p.border.frame(height: 1) }
+        .padding(.horizontal, 8).frame(height: 40)
     }
 
+    /// Новая вкладка, как в браузере Claude: запущенные на Маке серверы, свои ссылки и подсказка внизу
     private var empty: some View {
-        VStack(spacing: 10) {
-            Icon("globe", 28).foregroundStyle(p.glow)
-            Text("Браузер Lumen").font(.geist(16, .semibold))
-            Text("Здесь работают Lumen, агенты и боты — ты видишь каждый шаг. Сюда же они выкладывают макеты, картинки и сайты, чтобы ты посмотрел.\n\nВойди в свои аккаунты прямо здесь — вход сохранится, и агенты смогут работать от твоего имени.")
-                .font(.geist(13)).foregroundStyle(p.mutedFg).multilineTextAlignment(.center)
-                .frame(maxWidth: 340)
-            if !browser.servers.isEmpty {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Запущено сейчас").tw(12, .medium, lh: 16).foregroundStyle(p.mutedFg).padding(.horizontal, 8)
-                    ForEach(browser.servers) { s in serverRow(s) }
-                }
-                .padding(8)
-                .frame(maxWidth: 340)
-                .background(p.card, in: RoundedRectangle(cornerRadius: R.lg))
-                .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
-                .padding(.top, 8)
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            VStack(spacing: 12) {
+                if !browser.servers.isEmpty { serversCard }
+                linksCard
             }
+            .frame(width: 360)
+            Spacer(minLength: 0)
+            Text("Запустите сервер для предпросмотра приложения или введите URL вверху. Звёздочка сохраняет страницу сюда.")
+                .font(.geist(12)).foregroundStyle(p.mutedFg).multilineTextAlignment(.center)
+                .frame(maxWidth: 360).padding(.bottom, 24)
         }
-        .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(p.background)
+    }
+
+    private var serversCard: some View {
+        let shown = serversAll ? browser.servers : Array(browser.servers.prefix(4))
+        return card {
+            ForEach(shown) { s in
+                openRow(icon: "square-terminal", title: s.title.flatMap { $0.isEmpty ? nil : $0 } ?? s.process,
+                        detail: ":\(s.port)", onOpen: { browser.open(s.url) })
+            }
+            if browser.servers.count > 4 {
+                Button { serversAll.toggle() } label: {
+                    Text(serversAll ? "Свернуть" : "Показать все").font(.geist(12)).foregroundStyle(p.mutedFg)
+                        .frame(maxWidth: .infinity).frame(height: 30).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var linksCard: some View {
+        card {
+            ForEach(app.savedLinks) { l in
+                openRow(icon: "globe", title: l.title, detail: l.short, onOpen: { if let u = URL(string: l.url) { browser.open(u) } },
+                        onRemove: { app.removeLink(url: l.url) })
+            }
+            if adding {
+                addForm
+            } else {
+                Button { adding = true } label: {
+                    HStack(spacing: 10) {
+                        Icon("plus", 14).frame(width: 18)
+                        Text("Добавить ссылку").font(.geist(13))
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(p.mutedFg).padding(.horizontal, 8).frame(height: 36).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var addForm: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField("", text: $newTitle, prompt: Text("Название").foregroundStyle(p.mutedFg.opacity(0.7)))
+                .textFieldStyle(.plain).font(.geist(13))
+            TextField("", text: $newURL, prompt: Text("Введите URL").foregroundStyle(p.mutedFg.opacity(0.7)))
+                .textFieldStyle(.plain).font(.geist(13))
+                .onSubmit(saveNewLink)
+            HStack(spacing: 12) {
+                Spacer(minLength: 0)
+                Button("Отмена") { adding = false; newTitle = ""; newURL = "" }
+                    .buttonStyle(.plain).font(.geist(12)).foregroundStyle(p.mutedFg)
+                Button("Сохранить", action: saveNewLink)
+                    .buttonStyle(.plain).font(.geist(12, .medium)).foregroundStyle(p.glow)
+                    .disabled(BrowserModel.address(newURL) == nil)
+            }
+        }
+        .padding(.horizontal, 8).padding(.vertical, 6)
+    }
+
+    private func saveNewLink() {
+        guard let u = BrowserModel.address(newURL) else { return }
+        let title = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        app.saveLink(title: title.isEmpty ? (u.host ?? u.absoluteString) : title, url: u.absoluteString)
+        adding = false
+        newTitle = ""
+        newURL = ""
+    }
+
+    /// Карточка пустой вкладки: скругление и рамка, как у списка серверов в макете
+    private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 0) { content() }
+            .padding(4)
+            .background(p.card, in: RoundedRectangle(cornerRadius: R.lg))
+            .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
+    }
+
+    /// Строка карточки: иконка, название, подпись (порт или адрес), кнопка «открыть» ▶ и, если надо, крестик
+    private func openRow(icon: String, title: String, detail: String, onOpen: @escaping () -> Void, onRemove: (() -> Void)? = nil) -> some View {
+        HStack(spacing: 0) {
+            Button(action: onOpen) {
+                HStack(spacing: 10) {
+                    Icon(icon, 14).frame(width: 18)
+                    Text(title).font(.geist(13, .medium)).lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text(detail).font(.system(size: 12, design: .monospaced)).lineLimit(1).foregroundStyle(p.mutedFg)
+                    Icon("play", 12).foregroundStyle(p.foreground).frame(width: 26, height: 26)
+                        .background(p.background, in: RoundedRectangle(cornerRadius: R.md))
+                        .overlay(RoundedRectangle(cornerRadius: R.md).strokeBorder(p.border))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if let onRemove {
+                Button(action: onRemove) { Icon("x", 12).frame(width: 22, height: 26) }
+                    .buttonStyle(.plain).foregroundStyle(p.mutedFg).padding(.leading, 6)
+            }
+        }
+        .foregroundStyle(p.foreground)
+        .padding(.horizontal, 8).frame(height: 36)
     }
 }
 
