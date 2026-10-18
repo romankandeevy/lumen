@@ -168,6 +168,11 @@ public struct Preferences: Codable, Sendable, Equatable {
     }
     /// Получать бета-версии (1.0.1, 1.0.2…), а не только стабильные
     public var betaUpdates = false
+    /// Питомец поверх окон (Pet.swift): включён, какой (id пресета или «custom») и где стоит на экране
+    public var petEnabled = false
+    public var petID = "cat"
+    public var petX: Double?
+    public var petY: Double?
 
     public init(onboarded: Bool = false, backend: Backend = .subscription, theme: Theme = .lumen, reducedMotion: Bool = false,
                 model: ChatModel = .sonnet, effort: Effort = .medium, chatWidth: ChatWidth = .normal) {
@@ -237,6 +242,10 @@ public struct Preferences: Codable, Sendable, Equatable {
         hiddenModes = (try? c.decodeIfPresent([AgentMode].self, forKey: .hiddenModes)) ?? []
         apiKeys = (try? c.decodeIfPresent([ApiKeyEntry].self, forKey: .apiKeys)) ?? []
         activeKeyID = try? c.decodeIfPresent(String.self, forKey: .activeKeyID)
+        petEnabled = try c.decodeIfPresent(Bool.self, forKey: .petEnabled) ?? false
+        petID = try c.decodeIfPresent(String.self, forKey: .petID) ?? "cat"
+        petX = try? c.decodeIfPresent(Double.self, forKey: .petX)
+        petY = try? c.decodeIfPresent(Double.self, forKey: .petY)
     }
 }
 

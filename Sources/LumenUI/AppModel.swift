@@ -49,7 +49,14 @@ public final class AppModel {
         guard let id, let live = claudeLive[id] else { return false }
         return live.active() != .idle
     }
-    var orb: Orb.State = .idle
+    var orb: Orb.State = .idle {
+        // питомец повторяет состояние агента: думает, пишет, радуется концу (PetController.swift)
+        didSet { pet?.orbChanged(orb) }
+    }
+    /// Питомец на экране (PetController.swift); нет — выключен
+    @ObservationIgnored var pet: PetController?
+    /// Нарисованный питомец («/create-pet» в чате или в настройках); пресеты — в PetPresets
+    var customPet: PetSpec?
     /// Есть ли сеть (NWPathMonitor): без неё ход ждёт, а не падает
     var online = true
     @ObservationIgnored private let pathMonitor = NWPathMonitor()
@@ -182,6 +189,7 @@ public final class AppModel {
         prefs = store.preferences
         persona = (try? store.value("persona", as: Persona.self)) ?? Persona()
         savedLinks = (try? store.value("browser.links", as: [SavedLink].self)) ?? []
+        customPet = try? store.value("pet.custom", as: PetSpec.self)
         sidebarWidth = prefs.sidebarWidth
         // при запуске Связку ключей не трогаем: если macOS спросит доступ, окно не должно висеть.
         // Есть ли ключ и его хвост — из настроек; сам ключ читается, только когда нужен.
@@ -227,6 +235,7 @@ public final class AppModel {
         pathMonitor.start(queue: DispatchQueue(label: "lumen.network"))
         updater = Updater.make()
         updater?.beta = { [weak self] in self?.prefs.betaUpdates ?? false }
+        startPetIfNeeded()
     }
 
     // MARK: разговоры

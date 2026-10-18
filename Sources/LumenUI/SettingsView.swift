@@ -3,8 +3,7 @@ import LumenProviders
 import SwiftUI
 
 /// Настройки: слева разделы группами (как в Hermes: «Внешний вид ▾» с подпунктами, «О программе ▾»),
-/// сверху крошки «Настройки › Внешний вид › Тема», справа выбранный раздел. Только то, что работает
-/// (исключение — «Питомец», Рома разрешил «скоро», 17.10).
+/// сверху крошки «Настройки › Внешний вид › Тема», справа выбранный раздел. Только то, что работает.
 struct SettingsView: View {
     @Bindable var app: AppModel
 
@@ -303,20 +302,8 @@ struct SettingsView: View {
     // MARK: питомец
 
     private var pet: some View {
-        page("Маленький спутник в углу окна: радуется, когда агент закончил, и засыпает, когда ты ушёл.") {
-            HStack(spacing: 16) {
-                Icon("paw-print", 28).foregroundStyle(p.glow)
-                    .frame(width: 64, height: 64)
-                    .background(p.glow.opacity(0.08), in: RoundedRectangle(cornerRadius: R.xl))
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Скоро").tw(16, .medium, lh: 22)
-                    Text("Питомец появится в одном из следующих выпусков.").tw(13, lh: 18).foregroundStyle(p.mutedFg)
-                }
-            }
-            .padding(20)
-            .frame(maxWidth: 680, alignment: .leading)
-            .background(p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xl))
-            .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
+        page("Маленький спутник поверх всех окон: думает, пока думает агент, радуется, когда задача готова, и засыпает, когда ты ушёл.") {
+            PetSettings(app: app)
         }
     }
 

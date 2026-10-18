@@ -386,6 +386,11 @@ final class ChatController {
     func send(_ raw: String, attachments: [Attachment] = []) {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachments.isEmpty else { return }
+        // «/create-pet» — не ход модели: питомца рисуют по описанию (PetModel.swift)
+        if text.hasPrefix(Self.createPetCommand) {
+            createPet(String(text.dropFirst(Self.createPetCommand.count)))
+            return
+        }
         // группа уже отвечает — сообщение в комнату, раунды начнутся заново с ним после текущего бота
         if busy, let c = conversation, c.kind == .group, let tr = turns[c.id] {
             var u = ChatMessage(conversationID: c.id, role: .user, text: text)
@@ -416,6 +421,44 @@ final class ChatController {
         // ChatGPT идёт по подписке ChatGPT, не по ключу Anthropic
         if c.model.isGPT { c.backend = .subscription }
         begin(c, text: text, attachments: attachments, isNew: conversation == nil)
+    }
+
+    static let createPetCommand = "/create-pet"
+
+    /// «/create-pet <описание>»: питомца рисует модель по описанию, в разговоре — два коротких сообщения
+    private func createPet(_ description: String) {
+        let c: Conversation
+        if let open = conversation {
+            c = open
+        } else {
+            c = Conversation(title: "Питомец", backend: app.prefs.backend, model: app.prefs.model, effort: app.prefs.effort)
+            guard (try? app.store.save(c)) != nil else { return }
+            conversation = c
+            messages = []
+            app.reloadConversations()
+        }
+        post(c, role: .user, text: Self.createPetCommand + description)
+        let ask = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !ask.isEmpty else {
+            post(c, role: .assistant, text: "Опиши питомца после команды, например: /create-pet рыжий лис в шарфе.")
+            return
+        }
+        Task { [weak self] in
+            guard let self else { return }
+            switch await self.app.draftPet(ask) {
+            case .success(let spec):
+                self.app.setCustomPet(spec)
+                self.post(c, role: .assistant, text: "Готово: «\(spec.name)» на экране. Остальных можно выбрать в Настройках → Питомец.")
+            case .failure:
+                self.post(c, role: .assistant, text: "Не вышло нарисовать питомца. Опиши проще, например: /create-pet чёрный кот в очках.")
+            }
+        }
+    }
+
+    /// Сообщение в разговор без хода модели; на экран — если этот разговор открыт
+    private func post(_ c: Conversation, role: ChatMessage.Role, text: String) {
+        guard let saved = try? app.store.save(ChatMessage(conversationID: c.id, role: role, text: text)) else { return }
+        if conversation?.id == c.id { messages.append(saved) }
     }
 
     /// Начать ход в разговоре — открытом или (из очереди) в том, куда человек уже не смотрит
