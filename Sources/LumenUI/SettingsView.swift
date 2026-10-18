@@ -270,7 +270,7 @@ struct SettingsView: View {
     private var chatLook: some View {
         page("Как выглядит разговор.") {
             VStack(alignment: .leading, spacing: 0) {
-                GroupTitle(text: "Ширина переписки", aside: "чат и агент")
+                GroupTitle(text: "Ширина переписки агента", aside: "у чата и ботов — всегда обычная")
                 ThreeColumns(empty: 0) {
                     ForEach(ChatWidth.allCases, id: \.self) { w in WidthCard(app: app, width: w) }
                 }

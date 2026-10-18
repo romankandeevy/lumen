@@ -35,6 +35,9 @@ public struct AppPaths: Sendable {
     /// Плагины Claude Code (их навыки, агенты, хуки, коннекторы): Lumen выключает их в своих сессиях — список id
     public var claudePlugins: URL { run.appendingPathComponent("claude-plugins.json") }
 
+    /// Что сейчас делает позванный бот (пишет lumen-mcp, читает окно) — по разговору, откуда его позвали
+    public func liveWork(_ conversationID: String) -> URL { run.appendingPathComponent("live-\(conversationID).json") }
+
     public func create() throws {
         // до 1.1 навыки лежали в Lumen/skills — переезжают в customize/skills
         let old = root.appendingPathComponent("skills", isDirectory: true)

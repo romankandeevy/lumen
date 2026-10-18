@@ -18,6 +18,9 @@ struct ChatView: View {
     @State private var atBottom = true
     /// Верхнее видимое сообщение — к нему возвращаемся, если ширина поменялась (спрятали панель), а мы не внизу
     @State private var topVisible: Int64?
+    /// Куда вернуть прокрутку после смены ширины (у низа ли, какое сообщение сверху) и счётчик изменений
+    @State private var restoreTo: (Bool, Int64?)?
+    @State private var widthGeneration = 0
 
     private var chat: ChatController { controller ?? app.chat }
     private var isSplit: Bool { controller != nil }
@@ -40,6 +43,14 @@ struct ChatView: View {
         }
         .animation(.easeOut(duration: 0.2), value: app.prefs.contextOpen)
     }
+
+    /// Ширина колонки переписки: у агента — из настроек, у чата и ботов — всегда обычная, не меняется (Рома, 18.10)
+    static func columnWidth(app: AppModel, conversation: Conversation?, agent: Bool = false) -> CGFloat {
+        let isAgent = conversation.map { $0.kind == .agent } ?? agent
+        return CGFloat(isAgent ? app.prefs.chatWidth.points : ChatWidth.normal.points)
+    }
+
+    private var columnWidth: CGFloat { Self.columnWidth(app: app, conversation: chat.conversation, agent: agent) }
 
     private var content: some View {
         VStack(spacing: 0) {
@@ -162,9 +173,7 @@ struct ChatView: View {
             greeting
                 .padding(.bottom, 28)
             Composer(app: app, draft: $draft, attachments: $attachments, backend: backend, agent: false)
-            startChips
-                .padding(.top, 4)
-                .frame(maxWidth: Composer.width)
+            // подсказок для начала разговора в чате нет (Рома, 18.10)
             Spacer(minLength: 24)
             Spacer(minLength: 24)
         }
@@ -237,13 +246,17 @@ struct ChatView: View {
                     if let s = chat.streaming {
                         MessageRow(message: s, chat: chat, streaming: true)
                     }
+                    // позванный бот работает: что делает и что пишет — прямо в чате, пока не закончит
+                    if let c = chat.conversation, let w = chat.liveWork[c.id] {
+                        LiveBotWork(work: w, bot: app.bot(w.bot))
+                    }
                     // план — в самой переписке, после последнего сообщения: листается вместе с чатом и не закрывает экран
                     // план — только пока идёт ход (здесь или в приложении Claude) и в нём есть несделанное.
                     // Ход кончился — план уходит, даже если агент не отметил шаги; весь сделан — тоже уходит,
                     // и новый ход в Claude не показывает старый план, пока не составит свой (Рома, 17.10)
                     if let c = chat.conversation, c.kind != .chat, !c.plan.isEmpty,
                        chat.busy || app.claudeBusy(c.id), c.plan.contains(where: { $0.state != .done }) {
-                        PlanCard(items: c.plan).padding(.leading, 36)
+                        PlanCard(items: c.plan)
                     }
                     // разговор сейчас идёт в приложении Claude — видно здесь (по записям сессии, а не по времени файла)
                     if !chat.busy, let c = chat.conversation, let live = app.claudeLive[c.id] {
@@ -272,35 +285,45 @@ struct ChatView: View {
                             Button("Стоп") { chat.stop() }.buttonStyle(.plain).foregroundStyle(p.glow)
                         }
                         .foregroundStyle(p.mutedFg)
-                        .padding(.leading, 36)
+                        
                     }
                     if chat.busy, chat.pendingPermission == nil, chat.conversation?.usesCLI == true,
                        chat.conversation.map({ chat.retryNote[$0.id] == nil }) ?? true {
                         TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                            if let s = chat.silence(now: ctx.date), s >= 30 {
-                                HStack(spacing: 10) {
-                                    Icon("clock", 14)
-                                    Text("Claude Code молчит \(Int(s)) с — \(s > 90 ? "если это не долгая команда, на 3-й минуте прерву и повторю сам" : "думает или ждёт ответа API")")
-                                        .tw(13, lh: 18)
-                                    Button("Журнал") { app.update { $0.contextOpen = true; $0.panelHidden.removeAll { $0 == "log" } } }
-                                        .buttonStyle(.plain).foregroundStyle(p.glow)
-                                    Button("Стоп") { chat.stop() }.buttonStyle(.plain).foregroundStyle(p.glow)
+                            // идёт инструмент (Bash, сборка) — тишина ожидаемая: не «молчит», а «выполняет»
+                            let tool = chat.conversation.map { chat.toolRunning[$0.id] == true } ?? false
+                            if let s = chat.silence(now: ctx.date), s >= (tool ? 60 : 30) {
+                                // одной строкой текста: слова переносятся по ширине колонки, кнопки — следом, а не столбиком
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                        Icon("clock", 13).alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+                                        Text(tool ? "\(chat.liveStep?.step.text ?? "Выполняет команду") — \(Int(s)) с. Ждёт, пока команда закончится: для сборок и тестов это нормально"
+                                             : "Claude Code молчит \(Int(s)) с — \(s > 90 ? "ждёт ответа API; на 3-й минуте прерву и повторю сам" : "думает или ждёт ответа API")")
+                                            .tw(13, lh: 18).fixedSize(horizontal: false, vertical: true)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                    HStack(spacing: 14) {
+                                        Button("Журнал") { app.update { $0.contextOpen = true; $0.panelHidden.removeAll { $0 == "log" } } }
+                                            .buttonStyle(.plain).foregroundStyle(p.glow)
+                                        Button("Стоп") { chat.stop() }.buttonStyle(.plain).foregroundStyle(p.glow)
+                                    }
+                                    .padding(.leading, 21)
                                 }
                                 .font(.geist(13))
-                                .foregroundStyle(s > 90 ? Palette.destructive : p.mutedFg)
-                                .padding(.leading, 36)
+                                .foregroundStyle(s > 90 && !tool ? Palette.destructive : p.mutedFg)
+                                
                             }
                         }
                     }
                     if let ask = chat.pendingPermission, ask.conversationID == chat.conversation?.id {
                         PermissionCard(chat: chat, ask: ask.request).id("permission-\(ask.request.id)")
                     } else if chat.thinking {
-                        HStack(spacing: 12) {
+                        HStack(spacing: 10) {
                             if let b = app.bot(chat.turnBot) {
-                                BotAvatar(bot: b, size: 22)
+                                DotsSpinner(color: BotColor.accent(b.hue))
                                 Text("\(b.name) работает…").tw(14, lh: 20).foregroundStyle(p.mutedFg).shimmer(BotColor.accent(b.hue))
                             } else {
-                                Orb(state: .thinking, size: 22)
+                                DotsSpinner(color: p.glow)
                                 Text("Думает…").tw(14, lh: 20).foregroundStyle(p.mutedFg).shimmer(p.foreground)
                             }
                         }
@@ -310,7 +333,7 @@ struct ChatView: View {
                 .scrollTargetLayout()
                 // поля по бокам: на узком окне переписка не упирается в края
                 .padding(.horizontal, 44).padding(.vertical, 32)
-                .frame(maxWidth: app.prefs.chatWidth.points)
+                .frame(maxWidth: columnWidth)
                 .animation(.easeInOut(duration: 0.3), value: app.prefs.chatWidth)
                 .frame(maxWidth: .infinity)
             }
@@ -329,8 +352,9 @@ struct ChatView: View {
                     try? await Task.sleep(for: .seconds(3))
                 }
             }
-            .onChange(of: chat.messages.count) { proxy.scrollTo("bottom", anchor: .bottom) }
-            .onChange(of: chat.streaming?.text.count) { proxy.scrollTo("bottom", anchor: .bottom) }
+            // за ответом вниз — только если человек и так внизу; отлистал вверх читать — не дёргать
+            .onChange(of: chat.messages.count) { if atBottom || chat.messages.last?.role == .user { proxy.scrollTo("bottom", anchor: .bottom) } }
+            .onChange(of: chat.streaming?.text.count) { if atBottom { proxy.scrollTo("bottom", anchor: .bottom) } }
             .onChange(of: chat.pendingPermission?.request.id) { withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("bottom", anchor: .bottom) } }
             .onChange(of: chat.scrollTarget) { _, id in
                 guard let id else { return }
@@ -345,10 +369,16 @@ struct ChatView: View {
             .modifier(ScrollTracking(atBottom: $atBottom, topVisible: $topVisible))
             // ширина поменялась (спрятали или показали панель, потянули окно) — ленивый список теряет место:
             // вернуть к низу или к тому сообщению, что было сверху
+            // место запоминается в начале изменения (пока панель или браузер выезжают, оно «плывёт»),
+            // а возвращается, когда ширина успокоилась
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { _ in
-                let bottom = atBottom, top = topVisible
+                if restoreTo == nil { restoreTo = (atBottom, topVisible) }
+                widthGeneration += 1
+                let gen = widthGeneration
                 Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(60))
+                    try? await Task.sleep(for: .milliseconds(320))
+                    guard gen == widthGeneration, let (bottom, top) = restoreTo else { return }
+                    restoreTo = nil
                     if bottom { proxy.scrollTo("bottom", anchor: .bottom) } else if let top { proxy.scrollTo(Optional(top), anchor: .top) } // id строки — Int64?
                 }
             }
@@ -365,10 +395,9 @@ struct ChatView: View {
                     .buttonStyle(.plain)
                     .help("Вниз, к последнему сообщению")
                     .padding(.bottom, 12)
-                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    .transition(.opacity)
                 }
             }
-            .animation(.easeOut(duration: 0.15), value: atBottom)
         }
     }
 }
@@ -437,6 +466,23 @@ struct MessageRow: View {
     @State private var hover = false
     @State private var editing = false
     @State private var editText = ""
+    /// Какой из прежних вариантов ответа показан (nil — нынешний)
+    @State private var variant: Int?
+
+    /// Ответ с выбранным вариантом вместо нынешнего
+    private var shownMessage: ChatMessage {
+        guard let i = variant, let alts = message.alternates, alts.indices.contains(i) else { return message }
+        var m = message
+        let v = alts[i]
+        m.text = v.text
+        m.steps = v.steps
+        m.attachments = v.attachments
+        m.error = v.error
+        m.changes = nil
+        m.next = nil
+        m.createdAt = v.createdAt
+        return m
+    }
 
     var body: some View {
         VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 8) {
@@ -486,12 +532,11 @@ struct MessageRow: View {
             }
             }
         } else {
+            // выбран прежний вариант ответа (‹ 1/3 ›) — показываем его
+            let original = message
+            let message = shownMessage
             HStack(alignment: .top, spacing: 14) {
-                if let b = chat?.app.bot(message.botID) {
-                    BotAvatar(bot: b, size: 22).padding(.top, 2)
-                } else {
-                    Orb(state: streaming ? .writing : .idle, size: 22, animated: streaming).padding(.top, 2)
-                }
+                // без значка слева, как в Claude: ответ — просто текст; бот подписан своим именем и цветом
                 VStack(alignment: .leading, spacing: 12) {
                     // ответ бота в чужом чате — подписан, чтобы было видно, кто отвечал
                     if let b = chat?.app.bot(message.botID), chat?.conversation?.kind != .bot {
@@ -548,7 +593,7 @@ struct MessageRow: View {
                         }
                     }
                     if let chat, message.error == nil {
-                        MessageActions(message: message, chat: chat, user: false) {}
+                        MessageActions(message: original, chat: chat, user: false, variant: $variant) {}
                             .opacity(showActions ? 1 : 0)
                     }
                 }
@@ -560,7 +605,7 @@ struct MessageRow: View {
 
 extension MessageRow {
     /// Самый широкий пузырь человека — 80% колонки переписки
-    var bubbleMax: CGFloat { CGFloat((chat?.app.prefs.chatWidth.points ?? 704) * 0.8) }
+    var bubbleMax: CGFloat { (chat.map { ChatView.columnWidth(app: $0.app, conversation: $0.conversation) } ?? 704) * 0.8 }
 
     var editor: some View {
         VStack(alignment: .trailing, spacing: 10) {
@@ -596,28 +641,69 @@ struct MessageActions: View {
     let message: ChatMessage
     let chat: ChatController
     let user: Bool
+    /// Варианты ответа: какой показан (nil — нынешний, последний)
+    var variant: Binding<Int?>? = nil
     let edit: () -> Void
 
     @Environment(\.palette) private var p
     @State private var copied = false
 
+    init(message: ChatMessage, chat: ChatController, user: Bool, variant: Binding<Int?>? = nil, edit: @escaping () -> Void) {
+        self.message = message
+        self.chat = chat
+        self.user = user
+        self.variant = variant
+        self.edit = edit
+    }
+
     var body: some View {
         HStack(spacing: 2) {
             if user {
                 time.padding(.trailing, 6)
-                act("refresh-cw", "Попробовать снова — ответ ниже заменится") { chat.resend(from: message, text: message.text) }
-                    .disabled(chat.busy)
+                act("refresh-cw", "Попробовать снова — прежний ответ останется вариантом") {
+                    // ответ на это сообщение есть — он станет вариантом нового, как в Claude
+                    if let i = chat.messages.firstIndex(where: { $0.id == message.id }),
+                       let answer = chat.messages[(i + 1)...].prefix(while: { $0.role != .user }).last(where: { $0.role == .assistant && $0.note == nil }) {
+                        chat.retry(answer)
+                    } else {
+                        chat.resend(from: message, text: message.text)
+                    }
+                }
+                .disabled(chat.busy)
                 act("pencil", "Изменить", action: edit).disabled(chat.busy)
                 copy
                 chapter
             } else {
                 copy
-                act("refresh-cw", "Попробовать снова") { chat.retry(message) }.disabled(chat.busy)
+                act("refresh-cw", "Попробовать снова — этот ответ останется вариантом") { chat.retry(message) }.disabled(chat.busy)
                 chapter
+                variants
                 time.padding(.leading, 6)
             }
         }
         .animation(.easeOut(duration: 0.12), value: copied)
+    }
+
+    /// ‹ 2/3 › — листать прежние варианты ответа
+    @ViewBuilder private var variants: some View {
+        if let variant, let alts = message.alternates, !alts.isEmpty {
+            let total = alts.count + 1
+            let current = (variant.wrappedValue ?? alts.count) + 1
+            HStack(spacing: 0) {
+                act("chevron-down", "Прежний вариант") {
+                    let i = (variant.wrappedValue ?? alts.count) - 1
+                    if i >= 0 { variant.wrappedValue = i }
+                }
+                .rotationEffect(.degrees(90)).disabled(current <= 1)
+                Text("\(current) / \(total)").tw(12, lh: 16).foregroundStyle(p.mutedFg).monospacedDigit().padding(.horizontal, 2)
+                act("chevron-down", "Следующий вариант") {
+                    let i = (variant.wrappedValue ?? alts.count) + 1
+                    variant.wrappedValue = i >= alts.count ? nil : i
+                }
+                .rotationEffect(.degrees(-90)).disabled(current >= total)
+            }
+            .padding(.leading, 4)
+        }
     }
 
     private var time: some View {
@@ -1139,21 +1225,19 @@ struct Composer: View {
                 }
             }
                 .frame(minHeight: big ? 96 : 48, alignment: .topLeading)
-            HStack(spacing: 2) {
-                // как в Claude: «+» в левом нижнем углу — картинки и файлы
-                PlusMenu(app: app, agent: agent, canPickFolder: agent && chat.conversation == nil, draft: $draft, attachments: $attachments)
-                if agent { folderPicker; modePicker }
-                if let b = currentBot { botChip(b); botFolderPicker(b); botEffortPicker(b) }
-                ElsewherePill(app: app)
-                Spacer()
-                // у бота модель задана в его паспорте
-                if !inBot {
-                    modelPicker
-                    effortPicker
+            // узко — кнопки уходят на вторую строку целиком, а не сжимаются до одних стрелок
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 2) {
+                    leftControls
+                    Spacer(minLength: 8)
+                    rightControls
                 }
-                sendButton.padding(.leading, 4)
+                .frame(height: big ? 32 : 28)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 2) { leftControls; Spacer(minLength: 0) }.frame(height: 28)
+                    HStack(spacing: 2) { Spacer(minLength: 0); rightControls }.frame(height: 28)
+                }
             }
-            .frame(height: big ? 32 : 28)
         }
         .padding(big ? 16 : 12)
         .background(p.card.opacity(0.6), in: RoundedRectangle(cornerRadius: R.xxl))
@@ -1178,7 +1262,7 @@ struct Composer: View {
         .onPasteCommand(of: [.fileURL, .png, .tiff, .jpeg]) { providers in app.attach(providers) { attachments.append($0) } }
         // ширина — как у колонки переписки (Рома, 17.10): поле стоит ровно под текстом, с теми же полями по бокам.
         // Без белой полосы-градиента над полем: она закрывала последние строки ответа
-        .frame(maxWidth: big ? .infinity : CGFloat(app.prefs.chatWidth.points) - 88)
+        .frame(maxWidth: big ? .infinity : ChatView.columnWidth(app: app, conversation: chat.conversation, agent: agent) - 88)
         .padding(.horizontal, big ? 0 : 44).padding(.bottom, big ? 0 : 20).padding(.top, big ? 0 : 8)
         .frame(maxWidth: .infinity)
         .onAppear { focused = true }
@@ -1192,6 +1276,25 @@ struct Composer: View {
     }
 
     private var inGroup: Bool { chat.conversation?.kind == .group }
+
+    /// Слева: «+», папка и режим агента, бот — каждая кнопка во всю подпись
+    @ViewBuilder private var leftControls: some View {
+        // как в Claude: «+» в левом нижнем углу — картинки и файлы
+        PlusMenu(app: app, agent: agent, canPickFolder: agent && chat.conversation == nil, draft: $draft, attachments: $attachments).fixedSize()
+        if agent { folderPicker.fixedSize(); modePicker.fixedSize() }
+        if let b = currentBot { botChip(b).fixedSize(); botFolderPicker(b).fixedSize(); botEffortPicker(b).fixedSize() }
+        ElsewherePill(app: app).fixedSize()
+    }
+
+    /// Справа: модель, «сколько думать», отправить
+    @ViewBuilder private var rightControls: some View {
+        // у бота модель задана в его паспорте
+        if !inBot {
+            modelPicker.fixedSize()
+            effortPicker.fixedSize()
+        }
+        sendButton.padding(.leading, 4)
+    }
 
     /// Очередь: что уйдёт после ответа — «Сейчас» (остановить ответ и отправить это) или убрать
     private var queueList: some View {
@@ -1280,39 +1383,82 @@ struct Composer: View {
 
     /// `FolderPicker`: папка проекта; у начатой сессии папка уже не меняется
     private var folderPicker: some View {
+        let started = chat.conversation != nil
         let current = chat.conversation?.folder.map { URL(fileURLWithPath: $0) } ?? app.agentFolder
+        let extra = started ? (chat.conversation?.extraPaths ?? []).map { URL(fileURLWithPath: $0) } : app.agentExtraDirs
         return PickerButton(open: $folderOpen, bordered: big) {
             Icon(big ? "folder-open" : "folder", big ? 16 : 14).foregroundStyle(p.glow)
-            Text(current.map(AppModel.folderName) ?? "Мои файлы").font(.geist(big ? 14 : 12))
+            Text((current.map(AppModel.folderName) ?? "Мои файлы") + (extra.isEmpty ? "" : " +\(extra.count)")).font(.geist(big ? 14 : 12))
         } panel: {
-            PopoverPanel(title: "Где работать", width: 256) {
-                PopoverOption(name: "Мои файлы", note: "вся домашняя папка, ~", active: current.map(AppModel.isHome) ?? true) {
-                    Icon("laptop", 16).foregroundStyle(p.mutedFg)
-                } action: {
-                    app.agentFolder = AppModel.home
-                    folderOpen = false
-                }
-                ForEach(app.recentFolders.filter { !AppModel.isHome($0) }, id: \.self) { f in
-                    PopoverOption(name: f.lastPathComponent, note: f.deletingLastPathComponent().path.replacingOccurrences(of: NSHomeDirectory(), with: "~"),
-                                  active: f.standardizedFileURL.path == current?.standardizedFileURL.path) {
-                        Icon("folder", 16).foregroundStyle(p.mutedFg)
+            PopoverPanel(title: started ? "Где работает задача" : "Где работать", width: 280) {
+                if started {
+                    // рабочая папка начатой задачи не меняется (в ней сессия claude), но доступ к другим — можно дать
+                    PopoverOption(name: current.map(AppModel.folderName) ?? "Мои файлы", note: "рабочая папка — уже не сменить", active: true) {
+                        Icon("folder", 16).foregroundStyle(p.glow)
+                    } action: { folderOpen = false }
+                } else {
+                    PopoverOption(name: "Мои файлы", note: "вся домашняя папка, ~", active: current.map(AppModel.isHome) ?? true) {
+                        Icon("laptop", 16).foregroundStyle(p.mutedFg)
                     } action: {
-                        app.agentFolder = f
+                        app.agentFolder = AppModel.home
                         folderOpen = false
+                    }
+                    ForEach(app.recentFolders.filter { !AppModel.isHome($0) }, id: \.self) { f in
+                        PopoverOption(name: f.lastPathComponent, note: f.deletingLastPathComponent().path.replacingOccurrences(of: NSHomeDirectory(), with: "~"),
+                                      active: f.standardizedFileURL.path == current?.standardizedFileURL.path) {
+                            Icon("folder", 16).foregroundStyle(p.mutedFg)
+                        } action: {
+                            app.agentFolder = f
+                            folderOpen = false
+                        }
+                    }
+                }
+                if !extra.isEmpty {
+                    Text("Ещё доступ").font(.geist(11, .medium)).foregroundStyle(p.mutedFg).padding(.horizontal, 8).padding(.top, 6)
+                    ForEach(extra, id: \.self) { d in
+                        HStack(spacing: 8) {
+                            Icon("folder", 14).foregroundStyle(p.mutedFg)
+                            Text(d.lastPathComponent).font(.geist(12)).lineLimit(1)
+                            Spacer(minLength: 4)
+                            Button { removeExtra(d) } label: { Icon("x", 11).foregroundStyle(p.mutedFg) }.buttonStyle(.plain).help("Убрать доступ")
+                        }
+                        .padding(.horizontal, 8).padding(.vertical, 4)
                     }
                 }
                 Button {
                     folderOpen = false
-                    app.chooseFolder()
+                    pickPaths()
                 } label: {
-                    Text("Другая папка…").font(.geist(12)).foregroundStyle(p.mutedFg)
+                    IconLabel(text: "Папки или файлы… (можно несколько)", icon: "plus", size: 12).font(.geist(12)).foregroundStyle(p.mutedFg)
                         .padding(.horizontal, 8).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
-        .disabled(chat.conversation != nil || chat.busy)
+        .disabled(chat.busy)
+    }
+
+    /// Несколько папок и файлов сразу: папки — доступ агенту (первая у новой задачи — рабочая), файлы — вложениями
+    private func pickPaths() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Добавить"
+        panel.message = "Папки — агент сможет в них работать; файлы — прикрепятся к сообщению"
+        guard panel.runModal() == .OK else { return }
+        let files = chat.addPaths(panel.urls)
+        attachments += files.compactMap(app.importAttachment)
+    }
+
+    private func removeExtra(_ d: URL) {
+        if var c = chat.conversation {
+            c.extraPaths?.removeAll { $0 == d.path }
+            chat.setExtraPaths(c.extraPaths ?? [])
+        } else {
+            app.agentExtraDirs.removeAll { $0 == d }
+        }
     }
 
     /// `ModelPicker`: Sparkles text-glow + название text-xs medium + стрелка
@@ -1770,12 +1916,53 @@ private struct ScrollTracking: ViewModifier {
     func body(content: Content) -> some View {
         if #available(macOS 15.0, *) {
             content
-                .onScrollGeometryChange(for: Bool.self) { g in
-                    g.contentOffset.y + g.containerSize.height >= g.contentSize.height - 80
-                } action: { _, v in if atBottom != v { atBottom = v } }
-                .onScrollTargetVisibilityChange(idType: Int64?.self) { ids in topVisible = ids.lazy.compactMap { $0 }.first }
+                // расстояние до низа; «внизу» с запасом в обе стороны, чтобы на границе не дёргалось туда-сюда
+                .onScrollGeometryChange(for: CGFloat.self) { g in
+                    g.contentSize.height - (g.contentOffset.y + g.containerSize.height)
+                } action: { _, gap in
+                    if atBottom && gap > 160 { atBottom = false } else if !atBottom && gap < 40 { atBottom = true }
+                }
+                .onScrollTargetVisibilityChange(idType: Int64?.self) { ids in
+                    let first = ids.lazy.compactMap { $0 }.first
+                    if topVisible != first { topVisible = first }
+                }
         } else {
             content
         }
     }
+}
+
+/// Позванный бот за работой: имя в его цвете, шаги (идущий — с точками и временем) и текст, пока пишется
+struct LiveBotWork: View {
+    let work: LiveWork
+    let bot: Bot?
+
+    @Environment(\.palette) private var p
+
+    var body: some View {
+        let tint = bot.map { BotColor.accent($0.hue) } ?? p.glow
+        VStack(alignment: .leading, spacing: 12) {
+            Text("@\(work.bot)\(bot.map { " · \($0.name)" } ?? "")").tw(12, .medium, lh: 16).foregroundStyle(tint)
+            let pieces = AnswerPiece.layout(text: work.text, steps: work.steps)
+            if pieces.isEmpty {
+                HStack(spacing: 10) {
+                    DotsSpinner(color: tint)
+                    Text("\(bot?.name ?? "Бот") думает…").tw(14, lh: 20).foregroundStyle(p.mutedFg).shimmer(tint)
+                }
+            }
+            ForEach(Array(pieces.enumerated()), id: \.offset) { i, piece in
+                let last = i == pieces.count - 1
+                switch piece {
+                case .text(let t): RichText(text: t, caret: last)
+                case .steps(let s): StepsView(steps: s, live: last ? (work.started, tint) : nil)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+extension String {
+    /// «Запускает swift test» → «запускает swift test»
+    var lowercasedFirst: String { prefix(1).lowercased() + dropFirst() }
 }

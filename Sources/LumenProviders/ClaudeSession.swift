@@ -32,6 +32,8 @@ public final class ClaudeSession: @unchecked Sendable {
         /// Плагины Claude Code, выключенные в этой сессии: с ними приходят их навыки, агенты, хуки и коннекторы,
         /// а в Lumen — только своё (Рома, 17.10). По умолчанию — список, который Lumen снял с `claude plugin list`.
         public var pluginsOff: [String] = Config.claudePlugins()
+        /// Ещё папки с доступом, кроме рабочей (`--add-dir`)
+        public var addDirs: [String] = []
         /// Встроенный плагин Claude Code со своим навыком — его в списке `plugin list` нет
         static let builtinPlugins = ["cc-plugin-plugin-authoring@builtin"]
 
@@ -105,6 +107,7 @@ public final class ClaudeSession: @unchecked Sendable {
             // коннекторы — только свои, Lumen: ни MCP из ~/.claude, ни коннекторов аккаунта claude.ai (Рома, 17.10)
             if !userSettings || mcpConfig != nil { a += ["--strict-mcp-config"] }
 
+            for d in addDirs { a += ["--add-dir", d] }
             if let mcpConfig { a += ["--mcp-config", mcpConfig] }
             if let s = Self.settings(file: settings, pluginsOff: pluginsOff) { a += ["--settings", s] }
             a += resume ? ["--resume", sessionID] : ["--session-id", sessionID]

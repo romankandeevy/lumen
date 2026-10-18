@@ -79,6 +79,8 @@ final class ChatController {
     /// Журнал Claude Code по разговорам (последние 400 строк) и когда процесс подавал голос в последний раз
     private(set) var logs: [String: [ClaudeLog.Line]] = [:]
     private(set) var lastSign: [String: Date] = [:]
+    /// Идёт инструмент (команда, чтение, позванный бот): тишина — это ожидание инструмента, а не API
+    var toolRunning: [String: Bool] = [:]
     /// Что сейчас с надёжностью хода: «нет сети — жду», «повтор 1 из 2», «Claude повторяет запрос» (видно под перепиской)
     var retryNote: [String: String] = [:]
     /// Сколько раз Lumen сам повторяет ход Claude Code после сбоя сети или API, пока ответ не начался
@@ -247,8 +249,50 @@ final class ChatController {
     /// «Повторить» у ошибки и «Попробовать снова» у ответа: ответ и всё после него убираются, вопрос уходит заново
     func retry(_ answer: ChatMessage) {
         guard let i = messages.firstIndex(where: { $0.id == answer.id }),
-              let u = messages[..<i].last(where: { $0.role == .user }) else { return }
+              let u = messages[..<i].last(where: { $0.role == .user }), let c = conversation else { return }
+        // прежний ответ не стирается: он и его варианты листаются у нового (‹ 1/3 ›), как в Claude
+        let old = (answer.alternates ?? []) + (answer.error == nil || !answer.text.isEmpty ? [AnswerVariant(answer)] : [])
+        pendingVariants[c.id] = old
         resend(from: u, text: u.text)
+    }
+
+    /// Что сейчас делает бот, которого позвали из этого разговора
+    var liveWork: [String: LiveWork] = [:]
+
+    /// Прежние ответы, которые станут вариантами следующего ответа в разговоре
+    private var pendingVariants: [String: [AnswerVariant]] = [:]
+
+    /// Доступ к другим папкам у начатой задачи поменялся — процесс поднимется заново с новыми --add-dir
+    func setExtraPaths(_ paths: [String]) {
+        guard var c = conversation else { return }
+        c.extraPaths = paths
+        try? app.store.save(c)
+        conversation = c
+        if !busy { sessions[c.id]?.close(); sessions[c.id] = nil }
+    }
+
+    /// Ещё папки (и файлы) для агента: папки — доступом рядом с рабочей, файлы — вложением в поле
+    func addPaths(_ urls: [URL]) -> [URL] {
+        let dirs = urls.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+        let files = urls.filter { !dirs.contains($0) }
+        if !dirs.isEmpty {
+            if var c = conversation {
+                var extra = c.extraPaths ?? []
+                for d in dirs where d.path != c.folder && !extra.contains(d.path) { extra.append(d.path) }
+                c.extraPaths = extra
+                try? app.store.save(c)
+                conversation = c
+                // процесс claude запущен без этих папок — поднимется заново с --resume
+                if !busy { sessions[c.id]?.close(); sessions[c.id] = nil }
+            } else {
+                // новая задача: первая папка — рабочая (если ещё не выбрана своя), остальные — рядом
+                var rest = dirs
+                if app.agentFolder == nil || app.agentFolder.map(AppModel.isHome) == true { app.agentFolder = rest.removeFirst() }
+                for d in rest where !app.agentExtraDirs.contains(d) && d != app.agentFolder { app.agentExtraDirs.append(d) }
+            }
+            dirs.forEach(app.rememberFolder)
+        }
+        return files
     }
 
     /// «Изменить» и «Попробовать снова»: разговор откатывается к этому сообщению (в базе и в сессии claude —
@@ -360,6 +404,7 @@ final class ChatController {
             c = Conversation(title: Self.title(from: text.isEmpty ? attachments.first?.name ?? "Вложение" : text), kind: .agent, folder: folder.path, backend: app.prefs.backend,
                              model: app.defaultAgentModel, effort: app.prefs.agentEffort ?? .high)
             c.mode = app.prefs.agentMode
+            if !app.agentExtraDirs.isEmpty { c.extraPaths = app.agentExtraDirs.map(\.path); app.agentExtraDirs = [] }
             app.rememberFolder(folder)
         } else {
             c = Conversation(title: Self.title(from: text.isEmpty ? attachments.first?.name ?? "Вложение" : text), backend: app.prefs.backend, model: app.prefs.model, effort: app.prefs.effort)
@@ -396,6 +441,22 @@ final class ChatController {
         turns[c.id] = tr
         if open { app.orb = .thinking }
         let history = open ? messages : ((try? app.store.messages(in: c.id)) ?? [])
+        // позванный бот (Lumen сам позвал через delegate, или бот позвал бота) — что он делает, видно в чате
+        Task { [weak self] in
+            var delegateConv: String?
+            while let self, self.turns[c.id] === tr {
+                if delegateConv == nil, let d = tr.delegate, let b = self.app.bot(d) { delegateConv = self.app.botConversation(for: b).id }
+                let ids = [c.id] + (delegateConv.map { [$0] } ?? [])
+                let found = ids.lazy.compactMap { id in (try? Data(contentsOf: self.app.paths.liveWork(id))).flatMap { try? JSONDecoder().decode(LiveWork.self, from: $0) } }.first
+                if self.liveWork[c.id] != found {
+                    self.liveWork[c.id] = found
+                    // пока бот пишет — сторож молчания не считает это тишиной
+                    if found != nil { self.lastSign[c.id] = Date() }
+                }
+                try? await Task.sleep(for: .milliseconds(400))
+            }
+            self?.liveWork[c.id] = nil
+        }
         tr.task = Task { [weak self] in
             guard let self else { return }
             if c.kind == .group {
@@ -629,7 +690,9 @@ final class ChatController {
                 lines.append("\(name): \(m.text.prefix(2000))\(files)")
             } else if let id = m.botID {
                 let b = app.bot(id)
-                lines.append("@\(id)\(b.map { " (\($0.name))" } ?? ""): \(m.text.prefix(6000))")
+                // сделанные ботом файлы — с путями: агент сможет их открыть
+                let made = m.attachments.isEmpty ? "" : "\n[файлы от бота: " + m.attachments.map { "\($0.name) — \($0.path)" }.joined(separator: "; ") + "]"
+                lines.append("@\(id)\(b.map { " (\($0.name))" } ?? ""): \(m.text.prefix(6000))\(made)")
             }
         }
         var block = lines.joined(separator: "\n\n")
@@ -710,6 +773,9 @@ final class ChatController {
                 switch ev {
                 case .textDelta(let t):
                     answer += appendStreaming(t, c)
+                case .plan(let change):
+                    // план бота виден в чате, откуда его позвали
+                    updatePlan(change, c)
                 case .step(let step):
                     appendStep(step, c)
                 case .finished(let r):
@@ -880,10 +946,12 @@ final class ChatController {
                 switch ev {
                 case .textDelta(let t):
                     toolOpen = false
+                    toolRunning[c.id] = nil
                     retryNote[c.id] = nil
                     answer += appendStreaming(t, c)
                 case .step(let step):
                     toolOpen = true
+                    toolRunning[c.id] = true
                     retryNote[c.id] = nil
                     appendStep(step, c)
                 case .retry(let n, let err):
@@ -893,6 +961,7 @@ final class ChatController {
                     turns[c.id]?.anchor = a
                 case .toolDone:
                     toolOpen = false
+                    toolRunning[c.id] = nil
                     // позванный Lumen бот ответил — его сообщение уже в базе
                     pullBotReplies(c)
                 case .plan(let change):
@@ -911,6 +980,7 @@ final class ChatController {
                 }
             }
             pendingPermissions[c.id] = nil
+            toolRunning[c.id] = nil
             watchdog.cancel()
             retryNote[c.id] = nil
             // сбой сети или API, а ответ ещё не начался (ни слова, ни шага) — повторить самим, без дублей в сессии
@@ -1128,11 +1198,13 @@ final class ChatController {
             config = .agent(model: c.model.rawValue, effort: c.effort.rawValue, persona: app.agentPrompt(for: c),
                             folder: URL(fileURLWithPath: folder), sessionID: sid, resume: resume, mode: mode.rawValue)
             sessionModes[c.id] = mode
+            config.addDirs = (c.extraPaths ?? []).filter { FileManager.default.fileExists(atPath: $0) }
             // агент по ключу: тот же claude, но платит ключ (§2.4 техплана)
             if c.backend == .api, let key = app.keychain.read(Keychain.anthropicKey) { config.extraEnv["ANTHROPIC_API_KEY"] = key }
         } else {
+            // у чата своя папка для временного (а не «/», откуда запущено приложение)
             config = .init(model: c.model.rawValue, effort: c.effort.rawValue, systemPrompt: app.systemPrompt(for: c),
-                           tools: [], userSettings: false, sessionID: sid, resume: resume)
+                           tools: [], userSettings: false, sessionID: sid, resume: resume, cwd: app.chatFolder(c))
         }
         // память: lumen-mcp с инструментами remember и recall
         if let mcp = try? app.writeMCPConfig(for: c, memoryReadOnly: bot.map { !$0.can.contains(.memory) } ?? false) {
@@ -1349,8 +1421,7 @@ final class ChatController {
         turns[c.id]?.conversation.plan = items
         if conversation?.id == c.id { conversation?.plan = items }
         try? app.store.updatePlan(c.id, items)
-        // план — сбоку, как в макете: панель открывается сама
-        if !app.prefs.contextOpen && conversation?.id == c.id { app.update { $0.contextOpen = true } }
+        // панель сбоку сама не открывается: план и так виден в переписке (Рома, 18.10)
     }
 
     /// Картинка или файл от агента — под идущий ответ (снимок браузера, show_in_chat). Бот, позванный через @, кладёт в чат, откуда позвали.
@@ -1362,6 +1433,11 @@ final class ChatController {
             tr.message?.botID = tr.bot
         }
         tr.message?.attachments.append(a)
+        // файл, что сделал агент или бот, — в базу сразу: если ход повиснет или Lumen закроют, вложение не пропадёт
+        if var m = tr.message {
+            m.text = tr.received
+            if let saved = try? app.store.save(m) { tr.message?.id = saved.id }
+        }
         return true
     }
 
@@ -1399,6 +1475,8 @@ final class ChatController {
         let all = tr?.message?.steps ?? []
         let steps = c.kind != .chat || turnBot != nil ? all : all.filter(\.shownInChat)
         let shots = tr?.message?.attachments ?? []
+        // уже сохранённый по ходу (сделал файл) — тот же ответ дописывается, а не появляется второй
+        let earlyID = tr?.message?.id
         tr?.message = nil
         let since = tr?.start ?? Date()
         let remembered = (try? app.store.memoryUses(conversationID: c.id, since: since, action: "remember")) ?? []
@@ -1410,7 +1488,10 @@ final class ChatController {
                             remembered: remembered, recalled: recalled.filter { !remembered.contains($0) })
         m.next = stopped ? nil : next
         m.attachments = shots
+        m.id = earlyID
         m.botID = turnBot
+        // «Попробовать снова»: прежние ответы — вариантами этого
+        if let old = pendingVariants.removeValue(forKey: c.id), !old.isEmpty { m.alternates = old }
         if turnBot == nil || c.kind == .bot { m.cliAnchor = tr?.anchor }
         // коннекторы и хуки, которые Lumen предложил за ход, — карточками под ответом
         m.proposals = ProposalBox.take(paths: app.paths, conversationID: c.id)
@@ -1421,6 +1502,7 @@ final class ChatController {
         // Lumen позвал бота и сам ничего не добавил — его пустой ответ не нужен (ответ бота уже на экране)
         pullBotReplies(c)
         let skip = tr?.botShown == true && visible.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && error == nil && !stopped
+        if skip, let id = earlyID { try? app.store.deleteMessage(id) }
         let saved = skip ? nil : try? app.store.save(m)
         if let saved, conversation?.id == c.id { messages.append(saved) }
         // первый ответ — название разговора от модели
@@ -1676,7 +1758,9 @@ extension AppModel {
         // характер — из настроек «Характер» (Persona.swift)
         var lines = [persona.soul(userName: profile.name, ty: profile.address == .ty), "\n## Где ты\nТы — Lumen, личный помощник на Маке."]
         if let known = knownBlock(for: c) { lines.append(known) }
-        lines.append("Это чат: у тебя нет доступа к файлам и командам этого Мака, но есть браузер сбоку.")
+        lines.append("Это чат: у тебя нет доступа к файлам и командам этого Мака, но есть браузер сбоку. "
+                     + "Файлы для человека делай инструментом make_file — они приходят вложением. Про папки, пути и временные каталоги "
+                     + "из описания окружения не рассказывай: это служебное, у чата своя папка в Lumen.")
         if let block = projectBlock(for: c) { lines.append(block) }
         if let skills = SkillLibrary.promptBlock(skillLibrary.enabled()) { lines.append(skills) }
         lines.append(selfRules)

@@ -50,6 +50,8 @@ public final class AppModel {
 
     /// Что последним видели в приложении Claude про модель, усилие и режим разговора — применяем только смену
     var claudeSettingsSeen: [String: ClaudeHistory.Desktop.Settings] = [:]
+    /// Ещё папки для новой задачи агента, кроме рабочей
+    var agentExtraDirs: [URL] = []
     /// Разделённый экран: какую долю ширины занимает левый разговор
     var splitFraction = 0.5
     /// macOS сейчас в тёмном оформлении — для света «Как в системе»
@@ -664,6 +666,13 @@ public final class AppModel {
     }
 
     // MARK: данные
+
+    /// Своя папка чата для временного: …/Lumen/chats/<id>. Chat работает в ней, а не в «/»
+    func chatFolder(_ c: Conversation) -> URL {
+        let dir = paths.root.appendingPathComponent("chats", isDirectory: true).appendingPathComponent(c.id, isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
 
     func showDataInFinder() {
         NSWorkspace.shared.activateFileViewerSelecting([paths.database])

@@ -231,6 +231,10 @@ public final class Store: Sendable {
             }
             try db.alter(table: "conversation") { t in t.add(column: "groupID", .text).indexed() }
         }
+        m.registerMigration("v18-variants-extra-paths") { db in
+            try db.alter(table: "message") { t in t.add(column: "alternates", .jsonText) }
+            try db.alter(table: "conversation") { t in t.add(column: "extraPaths", .jsonText) }
+        }
         return m
     }
 

@@ -129,14 +129,43 @@ func delegate(_ args: [String: Any]) -> String {
     let from = caller.map { "@\($0.id) — бот «\($0.name)»" } ?? "Lumen, разговор «\(env["LUMEN_CONVERSATION_TITLE"] ?? "")»"
     let asked = Via.modelText(task: task, from: from, context: "")
 
-    final class Box: @unchecked Sendable { var text = "" }
+    final class Box: @unchecked Sendable { var text = ""; var steps: [AgentStep] = [] }
     let box = Box()
     let done = DispatchSemaphore(value: 0)
+    // по ходу работы — в файл, чтобы окно показывало в чате, что бот делает и что пишет
+    let liveIDs = [env["LUMEN_CONVERSATION_ID"]].compactMap { $0 }.filter { !$0.isEmpty }
+    let liveURLs = liveIDs.map(paths.liveWork)
     Task {
         do {
             let session = try ClaudeSession(cli: cli, config: config)
-            let r = try await session.ask(asked)
-            box.text = r.ok ? r.text : "Бот @\(target.id) не справился: \(r.text)"
+            var live = LiveWork(bot: target.id)
+            var lastWrite = Date.distantPast
+            func flush(_ force: Bool = false) {
+                guard force || Date().timeIntervalSince(lastWrite) > 0.3, let d = try? JSONEncoder().encode(live) else { return }
+                lastWrite = Date()
+                for u in liveURLs { try? d.write(to: u, options: .atomic) }
+            }
+            flush(true)
+            var result: ClaudeEvent.TurnResult?
+            for await ev in try session.send(asked) {
+                switch ev {
+                case .textDelta(let t):
+                    live.text += t
+                    flush()
+                case .step(let s):
+                    var s = s
+                    s.at = live.text.count
+                    live.steps.append(s)
+                    if !live.text.isEmpty && !live.text.hasSuffix("\n\n") { live.text += "\n\n" }
+                    flush(true)
+                case .finished(let r): result = r
+                default: break
+                }
+            }
+            let r = result
+            box.text = r.map { $0.ok ? (live.text.isEmpty ? $0.text : live.text) : "Бот @\(target.id) не справился: \($0.text)" }
+                ?? "Бот @\(target.id) не ответил: \(session.errorOutput.suffix(300))"
+            box.steps = live.steps
             session.close()
         } catch {
             box.text = "Бот @\(target.id) не запустился: \(error.localizedDescription)"
@@ -144,6 +173,7 @@ func delegate(_ args: [String: Any]) -> String {
         done.signal()
     }
     done.wait()
+    for u in liveURLs { try? FileManager.default.removeItem(at: u) }
     // в постоянный разговор позванного бота — задача и ответ
     if let conv {
         var q = ChatMessage(conversationID: conv.id, role: .user, text: task)
@@ -158,6 +188,7 @@ func delegate(_ args: [String: Any]) -> String {
     if caller == nil, let chatID = env["LUMEN_CONVERSATION_ID"], !chatID.isEmpty {
         var shown = ChatMessage(conversationID: chatID, role: .assistant, text: box.text, model: target.model)
         shown.botID = target.id
+        shown.steps = box.steps
         if (try? store.save(shown)) != nil {
             return "Ответ @\(target.id) человек уже видит в чате отдельным сообщением бота. Не повторяй, не пересказывай и не упоминай, "
                 + "что он показан. Если есть что добавить по сути — одной-двумя фразами; если нечего — ответь пустым сообщением.\n\nЧто он ответил (для тебя):\n\(box.text)"

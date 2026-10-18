@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import LumenCore
 @testable import LumenProviders
+@testable import LumenStorage
 @testable import LumenUI
 
 /// Своя тема до 1.4 становится темой в списке, а светлая/тёмная основа — светом
@@ -119,4 +120,22 @@ import Testing
 @MainActor @Test func longPromptIsNotRetried() {
     #expect(!ChatController.transient("prompt is too long: 250000 tokens > 200000 maximum"))
     #expect(ChatController.transient("API Error: 503 Service Unavailable"))
+}
+
+/// Варианты ответа и доп. папки агента переживают сохранение в базу; доп. папки уходят в --add-dir
+@Test func variantsAndExtraPathsAreStored() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let store = try Store(path: dir.appendingPathComponent("db.sqlite"))
+    var c = Conversation(title: "т", kind: .agent, folder: "/tmp", backend: .subscription, model: .sonnet, effort: .high)
+    c.extraPaths = ["/tmp/a"]
+    try store.save(c)
+    var m = ChatMessage(conversationID: c.id, role: .assistant, text: "новый")
+    m.alternates = [AnswerVariant(text: "старый", steps: [], attachments: [], error: nil, model: .sonnet, createdAt: Date())]
+    _ = try store.save(m)
+    #expect(try store.conversations().first?.extraPaths == ["/tmp/a"])
+    #expect(try store.messages(in: c.id).first?.alternates?.first?.text == "старый")
+    var cfg = ClaudeSession.Config(model: "m")
+    cfg.addDirs = ["/tmp/a"]
+    #expect(cfg.arguments.contains("--add-dir"))
 }

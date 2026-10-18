@@ -195,7 +195,8 @@ struct BrowserPane: View {
             .disabled(blank)
             IconButton(icon: "x", help: "Закрыть браузер") { app.browserOpen = false }
         }
-        .padding(.horizontal, 8).frame(height: 48)
+        // одной высоты с шапкой разговора (56): линии под ними — на одном уровне
+        .padding(.horizontal, 8).frame(height: 56)
         .overlay(alignment: .bottom) { p.border.frame(height: 1) }
     }
 

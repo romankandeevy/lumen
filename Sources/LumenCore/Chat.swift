@@ -96,6 +96,42 @@ public enum Effort: String, Codable, Sendable, CaseIterable, Identifiable {
     public var level: Int { Effort.allCases.firstIndex(of: self) ?? 0 }
 }
 
+/// Работа позванного бота прямо сейчас: кто, что уже написал и какие шаги сделал (файл run/live-<разговор>.json)
+public struct LiveWork: Codable, Sendable, Equatable {
+    public var bot: String
+    public var text: String
+    public var steps: [AgentStep]
+    public var started: Date
+    public init(bot: String, text: String = "", steps: [AgentStep] = [], started: Date = Date()) {
+        self.bot = bot
+        self.text = text
+        self.steps = steps
+        self.started = started
+    }
+}
+
+/// Прежний вариант ответа: что было написано и сделано
+public struct AnswerVariant: Codable, Sendable, Equatable, Hashable {
+    public var text: String
+    public var steps: [AgentStep]
+    public var attachments: [Attachment]
+    public var error: String?
+    public var model: ChatModel?
+    public var createdAt: Date
+    public init(text: String, steps: [AgentStep], attachments: [Attachment], error: String?, model: ChatModel?, createdAt: Date) {
+        self.text = text
+        self.steps = steps
+        self.attachments = attachments
+        self.error = error
+        self.model = model
+        self.createdAt = createdAt
+    }
+
+    public init(_ m: ChatMessage) {
+        self.init(text: m.text, steps: m.steps, attachments: m.attachments, error: m.error, model: m.model, createdAt: m.createdAt)
+    }
+}
+
 /// Откуда пришло сообщение в разговор бота: чат, где его позвали через @, или другой бот
 public struct Via: Codable, Sendable, Equatable, Hashable {
     public var conversationID: String?
@@ -459,6 +495,8 @@ public struct Conversation: Codable, Sendable, Equatable, Identifiable, Hashable
     public var groupID: String?
     /// Режим агента в этом разговоре
     public var mode: AgentMode?
+    /// Ещё папки, к которым у агента есть доступ, кроме основной (`--add-dir`)
+    public var extraPaths: [String]?
     public var createdAt: Date
     public var updatedAt: Date
 
@@ -520,6 +558,8 @@ public struct ChatMessage: Codable, Sendable, Equatable, Identifiable {
     public var chapter: Bool = false
     /// Вложения сообщения человека: картинки и файлы
     public var attachments: [Attachment] = []
+    /// Прежние варианты этого ответа («Попробовать снова» не стирает их, а листает ‹ 1/3 ›), новый — сам ответ
+    public var alternates: [AnswerVariant]?
     /// Сообщение пришло боту из другого разговора (позвали через @): откуда — для пометки под ним
     public var via: Via?
     public var createdAt: Date

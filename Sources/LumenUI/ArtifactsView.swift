@@ -38,7 +38,7 @@ struct ArtifactsView: View {
                     .frame(maxWidth: .infinity, minHeight: 200)
             } else {
                 ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 320), spacing: 12)], spacing: 12) {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: 3), spacing: 16) {
                         ForEach(shown, id: \.attachment.id) { it in card(it) }
                     }
                     .padding(.bottom, 24)
@@ -73,7 +73,7 @@ struct ArtifactsView: View {
                         Icon("file", 24).foregroundStyle(p.mutedFg).frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
-                .frame(height: 130).frame(maxWidth: .infinity).clipped()
+                .frame(height: 190).frame(maxWidth: .infinity).clipped()
                 .background(p.card)
                 .contentShape(Rectangle())
             }

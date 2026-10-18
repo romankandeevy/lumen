@@ -17,7 +17,7 @@ struct PlusMenu: View {
     @State private var page: Page = .main
     @State private var hover = false
 
-    enum Page { case main, skills, connectors, bots }
+    enum Page { case main, skills, connectors, bots, artifacts }
 
     private var skills: [Skill] { app.skills.filter(\.info.enabled) }
     private var botsHere: Bool { !agent && app.chat.conversation?.kind != .bot && !app.bots.isEmpty }
@@ -43,6 +43,7 @@ struct PlusMenu: View {
                 case .skills: skillsPage
                 case .connectors: connectorsPage
                 case .bots: botsPage
+                case .artifacts: artifactsPage
                 }
             }
             .padding(6)
@@ -56,6 +57,7 @@ struct PlusMenu: View {
 
     @ViewBuilder private var main: some View {
         Row(icon: "paperclip", title: "Добавить файлы или фото", trailing: "⌘U") { addFiles() }
+        Row(icon: "layout-grid", title: "Из артефактов", chevron: true) { page = .artifacts }
         if agent && canPickFolder {
             Row(icon: "folder", title: "Выбрать папку") { open = false; app.chooseFolder() }
         }
@@ -66,6 +68,29 @@ struct PlusMenu: View {
         if botsHere {
             Row(icon: "bot", title: "Позвать бота", chevron: true) { page = .bots }
         }
+    }
+
+    /// Файлы, что уже сделали Lumen и боты: выбрал — прикрепился к сообщению (тот же файл, без копии)
+    @ViewBuilder private var artifactsPage: some View {
+        Back(title: "Артефакты") { page = .main }
+        let items = ((try? app.store.artifacts(limit: 200)) ?? []).flatMap { row in row.message.attachments.map { ($0, row.title) } }
+        if items.isEmpty {
+            Text("Пока ни одного: файлы, что делают Lumen и боты, появятся здесь.")
+                .font(.geist(12)).foregroundStyle(p.mutedFg).padding(.horizontal, 10).padding(.vertical, 6)
+        }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(Array(items.prefix(60).enumerated()), id: \.offset) { _, it in
+                    let (a, title) = it
+                    let on = attachments.contains { $0.path == a.path }
+                    Row(icon: a.kind == .image ? "image" : "file-text", title: a.name, note: "из «\(title)» · \(a.sizeText)") {
+                        if on { attachments.removeAll { $0.path == a.path } } else { attachments.append(a) }
+                    }
+                    .overlay(alignment: .trailing) { if on { Icon("check", 14).foregroundStyle(p.glow).padding(.trailing, 10) } }
+                }
+            }
+        }
+        .frame(maxHeight: 340)
     }
 
     @ViewBuilder private var skillsPage: some View {
