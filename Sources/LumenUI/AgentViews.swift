@@ -143,37 +143,105 @@ struct FolderTile: View {
     }
 }
 
-/// Шаги агента между абзацами, как в Claude: «Выполнено 5 команд ›» серым, по нажатию — список шагов
+/// Шаги агента между абзацами, как в Claude: «Выполнено 5 команд ›» серым, по нажатию — история шагов лентой.
+/// Пока шаг идёт — это одна кнопка: в ней что агент делает сейчас (с таймером), раскрыл — видна вся история
 struct StepsView: View {
     let steps: [AgentStep]
-    var live = false
+    /// Идущий шаг: с какого времени и цвет точки (у бота — его цвет)
+    var live: (since: Date, tint: Color?)?
+    /// Для снимков: показать раскрытым
+    var initiallyOpen = false
 
     @Environment(\.palette) private var p
     @State private var open = false
     @State private var hover = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button { withAnimation(.easeOut(duration: 0.15)) { open.toggle() } } label: {
-                HStack(spacing: 4) {
-                    Text(summary).tw(14, lh: 20).lineLimit(1)
-                    Icon(open ? "chevron-down" : "chevron-right", 12)
-                }
-                .foregroundStyle(hover ? p.foreground.opacity(0.8) : p.mutedFg)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .onHover { hover = $0 }
-            if open {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(Array(steps.enumerated()), id: \.offset) { _, s in
-                        Text(s.text).tw(13, lh: 18).foregroundStyle(p.mutedFg).lineLimit(2).textSelection(.enabled)
+        VStack(alignment: .leading, spacing: 8) {
+            Button { withAnimation(.easeOut(duration: 0.18)) { open.toggle() } } label: { header.contentShape(Rectangle()) }
+                .buttonStyle(.plain)
+                .onHover { hover = $0 }
+                .help(open ? "Свернуть" : "Показать, что делал")
+            if open { history.transition(.opacity.combined(with: .move(edge: .top))) }
+        }
+        .onAppear { if initiallyOpen { open = true } }
+    }
+
+    @ViewBuilder private var header: some View {
+        if let live, let now = steps.last {
+            // как в Claude: бегущие точки · что делает сейчас · сколько идёт · ›
+            HStack(spacing: 10) {
+                DotsSpinner(color: live.tint ?? p.glow)
+                TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                    HStack(spacing: 8) {
+                        Text(now.text).tw(14, lh: 20).foregroundStyle(p.foreground.opacity(0.85)).lineLimit(1).shimmer(p.foreground)
+                        Text(LiveStepLine.elapsed(ctx.date.timeIntervalSince(live.since))).tw(13, lh: 20)
+                            .foregroundStyle(p.mutedFg).monospacedDigit()
                     }
                 }
-                .padding(.leading, 12)
-                .transition(.opacity)
+                Icon(open ? "chevron-down" : "chevron-right", 12).foregroundStyle(hover ? p.foreground : p.mutedFg)
+            }
+        } else {
+            HStack(spacing: 4) {
+                Text(summary).tw(14, lh: 20).lineLimit(1)
+                Icon(open ? "chevron-down" : "chevron-right", 12)
+            }
+            .foregroundStyle(hover ? p.foreground.opacity(0.8) : p.mutedFg)
+        }
+    }
+
+    /// История лентой: значок рода шага на вертикальной линии, глагол серым, предмет — ярче; идущий — с точкой
+    private var history: some View {
+        let rows = Array(steps.enumerated())
+        let list = VStack(alignment: .leading, spacing: 0) {
+            ForEach(rows, id: \.offset) { i, s in
+                let current = live != nil && i == steps.count - 1
+                HStack(alignment: .top, spacing: 10) {
+                    ZStack {
+                        if current {
+                            LiveDot(color: live?.tint ?? p.glow, size: 7)
+                        } else {
+                            Icon(Self.icon(s.kind), 12).foregroundStyle(p.mutedFg)
+                        }
+                    }
+                    .frame(width: 22, height: 22)
+                    .background(p.background, in: Circle())
+                    .overlay(Circle().strokeBorder(current ? (live?.tint ?? p.glow).opacity(0.5) : p.border))
+                    Self.styled(s.text, p: p, current: current)
+                        .lineLimit(2).textSelection(.enabled)
+                        .padding(.top, 2)
+                }
+                .padding(.vertical, 3)
+                .background(alignment: .topLeading) {
+                    // линия между значками
+                    if i < steps.count - 1 { p.border.frame(width: 1).padding(.top, 25).padding(.leading, 11) }
+                }
             }
         }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        return Group {
+            if steps.count > 10 {
+                ScrollView { list }.frame(maxHeight: 300).scrollIndicators(.automatic)
+            } else {
+                list
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(p.foreground.opacity(0.025), in: RoundedRectangle(cornerRadius: R.lg))
+        .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
+    }
+
+    /// «Читает 07 Проверь себя.png»: глагол — серым, что именно — ярче; пути и шаблоны — моноширинным
+    static func styled(_ text: String, p: Palette, current: Bool) -> Text {
+        let parts = text.split(separator: " ", maxSplits: 1).map(String.init)
+        guard parts.count == 2, parts[0].first?.isUppercase == true else {
+            return Text(text).font(.geist(13)).foregroundColor(current ? p.foreground : p.foreground.opacity(0.8))
+        }
+        let object = parts[1]
+        let code = object.contains("/") || object.contains("*") || object.contains("«") == false && object.contains("_")
+        let tail = code ? Text(object).font(.system(size: 12, design: .monospaced)) : Text(object).font(.geist(13))
+        return Text(parts[0] + " ").font(.geist(13)).foregroundColor(p.mutedFg)
+            + tail.foregroundColor(current ? p.foreground : p.foreground.opacity(0.85))
     }
 
     /// Как в Claude Code: один шаг — его строкой, несколько — «Выполнено 5 команд, прочитано 2 файла»
@@ -635,7 +703,7 @@ struct ClaudeLiveLine: View {
         VStack(alignment: .leading, spacing: 6) {
             Button { withAnimation(.easeOut(duration: 0.15)) { open.toggle() } } label: {
                 HStack(spacing: 10) {
-                    LiveDot(color: tint ?? p.glow, size: 7).frame(width: 22)
+                    DotsSpinner(color: tint ?? p.glow).frame(width: 22)
                     Text("Claude Code").tw(13, .medium, lh: 20).foregroundStyle(p.foreground.opacity(0.75))
                     TimelineView(.periodic(from: .now, by: 1)) { ctx in
                         HStack(spacing: 8) {
@@ -672,6 +740,31 @@ struct ClaudeLiveLine: View {
     }
 }
 
+/// Знак «работает», как в Claude: четыре точки ромбом, по очереди гаснут и загораются
+struct DotsSpinner: View {
+    var color: Color
+    var size: CGFloat = 4
+
+    @Environment(\.lessMotion) private var lessMotion
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 20, paused: lessMotion)) { ctx in
+            let t = ctx.date.timeIntervalSinceReferenceDate
+            let gap = size * 1.6
+            ZStack {
+                ForEach(0..<4, id: \.self) { i in
+                    // сверху, справа, снизу, слева — волна по кругу
+                    let pos = [CGPoint(x: 0, y: -gap), CGPoint(x: gap, y: 0), CGPoint(x: 0, y: gap), CGPoint(x: -gap, y: 0)][i]
+                    let phase = (t * 1.6 - Double(i) * 0.25).truncatingRemainder(dividingBy: 1)
+                    let k = lessMotion ? 1 : 0.35 + 0.65 * (0.5 + 0.5 * cos(phase * 2 * .pi))
+                    Circle().fill(color.opacity(k)).frame(width: size, height: size).offset(x: pos.x, y: pos.y)
+                }
+            }
+            .frame(width: gap * 2 + size, height: gap * 2 + size)
+        }
+    }
+}
+
 /// Живая строка под планом, пока идёт ход: что агент делает сейчас и сколько уже (как в Claude: «… 5 мин 54 с ›»)
 struct LiveStepLine: View {
     let text: String
@@ -682,7 +775,7 @@ struct LiveStepLine: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            LiveDot(color: tint ?? p.glow, size: 7).frame(width: 22)
+            DotsSpinner(color: tint ?? p.glow).frame(width: 22)
             TimelineView(.periodic(from: .now, by: 1)) { ctx in
                 HStack(spacing: 8) {
                     Text(text).tw(14, lh: 20).foregroundStyle(p.mutedFg).lineLimit(1).shimmer(p.foreground)

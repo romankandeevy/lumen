@@ -569,3 +569,19 @@ enum Snap {
     let code = ChatMessage(conversationID: "x", role: .assistant, text: "Вот скрипт:\n\n```python\nimport random\n\nsecret = random.randint(1, 100)\n# угадай\nwhile True:\n    guess = int(input(\"Число: \"))\n    if guess == secret:\n        print(f\"Угадал за {secret}!\")\n        break\n```\n\nЗапусти его.")
     try await Snap.save(RichText(text: code.text).padding(20).environment(\.palette, Palette.lumen).background(Palette.lumen.background), "83-code", size: CGSize(width: 700, height: 420))
 }
+
+/// История шагов: идущий шаг в заголовке, раскрытая лента
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotStepsHistory() async throws {
+    Snap.registerFonts()
+    let steps = [AgentStep(kind: .search, text: "Ищет файлы **/*скриншот*/**"), AgentStep(kind: .read, text: "Читает 01 Начало истории — открыт.png"),
+                 AgentStep(kind: .read, text: "Читает 02 Новые слова — открыт.png"), AgentStep(kind: .run, text: "Запускает swift test"),
+                 AgentStep(kind: .edit, text: "Правит ChatView.swift"), AgentStep(kind: .read, text: "Читает 07 Проверь себя — открыт.png")]
+    let v = VStack(alignment: .leading, spacing: 24) {
+        StepsView(steps: steps, live: (Date().addingTimeInterval(-12), nil), initiallyOpen: true)
+        StepsView(steps: steps, initiallyOpen: true)
+    }
+    .padding(24).frame(width: 640, alignment: .leading)
+    for (name, pal) in [("dark", Palette.lumen), ("light", Palette.light)] {
+        try await Snap.save(v.environment(\.palette, pal).background(pal.background), "84-steps-\(name)", size: CGSize(width: 640, height: 640))
+    }
+}

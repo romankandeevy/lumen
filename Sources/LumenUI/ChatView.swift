@@ -258,7 +258,8 @@ struct ChatView: View {
                         }
                     }
                     // что агент делает прямо сейчас — пока идёт инструмент (текст после него ещё не пошёл)
-                    if chat.busy, !chat.thinking, chat.pendingPermission == nil, let live = chat.liveStep,
+                    // (если шаги уже в ответе — это его последняя группа шагов, отдельной строки не нужно)
+                    if chat.busy, !chat.thinking, chat.pendingPermission == nil, let live = chat.liveStep, chat.streaming == nil,
                        (live.step.at ?? 0) >= (chat.streaming?.text.count ?? 0) {
                         LiveStepLine(text: live.step.text, since: live.since, tint: app.bot(chat.turnBot).map { BotColor.accent($0.hue) })
                     }
@@ -502,7 +503,13 @@ struct MessageRow: View {
                         let last = i == pieces.count - 1
                         switch piece {
                         case .text(let t): RichText(text: t, caret: streaming && last)
-                        case .steps(let s): StepsView(steps: s)
+                        // последняя группа шагов идущего ответа — она же «что делает сейчас»
+                        case .steps(let s):
+                            if streaming && last, let chat, chat.busy, !chat.thinking, chat.pendingPermission == nil, let live = chat.liveStep {
+                                StepsView(steps: s, live: (live.since, chat.app.bot(chat.turnBot).map { BotColor.accent($0.hue) }))
+                            } else {
+                                StepsView(steps: s)
+                            }
                         }
                     }
                     // снимки страниц и файлы, которые агент показал в чате
