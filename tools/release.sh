@@ -47,6 +47,8 @@ git rev-parse "$TAG" >/dev/null 2>&1 && { echo "тег $TAG уже есть"; ex
 BUILD=$(( $(/usr/libexec/PlistBuddy -c "Print CFBundleVersion" Resources/Info.plist) + 1 ))
 /usr/libexec/PlistBuddy -c "Set CFBundleShortVersionString $VERSION" Resources/Info.plist
 /usr/libexec/PlistBuddy -c "Set CFBundleVersion $BUILD" Resources/Info.plist
+# выпускаем — сборка больше не «в разработке»: экран «Версия» покажет номер сборки
+/usr/libexec/PlistBuddy -c "Set LumenUnreleased false" Resources/Info.plist
 
 ./build.sh
 ZIP="build/Lumen-$VERSION.zip"
