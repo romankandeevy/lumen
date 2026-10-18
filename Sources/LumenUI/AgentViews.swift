@@ -173,7 +173,7 @@ struct StepsView: View {
         if let live, let now = steps.last {
             // как в Claude: бегущие точки · что делает сейчас · сколько идёт · ›
             HStack(spacing: 10) {
-                DotsSpinner(color: live.tint ?? p.glow)
+                DotsSpinner(color: live.tint ?? p.glow, mood: .writing)
                 TimelineView(.periodic(from: .now, by: 1)) { ctx in
                     HStack(spacing: 8) {
                         Text(now.text).tw(14, lh: 20).foregroundStyle(p.foreground.opacity(0.85)).lineLimit(1).shimmer(p.foreground)
@@ -721,7 +721,7 @@ struct ClaudeLiveLine: View {
         VStack(alignment: .leading, spacing: 6) {
             Button { withAnimation(.easeOut(duration: 0.15)) { open.toggle() } } label: {
                 HStack(spacing: 10) {
-                    DotsSpinner(color: tint ?? p.glow).frame(width: 22)
+                    DotsSpinner(color: tint ?? p.glow, mood: .writing).frame(width: 22)
                     Text("Claude Code").tw(13, .medium, lh: 20).foregroundStyle(p.foreground.opacity(0.75))
                     TimelineView(.periodic(from: .now, by: 1)) { ctx in
                         HStack(spacing: 8) {
@@ -758,14 +758,28 @@ struct ClaudeLiveLine: View {
     }
 }
 
-/// Знак «работает», как в Claude: четыре точки ромбом, по очереди гаснут и загораются
+/// Знак «работает», как в Claude: четыре точки ромбом, по очереди гаснут и загораются.
+/// Если включён питомец «вместо точек» — вместо них питомец, у бота — его капля (WorkMark)
 struct DotsSpinner: View {
     var color: Color
     var size: CGFloat = 4
+    var bot: Bot?
+    var mood: PetMood = .thinking
+    /// Только точки, без питомца
+    var plain = false
 
     @Environment(\.lessMotion) private var lessMotion
+    @Environment(\.petMark) private var pet
 
     var body: some View {
+        if !plain && pet != nil {
+            WorkMark(color: color, bot: bot, mood: mood)
+        } else {
+            dots
+        }
+    }
+
+    private var dots: some View {
         TimelineView(.animation(minimumInterval: 1 / 20, paused: lessMotion)) { ctx in
             let t = ctx.date.timeIntervalSinceReferenceDate
             let gap = size * 1.6
@@ -788,12 +802,13 @@ struct LiveStepLine: View {
     let text: String
     let since: Date
     var tint: Color?
+    var bot: Bot?
 
     @Environment(\.palette) private var p
 
     var body: some View {
         HStack(spacing: 10) {
-            DotsSpinner(color: tint ?? p.glow).frame(width: 22)
+            DotsSpinner(color: tint ?? p.glow, bot: bot, mood: .writing).frame(width: 22)
             TimelineView(.periodic(from: .now, by: 1)) { ctx in
                 HStack(spacing: 8) {
                     Text(text).tw(14, lh: 20).foregroundStyle(p.mutedFg).lineLimit(1).shimmer(p.foreground)

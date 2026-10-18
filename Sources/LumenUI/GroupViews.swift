@@ -242,7 +242,7 @@ struct GroupPanel: View {
 
         var body: some View {
             HStack(spacing: 10) {
-                BotAvatar(bot: bot, size: 26)
+                BotAvatar(bot: bot, size: 26, anim: speaking ? .play : .idle, animated: speaking)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(bot.name).tw(13, .medium, lh: 18).lineLimit(1)
                     Text(speaking ? "пишет…" : "@\(bot.id)").tw(11, lh: 14)

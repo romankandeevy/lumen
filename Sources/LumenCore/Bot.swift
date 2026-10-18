@@ -31,14 +31,17 @@ public struct Bot: Codable, Sendable, Equatable, Identifiable, Hashable {
     public var learned: [String] = []
     /// Коннекторы MCP, которые разрешил человек (имена из «Кастомизации»). Без выбора — ни одного.
     public var connectors: [String] = []
+    /// Капля вместо значка (1.5): форма, лицо и цвет. Нет — собирается по оттенку и id (`blobLook`)
+    public var look: BlobLook?
     public var createdAt: Date
     public var updatedAt: Date
 
     public init(id: String, name: String, icon: String = "bot", hue: Double = 200, role: String = "", instructions: String = "",
                 capabilities: Set<BotCapability> = [.read], commands: [String] = [], folder: String? = nil,
                 model: ChatModel = .sonnet, effort: Effort = .medium, starters: [String] = [], handoff: String? = nil,
-                skills: [String] = [], learned: [String] = [], connectors: [String] = [],
+                skills: [String] = [], learned: [String] = [], connectors: [String] = [], look: BlobLook? = nil,
                 createdAt: Date = Date(), updatedAt: Date = Date()) {
+        self.look = look
         self.skills = skills
         self.connectors = connectors
         self.learned = learned

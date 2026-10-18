@@ -115,6 +115,10 @@ public struct RootView: View {
         .environment(\.palette, p)
         .environment(\.chatText, ChatText(font: app.prefs.chatFont, scale: app.prefs.textScale, code: app.prefs.codeFontSize))
         .environment(\.lessMotion, app.lessMotion)
+        // питомец (1.5): вместо точек «работает» и поверх окон
+        .environment(\.petMark, app.prefs.pet.enabled && app.prefs.pet.inChat ? app.prefs.pet : nil)
+        .onAppear { PetPanel.shared.sync(app) }
+        .onChange(of: app.prefs.pet) { PetPanel.shared.sync(app) }
         // размер шрифта интерфейса поменяли — всё окно перерисовывается с новым размером
         .id(app.prefs.uiFontSize)
         .preferredColorScheme(p.scheme)
@@ -733,7 +737,7 @@ private struct BotRow: View {
     var body: some View {
         Button { app.openBot(bot.id) } label: {
             HStack(spacing: 10) {
-                BotAvatar(bot: bot, size: 22)
+                BotAvatar(bot: bot, size: 22, anim: working ? .play : .idle, animated: working)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(bot.name).tw(14, lh: 20).lineLimit(1)
                     Text("@\(bot.id)").tw(11, lh: 14).foregroundStyle(BotColor.accent(bot.hue).opacity(0.8)).lineLimit(1)

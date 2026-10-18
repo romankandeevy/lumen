@@ -182,6 +182,8 @@ public struct Preferences: Codable, Sendable, Equatable {
     }
     /// Получать бета-версии (1.0.1, 1.0.2…), а не только стабильные
     public var betaUpdates = false
+    /// Питомец (1.5): кто, поверх окон ли, вместо точек «работает» ли
+    public var pet = PetPrefs()
 
     public init(onboarded: Bool = false, backend: Backend = .subscription, theme: Theme = .lumen, reducedMotion: Bool = false,
                 model: ChatModel = .sonnet, effort: Effort = .medium, chatWidth: ChatWidth = .normal) {
@@ -253,6 +255,7 @@ public struct Preferences: Codable, Sendable, Equatable {
         apiKeys = (try? c.decodeIfPresent([ApiKeyEntry].self, forKey: .apiKeys)) ?? []
         activeKeyID = try? c.decodeIfPresent(String.self, forKey: .activeKeyID)
         notifyWhenDone = (try? c.decodeIfPresent(Bool.self, forKey: .notifyWhenDone)) ?? false
+        pet = (try? c.decodeIfPresent(PetPrefs.self, forKey: .pet)) ?? PetPrefs()
         doneSound = (try? c.decodeIfPresent(String.self, forKey: .doneSound)) ?? ""
         sendWithCommand = (try? c.decodeIfPresent(Bool.self, forKey: .sendWithCommand)) ?? false
         projectContextAuto = (try? c.decodeIfPresent(Bool.self, forKey: .projectContextAuto)) ?? true

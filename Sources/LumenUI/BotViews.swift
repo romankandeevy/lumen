@@ -5,35 +5,31 @@ import SwiftUI
 // Боты (`pages/bots-page.tsx`, `pages/bot-page.tsx`): каталог карточками, конструктор, паспорт.
 // Только то, что работает: без навыков, расписаний, облака и групп — их ещё нет.
 
-/// Знак бота — плитка своего цвета с иконкой. Lumen — круглая сфера, бот — плитка: в ленте сразу видно, кто говорит.
+/// Знак бота — его капля (1.5): форма, лицо и цвет свои у каждого. Lumen — сфера, бот — капля с глазами:
+/// в ленте сразу видно, кто говорит. В списках капля стоит, пока бот работает — живая.
 struct BotAvatar: View {
-    let icon: String
-    let hue: Double
+    let look: BlobLook
     var size: CGFloat = 28
+    var anim: BlobAnim = .idle
+    var animated = false
 
-    init(bot: Bot, size: CGFloat = 28) {
-        icon = bot.icon
-        hue = bot.hue
+    init(bot: Bot, size: CGFloat = 28, anim: BlobAnim = .idle, animated: Bool = false) {
+        look = bot.blobLook
         self.size = size
+        self.anim = anim
+        self.animated = animated
     }
 
-    init(icon: String, hue: Double, size: CGFloat = 28) {
-        self.icon = icon
-        self.hue = hue
+    init(look: BlobLook, size: CGFloat = 28, animated: Bool = false) {
+        self.look = look
         self.size = size
+        self.animated = animated
     }
 
     var body: some View {
-        Icon(icon, size * 0.5)
-            .foregroundStyle(BotColor.accent(hue))
+        // сама капля занимает ~72% своего квадрата — рисуем крупнее, чтобы она заполняла место значка
+        BlobView(look: look, anim: anim, size: size * 1.32, animated: animated)
             .frame(width: size, height: size)
-            .background(
-                LinearGradient(colors: [BotColor.tileTop(hue), BotColor.tileBottom(hue)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                in: RoundedRectangle(cornerRadius: size * 0.28, style: .continuous))
-            .overlay(alignment: .top) {
-                RoundedRectangle(cornerRadius: size * 0.28, style: .continuous).strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
-            }
-            .shadow(color: BotColor.accent(hue).opacity(0.35), radius: size * 0.25)
             .accessibilityHidden(true)
     }
 }
@@ -101,7 +97,7 @@ struct BotsView: View {
         var body: some View {
             Button(action: open) {
                 HStack(spacing: 14) {
-                    BotAvatar(bot: bot, size: 34)
+                    BotAvatar(bot: bot, size: 34, anim: .orbit, animated: true)
                     VStack(alignment: .leading, spacing: 0) {
                         Text(bot.name).tw(14, .medium, lh: 20)
                         Text(from).tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(1)
@@ -359,38 +355,8 @@ struct BotEditor: View {
                         if clean != v { idText = clean }
                     }
             }
-            field("Знак и цвет") {
-                VStack(alignment: .leading, spacing: 14) {
-                    LazyVGrid(columns: Array(repeating: GridItem(.fixed(40), spacing: 6), count: 10), alignment: .leading, spacing: 6) {
-                        ForEach(Bot.icons, id: \.self) { name in
-                            let on = draft.icon == name
-                            Button { draft.icon = name } label: {
-                                Group {
-                                    if on {
-                                        BotAvatar(icon: name, hue: draft.hue, size: 40)
-                                    } else {
-                                        Icon(name, 18).foregroundStyle(p.mutedFg)
-                                            .frame(width: 40, height: 40)
-                                            .background(p.foreground.opacity(0.04), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-                                    }
-                                }
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    HStack(spacing: 8) {
-                        // готовые цвета и полоса для точного
-                        ForEach([20.0, 45, 85, 140, 160, 200, 235, 270, 320], id: \.self) { h in
-                            Button { draft.hue = h } label: {
-                                Circle().fill(BotColor.accent(h)).frame(width: 20, height: 20)
-                                    .overlay(Circle().strokeBorder(p.foreground.opacity(abs(draft.hue - h) < 1 ? 0.9 : 0), lineWidth: 2))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        HueSlider(hue: $draft.hue).padding(.leading, 6)
-                    }
-                }
+            field("Капля") {
+                BlobLookEditor(look: Binding(get: { draft.blobLook }, set: { v in draft.look = v; draft.hue = v.hue }))
             }
             field("Роль", aside: "одна строка") { GlowField(placeholder: "Проверяет приложения и правки — и только", text: $draft.role) }
             field("Инструкции") {
@@ -543,7 +509,7 @@ struct BotEditor: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Так его увидишь").tw(12, .medium, lh: 16).foregroundStyle(p.mutedFg)
             HStack(spacing: 12) {
-                BotAvatar(icon: draft.icon, hue: draft.hue, size: 44)
+                BotAvatar(look: draft.blobLook, size: 44, animated: true)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(draft.name.isEmpty ? "Без названия" : draft.name).tw(14, .medium, lh: 20)
                     Text("@\(idText.isEmpty ? "id" : idText)").tw(12, lh: 16).foregroundStyle(BotColor.accent(draft.hue))
@@ -660,8 +626,15 @@ struct BotEditor: View {
     private func load() {
         guard !loaded else { return }
         loaded = true
-        let b = existing ?? Bot(id: "", name: "", hue: Double(Int.random(in: 0..<12) * 30), capabilities: [.read],
+        var b = existing ?? Bot(id: "", name: "", hue: Double(Int.random(in: 0..<12) * 30), capabilities: [.read],
                                 commands: Bot.defaultCommands, model: .sonnet)
+        if existing == nil {
+            // новому боту — случайная капля: форма и цвет из палитры, оттенок подписей — по цвету
+            let look = BlobLook(shape: BlobShape.allCases.randomElement() ?? .circle, face: .attentive,
+                                color: BlobLook.palette.randomElement()?.hex ?? "#eab04a")
+            b.look = look
+            b.hue = look.hue
+        }
         draft = b
         idText = b.id
         commandsText = b.commands.joined(separator: ", ")

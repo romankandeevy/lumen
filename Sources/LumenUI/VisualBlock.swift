@@ -19,7 +19,7 @@ struct VisualBlock: View {
     var body: some View {
         if !done {
             HStack(spacing: 10) {
-                DotsSpinner(color: p.glow)
+                DotsSpinner(color: p.glow, plain: true)
                 Text("Рисую…").tw(14, lh: 20).foregroundStyle(p.mutedFg).shimmer(p.foreground)
             }
             .frame(maxWidth: .infinity, minHeight: 120)

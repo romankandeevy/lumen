@@ -236,6 +236,10 @@ public final class Store: Sendable {
             try db.alter(table: "message") { t in t.add(column: "alternates", .jsonText) }
             try db.alter(table: "conversation") { t in t.add(column: "extraPaths", .jsonText) }
         }
+        m.registerMigration("v19-bot-look") { db in
+            // капля бота вместо значка (1.5): форма, лицо, цвет
+            try db.alter(table: "bot") { t in t.add(column: "look", .jsonText) }
+        }
         return m
     }
 

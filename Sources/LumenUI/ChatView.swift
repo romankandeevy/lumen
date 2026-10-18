@@ -282,7 +282,7 @@ struct ChatView: View {
                     // (если шаги уже в ответе — это его последняя группа шагов, отдельной строки не нужно)
                     if chat.busy, !chat.thinking, chat.pendingPermission == nil, let live = chat.liveStep, chat.streaming == nil,
                        (live.step.at ?? 0) >= (chat.streaming?.text.count ?? 0) {
-                        LiveStepLine(text: live.step.text, since: live.since, tint: app.bot(chat.turnBot).map { BotColor.accent($0.hue) })
+                        LiveStepLine(text: live.step.text, since: live.since, tint: app.bot(chat.turnBot).map { BotColor.accent($0.hue) }, bot: app.bot(chat.turnBot))
                     }
                     // claude долго молчит — сказать прямо, что происходит, и дать выход
                     // сбой связи: Lumen сам повторяет или ждёт сеть — видно, что не завис
@@ -328,7 +328,7 @@ struct ChatView: View {
                     } else if chat.thinking {
                         HStack(spacing: 10) {
                             if let b = app.bot(chat.turnBot) {
-                                DotsSpinner(color: BotColor.accent(b.hue))
+                                DotsSpinner(color: BotColor.accent(b.hue), bot: b)
                                 Text("\(b.name) работает…").tw(14, lh: 20).foregroundStyle(p.mutedFg).shimmer(BotColor.accent(b.hue))
                             } else {
                                 DotsSpinner(color: p.glow)
@@ -1975,7 +1975,7 @@ struct LiveBotWork: View {
             let pieces = AnswerPiece.layout(text: work.text, steps: work.steps)
             if pieces.isEmpty {
                 HStack(spacing: 10) {
-                    DotsSpinner(color: tint)
+                    DotsSpinner(color: tint, bot: bot)
                     Text("\(bot?.name ?? "Бот") думает…").tw(14, lh: 20).foregroundStyle(p.mutedFg).shimmer(tint)
                 }
             }

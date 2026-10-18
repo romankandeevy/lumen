@@ -49,7 +49,11 @@ public final class AppModel {
         guard let id, let live = claudeLive[id] else { return false }
         return live.active() != .idle
     }
-    var orb: Orb.State = .idle
+    var orb: Orb.State = .idle {
+        didSet { if orb != .idle { petBusyAt = Date() } }
+    }
+    /// Когда Lumen последний раз работал: через 10 минут тишины питомец засыпает
+    var petBusyAt = Date()
     /// Есть ли сеть (NWPathMonitor): без неё ход ждёт, а не падает
     var online = true
     @ObservationIgnored private let pathMonitor = NWPathMonitor()
