@@ -22,6 +22,8 @@ public enum ClaudeEvent: Sendable, Equatable {
     case anchor(String)
     /// Инструмент вернул результат (сообщение user с tool_result)
     case toolDone
+    /// Фоновая задача: субагент, исследование, команда в терминале (BackgroundTasks.swift)
+    case task(TaskEvent)
     case unknown(String)
 
     public struct PermissionRequest: Sendable, Equatable, Identifiable {
@@ -85,6 +87,15 @@ public enum ClaudeEvent: Sendable, Equatable {
 
     /// Все события строки: в одном сообщении может быть несколько вызовов инструментов
     public static func decodeAll(_ line: Data) -> [ClaudeEvent] {
+        // строка субагента: его шаги — в его фоновую задачу, а не в общий список шагов (и не в план, и не в счёт команд)
+        if let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any], let parent = obj["parent_tool_use_id"] as? String {
+            guard obj["type"] as? String == "assistant" else { return [] }
+            let content = (obj["message"] as? [String: Any])?["content"] as? [[String: Any]] ?? []
+            return content.filter { $0["type"] as? String == "tool_use" }.map { block in
+                let step = AgentStep.from(tool: block["name"] as? String ?? "", input: block["input"] as? [String: Any] ?? [:])
+                return .task(.progress(id: nil, toolUseID: parent, activity: step.text, toolUses: nil, tokens: nil))
+            }
+        }
         if let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any], obj["type"] as? String == "assistant" {
             let content = (obj["message"] as? [String: Any])?["content"] as? [[String: Any]] ?? []
             let anchor: [ClaudeEvent] = (obj["uuid"] as? String).map { [.anchor($0)] } ?? []
@@ -111,9 +122,20 @@ public enum ClaudeEvent: Sendable, Equatable {
            content.contains(where: { $0["type"] as? String == "tool_result" }) {
             // ответ на TaskCreate несёт настоящий номер задачи — по нему потом придёт TaskUpdate
             let created: [ClaudeEvent] = content.compactMap(taskCreated).map { .plan(.created(id: $0.id, subject: $0.subject)) }
+            // команда ушла в фон: куда пишется её вывод — чтобы показывать его вживую
+            var output: [ClaudeEvent] = []
+            if let bg = (obj["tool_use_result"] as? [String: Any])?["backgroundTaskId"] as? String {
+                let text = content.compactMap { b -> String? in
+                    if let s = b["content"] as? String { return s }
+                    return (b["content"] as? [[String: Any]])?.compactMap { $0["text"] as? String }.joined()
+                }.joined(separator: "\n")
+                if let m = text.firstMatch(of: /Output is being written to: (\S+)/) {
+                    output.append(.task(.output(id: bg, file: String(m.1).trimmingCharacters(in: CharacterSet(charactersIn: ".")))))
+                }
+            }
             // по событию на каждый ответ инструмента: при нескольких командах сразу Lumen считает, сколько ещё идёт
             let done = content.filter { $0["type"] as? String == "tool_result" }.map { _ in ClaudeEvent.toolDone }
-            return done + created
+            return done + created + output
         }
         return decode(line).map { [$0] } ?? []
     }
@@ -140,11 +162,31 @@ public enum ClaudeEvent: Sendable, Equatable {
             return .compacted
         case ("system", "api_retry"):
             return .retry(attempt: obj["attempt"] as? Int ?? 0, error: obj["error"] as? String ?? "")
+        case ("system", "task_started"):
+            guard let id = obj["task_id"] as? String else { return nil }
+            return .task(.started(id: id, toolUseID: obj["tool_use_id"] as? String, taskType: obj["task_type"] as? String ?? "",
+                                  title: obj["description"] as? String ?? "", background: obj["is_backgrounded"] as? Bool ?? false,
+                                  subagentType: obj["subagent_type"] as? String))
+        case ("system", "task_progress"):
+            let usage = obj["usage"] as? [String: Any] ?? [:]
+            return .task(.progress(id: obj["task_id"] as? String, toolUseID: obj["tool_use_id"] as? String,
+                                   activity: obj["description"] as? String, toolUses: usage["tool_uses"] as? Int,
+                                   tokens: usage["total_tokens"] as? Int))
+        case ("system", "task_updated"):
+            guard let id = obj["task_id"] as? String, let patch = obj["patch"] as? [String: Any],
+                  let status = patch["status"] as? String, status != "running" else { return nil }
+            return .task(.finished(id: id, status: status, outputFile: nil, summary: nil,
+                                   ended: (patch["end_time"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) }))
+        case ("system", "task_notification"):
+            guard let id = obj["task_id"] as? String else { return nil }
+            return .task(.finished(id: id, status: obj["status"] as? String ?? "completed", outputFile: obj["output_file"] as? String,
+                                   summary: obj["summary"] as? String, ended: nil))
         case ("system", _):
             // status, thinking_tokens, post_turn_summary и др. — служебные
             return nil
         case ("stream_event", _):
-            guard let ev = obj["event"] as? [String: Any],
+            // текст субагента — не ответ главного агента
+            guard obj["parent_tool_use_id"] as? String == nil, let ev = obj["event"] as? [String: Any],
                   let delta = ev["delta"] as? [String: Any],
                   delta["type"] as? String == "text_delta",
                   let text = delta["text"] as? String else { return nil }

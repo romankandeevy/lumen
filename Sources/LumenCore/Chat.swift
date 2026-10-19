@@ -269,8 +269,9 @@ public struct AgentStep: Codable, Sendable, Equatable, Hashable {
         case "NotebookEdit": return .init(kind: .edit, text: "Правит \(file("notebook_path"))")
         case "Bash":
             // своё описание команды — им и пишем; иначе сама команда. Без двоеточий: «Запускает swift test»
+            let bg = input["run_in_background"] as? Bool == true ? "В фоне: " : ""
             if let d = (input["description"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !d.isEmpty {
-                return .init(kind: .run, text: d.prefix(1).uppercased() + String(d.dropFirst().prefix(79)))
+                return .init(kind: .run, text: bg.isEmpty ? d.prefix(1).uppercased() + String(d.dropFirst().prefix(79)) : bg + String(d.prefix(79)))
             }
             return .init(kind: .run, text: "Запускает " + String(((input["command"] as? String) ?? "").prefix(80)))
         case "Grep": return .init(kind: .search, text: "Ищет «\((input["pattern"] as? String ?? "").prefix(40))»")
@@ -280,7 +281,9 @@ public struct AgentStep: Codable, Sendable, Equatable, Hashable {
         case "TodoWrite", "TaskUpdate": return .init(kind: .think, text: "Обновляет план")
         case "TaskCreate": return .init(kind: .think, text: "Добавляет в план «\((input["subject"] as? String ?? "").prefix(60))»")
         case "ToolSearch", "TaskList", "TaskGet": return .init(kind: .think, text: "Готовит инструменты")
-        case "Task", "Agent": return .init(kind: .think, text: "Отдаёт часть работы помощнику")
+        case "Task", "Agent":
+            let d = (input["description"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return .init(kind: .other, text: d.isEmpty ? "Запускает субагента" : "Запускает субагента «\(d.prefix(60))»")
         case "remember", "mcp__lumen__remember": return .init(kind: .think, text: "Запоминает")
         case "add_to_project", "mcp__lumen__add_to_project": return .init(kind: .think, text: "Добавляет в контекст проекта")
         case "recall", "mcp__lumen__recall": return .init(kind: .think, text: "Вспоминает")

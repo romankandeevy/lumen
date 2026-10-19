@@ -138,6 +138,10 @@ final class ChatController {
     /// Модель на этот ход вместо выбранной (у выбранной кончился лимит) и пояснение для человека
     var modelOverride: [String: ChatModel] = [:]
     var modelNote: [String: String] = [:]
+    /// Фоновые задачи агента по разговорам: субагенты, исследования, команды в терминале (BackgroundTasks.swift)
+    var backgroundTasks: [String: [BackgroundJob]] = [:]
+    /// Фоновые задачи открытого разговора
+    var openBackgroundTasks: [BackgroundJob] { conversation.flatMap { backgroundTasks[$0.id] } ?? [] }
     /// Сколько раз подряд Lumen ответил за отошедшего человека «реши сам» — не больше трёх, дальше ждём его
     @ObservationIgnored var autoContinues: [String: Int] = [:]
     /// Разговоры агента, которые работали этой ночью: утром им — «заверши и напиши отчёт»
@@ -1303,6 +1307,8 @@ final class ChatController {
         let s = try ClaudeSession(cli: cli, config: config)
         let key = c.id
         s.onLog = { [weak self] line in Task { @MainActor in self?.appendLog(key, line) } }
+        // фоновые задачи агента: субагенты, исследования, команды (приходят и между ходами)
+        s.onTask = { [weak self] event in Task { @MainActor in self?.applyTask(event, to: key) } }
         appendLog(key, ClaudeLog.Line(kind: .info, text: (resume ? "Продолжаю сессию " : "Новая сессия ") + String(sid.prefix(8)) + " · " + c.model.name))
         sessions[c.id] = s
         return s
@@ -2085,5 +2091,19 @@ extension ChatController {
         if let saved = try? app.store.save(m), conversation?.id == c.id { messages.append(saved) }
         app.log("Сжал разговор: записка \(words) слов, новая сессия \(c.cliSessionID ?? "")", conversation: c)
         return true
+    }
+}
+
+
+// MARK: - Фоновые задачи агента (Рома, 19.10): субагенты, исследования, команды в терминале
+
+extension ChatController {
+    func applyTask(_ event: TaskEvent, to id: String) {
+        backgroundTasks[id] = BackgroundJob.apply(event, to: backgroundTasks[id] ?? [])
+        // задача работает — агент жив, хоть и молчит
+        if case .progress = event { lastSign[id] = Date() }
+        if case .finished(_, let status, _, _, _) = event {
+            app.log("Фоновая задача закончилась: \(status)", conversation: app.conversations.first { $0.id == id })
+        }
     }
 }

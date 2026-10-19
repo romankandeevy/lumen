@@ -889,3 +889,129 @@ struct NoBounce: NSViewRepresentable {
         }
     }
 }
+
+/// Фоновые задачи агента под перепиской (Рома, 19.10): субагенты, исследования, команды в терминале.
+/// Строка «Фоновые задачи · работают 2», по нажатию — список: что делает каждая, сколько идёт, вывод команды вживую.
+/// Список — своя область прокрутки, пока раскрыт — переписка не уезжает вниз.
+struct BackgroundTasksBar: View {
+    let tasks: [BackgroundJob]
+    /// Для снимков: показать раскрытым
+    var initiallyOpen = false
+
+    @Environment(\.palette) private var p
+    @Environment(\.stepsOpened) private var stepsOpened
+    @State private var open = false
+    @State private var hover = false
+    @State private var listHeight: CGFloat = 0
+
+    var body: some View {
+        let running = tasks.filter { $0.status == .running }.count
+        VStack(alignment: .leading, spacing: 8) {
+            Button { withAnimation(.easeOut(duration: 0.18)) { open.toggle() } } label: {
+                HStack(spacing: 8) {
+                    if running > 0 { LiveDot(color: p.glow, size: 7).frame(width: 14) } else { Icon("layers", 14) }
+                    Text(Self.summary(tasks)).tw(13, lh: 18)
+                    Icon(open ? "chevron-down" : "chevron-right", 12)
+                }
+                .foregroundStyle(hover ? p.foreground : p.mutedFg)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { hover = $0 }
+            .help(open ? "Свернуть" : "Субагенты, исследования и команды, которые агент запустил")
+            if open {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(Array(tasks.reversed().enumerated()), id: \.element.id) { i, t in
+                            if i > 0 { p.border.frame(height: 1) }
+                            BackgroundTaskRow(task: t)
+                        }
+                    }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listHeight = $0 }
+                }
+                .scrollBounceBehavior(.always)
+                .frame(height: min(max(listHeight, 1), 320))
+                .background(p.foreground.opacity(0.025), in: RoundedRectangle(cornerRadius: R.lg))
+                .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
+                .transition(.opacity)
+            }
+        }
+        .onAppear { if initiallyOpen { open = true } }
+        .onChange(of: open) { _, now in stepsOpened(now) }
+        .onDisappear { if open { stepsOpened(false) } }
+    }
+
+    /// «Фоновые задачи · работают 2, готово 1»
+    static func summary(_ tasks: [BackgroundJob]) -> String {
+        let running = tasks.filter { $0.status == .running }.count
+        let failed = tasks.filter { $0.status == .failed }.count
+        let done = tasks.count - running - failed
+        let parts = [running > 0 ? "работают \(running)" : nil, done > 0 ? "готово \(done)" : nil, failed > 0 ? "с ошибкой \(failed)" : nil]
+        return "Фоновые задачи · " + parts.compactMap { $0 }.joined(separator: ", ")
+    }
+}
+
+struct BackgroundTaskRow: View {
+    let task: BackgroundJob
+
+    @Environment(\.palette) private var p
+
+    private var icon: String {
+        switch task.kind {
+        case .agent: "bot"
+        case .research: "search"
+        case .shell: "terminal"
+        }
+    }
+
+    private var kindName: String {
+        switch task.kind {
+        case .agent: "субагент"
+        case .research: "исследование"
+        case .shell: task.background ? "команда в фоне" : "команда"
+        }
+    }
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: task.status == .running ? 1 : 3600)) { ctx in
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Icon(icon, 13).foregroundStyle(p.mutedFg).frame(width: 16)
+                    Text(task.title).tw(13, lh: 18).foregroundStyle(p.foreground.opacity(0.85)).lineLimit(1)
+                    Text(kindName).tw(12, lh: 16).foregroundStyle(p.mutedFg)
+                    Spacer(minLength: 8)
+                    status(now: ctx.date)
+                }
+                if let line = task.status == .running ? task.activity : task.summary, !line.isEmpty {
+                    Text(line).tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(2).padding(.leading, 24)
+                }
+                if task.kind == .shell, let out = task.tail() {
+                    Text(out).font(.system(size: 11, design: .monospaced)).foregroundStyle(p.mutedFg)
+                        .textSelection(.enabled).lineLimit(6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8).background(p.foreground.opacity(0.04), in: RoundedRectangle(cornerRadius: R.md))
+                        .padding(.leading, 24)
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 10)
+        }
+    }
+
+    @ViewBuilder private func status(now: Date) -> some View {
+        let took = LiveStepLine.elapsed((task.ended ?? now).timeIntervalSince(task.started))
+        switch task.status {
+        case .running:
+            HStack(spacing: 6) {
+                LiveDot(color: p.glow, size: 6)
+                Text(took).monospacedDigit()
+            }
+            .tw(12, lh: 16).foregroundStyle(p.mutedFg)
+        case .completed:
+            HStack(spacing: 4) { Icon("check", 12); Text(took).monospacedDigit() }.tw(12, lh: 16).foregroundStyle(p.mutedFg)
+        case .failed:
+            Text("ошибка · \(took)").tw(12, lh: 16).foregroundStyle(Palette.destructive)
+        case .stopped:
+            Text("остановлена").tw(12, lh: 16).foregroundStyle(p.mutedFg)
+        }
+    }
+}

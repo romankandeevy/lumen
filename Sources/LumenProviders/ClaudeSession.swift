@@ -142,6 +142,12 @@ public final class ClaudeSession: @unchecked Sendable {
         get { lock.lock(); defer { lock.unlock() }; return logSink }
         set { lock.lock(); logSink = newValue; lock.unlock() }
     }
+    /// Фоновые задачи (субагенты, команды): приходят и между ходами — поэтому мимо потока хода, сюда
+    private var taskSink: (@Sendable (TaskEvent) -> Void)?
+    public var onTask: (@Sendable (TaskEvent) -> Void)? {
+        get { lock.lock(); defer { lock.unlock() }; return taskSink }
+        set { lock.lock(); taskSink = newValue; lock.unlock() }
+    }
     private func log(_ kind: ClaudeLog.Line.Kind, _ text: String) { onLog?(ClaudeLog.Line(kind: kind, text: text)) }
     /// Поток событий текущего хода. Между ходами событий почти нет; что пришло — достаётся следующему ходу.
     private var turn: AsyncStream<ClaudeEvent>.Continuation?
@@ -170,7 +176,9 @@ public final class ClaudeSession: @unchecked Sendable {
             self.lock.lock(); self.lastOutputAt = Date(); self.lock.unlock()
             for line in lines.append(chunk) {
                 if let sink = self.onLog, let l = ClaudeLog.summarize(line, state: self.logState) { sink(l) }
-                for ev in ClaudeEvent.decodeAll(line) { self.deliver(ev) }
+                for ev in ClaudeEvent.decodeAll(line) {
+                    if case .task(let t) = ev { self.onTask?(t) } else { self.deliver(ev) }
+                }
             }
         }
         errors.fileHandleForReading.readabilityHandler = { [weak self] h in

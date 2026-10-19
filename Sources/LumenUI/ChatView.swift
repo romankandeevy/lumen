@@ -326,6 +326,11 @@ struct ChatView: View {
                         TurnClockLine(text: chat.streaming == nil ? "Работает" : "Пишет ответ", since: start,
                                       tint: app.bot(chat.turnBot).map { BotColor.accent($0.hue) })
                     }
+                    // фоновые задачи агента: работают — видно всегда; закончились — пока идёт ход и ещё полчаса
+                    if let c = chat.conversation, let tasks = chat.backgroundTasks[c.id],
+                       tasks.contains(where: { $0.status == .running || chat.busy || ($0.ended ?? .distantFuture) > Date().addingTimeInterval(-1800) }) {
+                        BackgroundTasksBar(tasks: tasks)
+                    }
                     // ответила другая модель (лимит) или ночью ждём сброса лимита — сказать прямо
                     if let c = chat.conversation, let note = chat.modelNote[c.id] {
                         HStack(spacing: 8) {
@@ -1643,11 +1648,21 @@ struct Composer: View {
                     Text("Ничего не спрашивает и не ждёт разрешений, Мак не засыпает, кончится лимит — дождётся сброса и продолжит. Утром Lumen сам попросит у агента отчёт за ночь. Push и публикации — по-прежнему только с твоего OK.")
                         .tw(12, lh: 17).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
                     if !on {
-                        HStack {
+                        VStack(alignment: .leading, spacing: 8) {
                             Text("Утро в").tw(13, lh: 18)
-                            Spacer(minLength: 8)
-                            PillPicker(value: Binding(get: { night.wake }, set: { v in app.update { $0.night.wake = v } }),
-                                       options: ["05:00", "06:00", "07:00", "08:00", "09:00"].map { ($0, $0) })
+                            // время целиком, без обрезки: короткие кнопки в ряд (Рома, 19.10: «0…», «06…»)
+                            HStack(spacing: 4) {
+                                ForEach(["05:00", "06:00", "07:00", "08:00", "09:00"], id: \.self) { t in
+                                    Button { app.update { $0.night.wake = t } } label: {
+                                        Text(t).font(.geist(12)).monospacedDigit().fixedSize()
+                                            .foregroundStyle(night.wake == t ? p.foreground : p.mutedFg)
+                                            .padding(.horizontal, 7).frame(height: 26)
+                                            .background(night.wake == t ? p.foreground.opacity(0.1) : .clear, in: Capsule())
+                                            .contentShape(Capsule())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
                         }
                     }
                     LButton(title: on ? "Выключить ночь" : "Включить до \(night.wake)", icon: on ? "sun" : "moon",

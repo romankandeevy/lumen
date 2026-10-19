@@ -63,6 +63,19 @@ private struct FakeChat: View {
     }
 }
 
+/// Дождаться, пока окно разложится и прокрутка встанет (в общем прогоне тесты идут медленнее)
+@MainActor private func settle(_ host: NSView, _ seconds: Double = 0.8) async throws {
+    let until = Date().addingTimeInterval(seconds)
+    var last: CGFloat? = nil
+    while Date() < until {
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(100))
+        let now = gapToBottom(host)
+        if now != nil, now == last, Date() > until.addingTimeInterval(-seconds / 2) { return }
+        last = now
+    }
+}
+
 /// Сколько точек от низа переписки до низа экрана (0 — у самого низа)
 @MainActor private func gapToBottom(_ view: NSView) -> CGFloat? {
     func find(_ v: NSView) -> NSScrollView? {
@@ -86,20 +99,19 @@ private struct FakeChat: View {
     window.isReleasedWhenClosed = false
     window.contentView = host
     defer { window.close() }
-    try await Task.sleep(for: .milliseconds(400))
+    try await settle(host, 1.2)
     #expect((gapToBottom(host) ?? 99) < 40) // сначала — у низа (как в ScrollTracking: ближе 40 pt — «внизу»)
     if let prepare {
         prepare(t)
-        try await Task.sleep(for: .milliseconds(400))
+        try await settle(host)
     }
     change(t)
-    try await Task.sleep(for: .milliseconds(600))
-    host.layoutSubtreeIfNeeded()
+    try await settle(host, 1.2)
     return gapToBottom(host) ?? 99
 }
 
 /// Человек отправил сообщение и смотрит вниз; агент начал ход: план и идущий ответ появились под последним сообщением
-@MainActor @Test func agentStartKeepsTranscriptAtBottom() async throws {
+@MainActor @Test(.serialized) func agentStartKeepsTranscriptAtBottom() async throws {
     let idle: (FakeTranscript) -> Void = { $0.streaming = false; $0.plan = false }
     // человек отправил — сообщение в список, переписку крутит вниз (как onChange(messages.count) в ChatView)
     let sent: (FakeTranscript) -> Void = { $0.messages.append($0.messages.count) }
@@ -112,7 +124,7 @@ private struct FakeChat: View {
 }
 
 /// Конец хода: план уходит, идущий ответ становится сообщением, появляется карточка «что дальше»
-@MainActor @Test func endOfTurnKeepsTranscriptAtBottom() async throws {
+@MainActor @Test(.serialized) func endOfTurnKeepsTranscriptAtBottom() async throws {
     let finish: (FakeTranscript) -> Void = { t in
         t.plan = false; t.streaming = false; t.messages.append(t.messages.count); t.next = true
     }
@@ -123,7 +135,7 @@ private struct FakeChat: View {
 }
 
 /// Под перепиской выросло поле ввода (очередь, вложения, длинный черновик): видимая часть стала ниже
-@MainActor @Test func growingComposerKeepsTranscriptAtBottom() async throws {
+@MainActor @Test(.serialized) func growingComposerKeepsTranscriptAtBottom() async throws {
     let grow: (FakeTranscript) -> Void = { $0.composer = 220 }
     let before = try await gapAfter(pinBottom: false, start: { _ in }, change: grow)
     #expect(before > 100) // так было: низ переписки уезжал под поле ввода
@@ -133,7 +145,7 @@ private struct FakeChat: View {
 }
 
 /// Переписка без «резинки» (Рома, 19.10): дальше начала и конца не тянется
-@MainActor @Test func transcriptHasNoOverscroll() async throws {
+@MainActor @Test(.serialized) func transcriptHasNoOverscroll() async throws {
     let host = NSHostingView(rootView: ScrollView { VStack { ForEach(0..<60, id: \.self) { Text("строка \($0)") } }.background(NoBounce()) }
         .frame(width: 300, height: 300))
     host.frame = CGRect(x: 0, y: 0, width: 300, height: 300)
@@ -141,8 +153,13 @@ private struct FakeChat: View {
     window.isReleasedWhenClosed = false
     window.contentView = host
     defer { window.close() }
-    try await Task.sleep(for: .milliseconds(300))
     func find(_ v: NSView) -> NSScrollView? { if let s = v as? NSScrollView { return s }; for x in v.subviews { if let s = find(x) { return s } }; return nil }
-    let scroll = try #require(find(host))
+    var found: NSScrollView?
+    for _ in 0..<30 where found?.verticalScrollElasticity != NSScrollView.Elasticity.none {
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(100))
+        found = find(host)
+    }
+    let scroll = try #require(found)
     #expect(scroll.verticalScrollElasticity == .none)
 }

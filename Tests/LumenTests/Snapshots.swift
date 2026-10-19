@@ -608,6 +608,25 @@ enum Snap {
     try await Snap.save(v.environment(\.palette, Palette.light).background(Palette.light.background), "86-turn-clock", size: CGSize(width: 640, height: 220))
 }
 
+/// Фоновые задачи агента (19.10): субагент работает, исследование готово, команда в фоне с выводом
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotBackgroundTasks() async throws {
+    Snap.registerFonts()
+    let out = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-bg-snap.output")
+    try "Compiling LumenUI ChatView.swift\nCompiling LumenUI AgentViews.swift\nBuild complete! (12,4 с)\nTest run with 233 tests passed".write(to: out, atomically: true, encoding: .utf8)
+    var shell = BackgroundJob(id: "b1", toolUseID: nil, kind: .shell, title: "swift test", background: true, started: Date().addingTimeInterval(-74))
+    shell.outputFile = out.path
+    var agent = BackgroundJob(id: "a1", toolUseID: nil, kind: .agent, title: "Переписать экран настроек", background: true, started: Date().addingTimeInterval(-212))
+    agent.activity = "Правит SettingsView.swift"
+    var research = BackgroundJob(id: "r1", toolUseID: nil, kind: .research, title: "Как устроен автокомпакт в Codex", background: false, started: Date().addingTimeInterval(-300))
+    research.status = .completed
+    research.ended = Date().addingTimeInterval(-180)
+    research.summary = "В Codex сжатие — отдельный запрос модели с просьбой пересказать разговор; пересказ заменяет историю."
+    let v = BackgroundTasksBar(tasks: [research, agent, shell], initiallyOpen: true).padding(24).frame(width: 720, alignment: .leading)
+    for (name, pal) in [("dark", Palette.lumen), ("light", Palette.light)] {
+        try await Snap.save(v.environment(\.palette, pal).background(pal.background), "87-background-\(name)", size: CGSize(width: 720, height: 460))
+    }
+}
+
 /// История шагов: идущий шаг в заголовке, раскрытая лента
 @MainActor @Test(.enabled(if: snapDir != nil)) func snapshotStepsHistory() async throws {
     Snap.registerFonts()

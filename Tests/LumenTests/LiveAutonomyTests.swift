@@ -53,4 +53,35 @@ private let live = ProcessInfo.processInfo.environment["LUMEN_LIVE"] == "1"
     #expect(app.chat.pendingHandoff(c.id) == nil)
 }
 
+
+/// Фоновые задачи: команда в фоне и субагент — в списке задач, а шаги субагента не в шагах главного агента
+@MainActor @Test(.enabled(if: live)) func liveBackgroundTasksAreTracked() async throws {
+    pointToMCP()
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("lumen-bg-\(UUID().uuidString)")
+    let repo = root.appendingPathComponent("proj")
+    try fm.createDirectory(at: repo, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: root) }
+    try "hello\n".write(to: repo.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    let app = try AppModel(paths: AppPaths(root: root.appendingPathComponent("home")))
+    await app.refreshClaude()
+    app.finishOnboarding(name: "Тест", address: .ty, backend: .subscription, theme: .lumen)
+    app.update { $0.agentModel = .haiku; $0.agentEffort = .low; $0.agentMode = .bypassPermissions; $0.agentGuard = false }
+    app.tab = .agent
+    app.agentFolder = repo
+    app.newAgentTask()
+    app.chat.send("Сделай три вещи и ничего больше: 1) запусти в фоне (run_in_background) команду: sleep 5; echo ГОТОВО. 2) Запусти субагента (инструмент Agent) с задачей: перечисли файлы в этой папке. 3) Дождись фоновой команды и покажи её вывод. Плана не веди, ответь одной строкой.")
+    while app.chat.busy { try await Task.sleep(for: .milliseconds(300)) }
+    try await Task.sleep(for: .seconds(2))
+    let c = try #require(app.chat.conversation)
+    let tasks = app.chat.backgroundTasks[c.id] ?? []
+    print("задачи:", tasks.map { "\($0.kind) \($0.status) «\($0.title)» вывод=\($0.outputFile ?? "-") итог=\($0.summary ?? "-")" })
+    #expect(tasks.contains { $0.kind == .shell && $0.background && $0.status == .completed })
+    #expect(tasks.contains { $0.kind != .shell && $0.status == .completed })
+    let steps = (try app.store.messages(in: c.id)).flatMap(\.steps).map(\.text)
+    print("шаги главного агента:", steps)
+    #expect(steps.contains { $0.hasPrefix("Запускает субагента") })
+    if let shell = tasks.first(where: { $0.kind == .shell }) { print("вывод команды:", shell.tail() ?? "нет") }
+}
+
 }
