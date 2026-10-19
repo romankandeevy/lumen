@@ -231,8 +231,8 @@ struct Sidebar: View {
             ResizeHandle(side: .trailing, width: $app.sidebarWidth, minWidth: 220) { app.update { $0.sidebarWidth = app.sidebarWidth } }
                 .offset(x: 4).ignoresSafeArea()
         }
-        // bg-sidebar/70 + backdrop-blur-sm
-        .background(p.sidebar.opacity(0.7).ignoresSafeArea())
+        // того же цвета, что основная область; отделяет тонкая линия справа (Рома, 19.10)
+        .background(p.background.ignoresSafeArea())
         .overlay(alignment: .trailing) { p.border.frame(width: 1).ignoresSafeArea() }
         .onChange(of: app.chat.conversation?.projectID) { _, id in if let id { collapsed.remove("p:" + id) } }
     }

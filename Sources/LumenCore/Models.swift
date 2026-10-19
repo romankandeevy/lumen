@@ -174,6 +174,10 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var sendWithCommand = false
     /// Lumen сам ведёт PROJECT.md проектов: заполняет по папке и дописывает после ответов (тратит немного подписки)
     public var projectContextAuto = true
+    /// Правила агента от человека (Настройки → Модели и оплата): идут вслед за правилами, что зашиты в Lumen. Характера у агента нет (Рома, 19.10)
+    public var agentRules = ""
+    /// «Страж готовности»: не даёт агенту закончить ход, пока не проверено сделанное (хук Stop у claude)
+    public var agentGuard = true
 
     /// Режимы в поле: все, кроме скрытых; хотя бы один остаётся всегда
     public var visibleModes: [AgentMode] {
@@ -259,6 +263,8 @@ public struct Preferences: Codable, Sendable, Equatable {
         doneSound = (try? c.decodeIfPresent(String.self, forKey: .doneSound)) ?? ""
         sendWithCommand = (try? c.decodeIfPresent(Bool.self, forKey: .sendWithCommand)) ?? false
         projectContextAuto = (try? c.decodeIfPresent(Bool.self, forKey: .projectContextAuto)) ?? true
+        agentRules = (try? c.decodeIfPresent(String.self, forKey: .agentRules)) ?? ""
+        agentGuard = (try? c.decodeIfPresent(Bool.self, forKey: .agentGuard)) ?? true
     }
 }
 

@@ -89,11 +89,15 @@ final class ChatController {
     static let stallLimit: TimeInterval = 180
     /// Когда начался последний шаг хода — для живой строки «Запускает: … 12 с»
     private(set) var stepStarted: [String: Date] = [:]
-    /// Что агент делает прямо сейчас (последний шаг идущего хода открытого разговора) и с какого времени
+    /// Что агент делает прямо сейчас (последний шаг идущего хода открытого разговора) и с какого времени.
+    /// Время — с начала всего хода, а не шага: «сколько он уже работает» (Рома, 19.10)
     var liveStep: (step: AgentStep, since: Date)? {
         guard let c = conversation, let tr = turns[c.id], let s = tr.message?.steps.last else { return nil }
-        return (s, stepStarted[c.id] ?? tr.start)
+        return (s, tr.start)
     }
+
+    /// С какого времени идёт ход открытого разговора (nil — ход не идёт)
+    var turnStart: Date? { conversation.flatMap { turns[$0.id]?.start } }
     var openLog: [ClaudeLog.Line] { conversation.flatMap { logs[$0.id] } ?? [] }
 
     func appendLog(_ key: String, _ line: ClaudeLog.Line) {
@@ -115,9 +119,9 @@ final class ChatController {
         return now.timeIntervalSince(max(lastSign[c.id] ?? tr.start, tr.start))
     }
 
-    /// Скрытое напоминание характера к сообщению (только Lumen в чате и у агента; у ботов — свой характер)
+    /// Скрытое напоминание характера к сообщению (только Lumen в чате; у ботов — свой характер, у агента характера нет — Рома, 19.10)
     func styleReminder(_ c: Conversation) -> String {
-        c.kind == .chat || c.kind == .agent ? "\n\n" + app.persona.reminder : ""
+        c.kind == .chat ? "\n\n" + app.persona.reminder : ""
     }
 
     /// Очередь, как в Claude Code: написанное во время ответа уходит само, когда ответ закончится
@@ -184,6 +188,10 @@ final class ChatController {
 
     func open(_ c: Conversation) {
         guard conversation?.id != c.id else { return }
+        var c = c
+        // в списке слева у разговора план мог остаться старым: идущий ход знает свежий. Без этого план «сбрасывался»,
+        // если уйти в другой чат и вернуться, пока агент работает (Рома, 19.10)
+        if let tr = turns[c.id] { c.plan = tr.conversation.plan }
         conversation = c
         messages = (try? app.store.messages(in: c.id)) ?? []
     }
@@ -1203,6 +1211,9 @@ final class ChatController {
                             folder: URL(fileURLWithPath: folder), sessionID: sid, resume: resume, mode: mode.rawValue)
             sessionModes[c.id] = mode
             config.addDirs = (c.extraPaths ?? []).filter { FileManager.default.fileExists(atPath: $0) }
+            // страж готовности: не даёт закончить, пока не проверено сделанное (Рома, 19.10)
+            app.syncGuardFlag()
+            config.guardCommand = app.guardCommand
             // агент по ключу: тот же claude, но платит ключ (§2.4 техплана)
             if c.backend == .api, let key = app.keychain.read(Keychain.anthropicKey) { config.extraEnv["ANTHROPIC_API_KEY"] = key }
         } else {
@@ -1423,9 +1434,13 @@ final class ChatController {
     private func updatePlan(_ change: PlanItem.Change, _ c: Conversation) {
         let fresh = turns[c.id].map { !$0.planTouched } ?? false
         turns[c.id]?.planTouched = true
-        let items = PlanItem.apply(change, to: (turns[c.id]?.conversation ?? c).plan, freshTurn: fresh)
+        // новый пункт ждёт настоящий номер из ответа claude: у него нумерация сквозная на всю сессию, а план у нас
+        // после каждого хода сбрасывается — своя нумерация с 1 давала «сделано» не в том пункте (19.10)
+        let items = PlanItem.apply(change, to: (turns[c.id]?.conversation ?? c).plan, freshTurn: fresh, live: true)
         turns[c.id]?.conversation.plan = items
         if conversation?.id == c.id { conversation?.plan = items }
+        // и в списке разговоров: оттуда план берётся, когда чат открывают снова
+        if let i = app.conversations.firstIndex(where: { $0.id == c.id }) { app.conversations[i].plan = items }
         try? app.store.updatePlan(c.id, items)
         // панель сбоку сама не открывается: план и так виден в переписке (Рома, 18.10)
     }
@@ -1676,6 +1691,27 @@ extension AppModel {
         return url
     }
 
+    /// Выключатель стража готовности: пока файл лежит, хук ничего не проверяет. Переключатель в настройках
+    /// действует сразу, без перезапуска claude: хук встроен в сессию агента всегда, а решает этот файл.
+    var guardFlag: URL { paths.run.appendingPathComponent("guard-off") }
+
+    func syncGuardFlag() {
+        let fm = FileManager.default
+        if prefs.agentGuard {
+            try? fm.removeItem(at: guardFlag)
+        } else {
+            try? fm.createDirectory(at: paths.run, withIntermediateDirectories: true)
+            fm.createFile(atPath: guardFlag.path, contents: Data())
+        }
+    }
+
+    /// Команда хука Stop для агента — «страж готовности» (lumen-mcp guard, см. ReadinessGuard)
+    var guardCommand: String? {
+        guard let bin = mcpBinary else { return nil }
+        func quoted(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+        return quoted(bin.path) + " guard " + quoted(guardFlag.path)
+    }
+
     /// lumen-mcp лежит рядом с Lumen в бандле; в тестах — рядом с собранными продуктами (LUMEN_MCP)
     var mcpBinary: URL? {
         if let env = ProcessInfo.processInfo.environment["LUMEN_MCP"] { return URL(fileURLWithPath: env) }
@@ -1718,15 +1754,14 @@ extension AppModel {
     }
 
     func agentPrompt(for c: Conversation? = nil) -> String {
-        // характер — из настроек «Характер»; сверху — что ты агент на этом Маке
-        var lines = [persona.soul(userName: profile.name, ty: profile.address == .ty),
-                     "\n## Где ты\nТы — агент Lumen на этом Маке: работаешь в папке проекта — читаешь, правишь, запускаешь команды."]
-        lines.append("Push, публикацию и выкатку не делай: это только с явного OK, и делает их человек.")
+        // у агента нет характера (Рома, 19.10): правила работы — зашитые в код и свои из настроек (AgentRules)
+        var lines = [AgentRules.core(userName: profile.name, ty: profile.address == .ty, russianOnly: persona.language == .ru)]
+        if let mine = AgentRules.user(prefs.agentRules) { lines.append(mine) }
         lines.append("Всегда веди план, даже для маленькой задачи из двух шагов: первым действием составь его (TaskCreate на каждый шаг или TodoWrite), перед шагом отмечай его начатым, после — сделанным (TaskUpdate). Lumen показывает план человеку под перепиской. Только ответ на вопрос без действий — без плана.")
         lines.append("""
             В самом конце каждого ответа добавь блок для карточки «что дальше» — строго JSON внутри тегов, без markdown:
-            <lumen-next>{"recap": "два-три коротких предложения: что теперь сделано и что не сделано или не проверено", "ask": "один вопрос, если следующий шаг решает человек, иначе null", "primary": {"label": "1–3 слова", "reply": "что отправится от человека"} или null, "secondary": такая же вторая кнопка, только если это реальная альтернатива, иначе null}</lumen-next>
-            Этот блок Lumen показывает отдельной карточкой — в тексте ответа итог не повторяй.
+            <lumen-next>{"recap": "два-три коротких предложения: что теперь сделано, как проверено и что не сделано или не проверено", "ask": "один вопрос, ТОЛЬКО если без решения человека нельзя продолжать (необратимое, чужое, деньги, push или публикация), иначе null", "primary": {"label": "1–3 слова", "reply": "что отправится от человека"} или null, "secondary": такая же вторая кнопка, только если это реальная альтернатива, иначе null}</lumen-next>
+            Этот блок Lumen показывает отдельной карточкой — в тексте ответа итог не повторяй. Если вопроса нет, не придумывай его: ask — null.
             """)
         if let known = knownBlock(for: c) { lines.append(known) }
         if let block = projectBlock(for: c) { lines.append(block) }

@@ -134,6 +134,31 @@ import Testing
     #expect(events.contains { if case .step(let s) = $0 { s.text == "Обновляет план" } else { false } })
 }
 
+/// 19.10: у claude номера задач сквозные на всю сессию (в этом ходе — 7, 8, 9), а план у нас с каждым ходом сбрасывается.
+/// Своя нумерация с 1 отмечала «сделано» в третьем пункте вместо первого.
+@Test func planUsesRealTaskNumbersFromClaude() {
+    var plan: [PlanItem] = []
+    var first = true
+    let lines = [
+        #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskCreate","input":{"subject":"Прочитать"}},{"type":"tool_use","name":"TaskCreate","input":{"subject":"Проверить"}},{"type":"tool_use","name":"TaskCreate","input":{"subject":"Показать"}}]}}"#,
+        #"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"a","content":"Task #7 created successfully: Прочитать"}]}}"#,
+        #"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"b","content":[{"type":"text","text":"Task #8 created successfully: Проверить"}]}]}}"#,
+        #"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"c","content":"Task #9 created successfully: Показать"}]}}"#,
+        #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskUpdate","input":{"taskId":"7","status":"completed"}}]}}"#,
+        #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskUpdate","input":{"taskId":"8","status":"in_progress"}}]}}"#,
+    ]
+    for line in lines {
+        for case .plan(let ch) in ClaudeEvent.decodeAll(Data(line.utf8)) {
+            plan = PlanItem.apply(ch, to: plan, freshTurn: first, live: true)
+            first = false
+        }
+    }
+    #expect(plan.map(\.id) == ["7", "8", "9"])
+    #expect(plan.map(\.state) == [.done, .doing, .todo])
+    // номер из прошлого хода, которого в плане нет, ничего не отмечает
+    #expect(PlanItem.apply(.update(id: "3", status: "completed", text: nil), to: plan).map(\.state) == [.done, .doing, .todo])
+}
+
 @Test func taskToolsBuildPlan() {
     var plan: [PlanItem] = []
     for line in [

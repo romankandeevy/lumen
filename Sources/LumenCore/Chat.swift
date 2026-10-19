@@ -396,11 +396,22 @@ public struct PlanItem: Codable, Sendable, Equatable, Hashable {
         case add(String)
         /// TaskUpdate: статус (pending / in_progress / completed / deleted) и, может быть, новый текст
         case update(id: String, status: String?, text: String?)
+        /// Ответ на TaskCreate («Task #7 created successfully: …»): настоящий номер задачи у claude
+        case created(id: String, subject: String)
     }
+
+    /// Номер, пока claude не ответил на TaskCreate: начинается с «~» и ни с чьим настоящим номером не совпадёт
+    public static func pendingID() -> String { "~" + UUID().uuidString.prefix(6) }
 
     /// `freshTurn` — первое изменение плана в новом ходе: если агент начинает добавлять пункты, это новый план,
     /// старый не дописывается (иначе пункты дублируются из хода в ход). Номера продолжаются: у claude они сквозные.
-    public static func apply(_ change: Change, to plan: [PlanItem], freshTurn: Bool) -> [PlanItem] {
+    /// `live` — идущий ход: новый пункт ждёт настоящий номер из ответа claude (`.created`). Раньше Lumen нумеровал сам
+    /// с 1 после каждого хода, а у claude нумерация сквозная на всю сессию, и «сделано» попадало не в тот пункт (19.10).
+    public static func apply(_ change: Change, to plan: [PlanItem], freshTurn: Bool, live: Bool = false) -> [PlanItem] {
+        if live, case .add(let text) = change {
+            let item = PlanItem(text: text, state: .todo, id: pendingID())
+            return freshTurn ? [item] : plan + [item]
+        }
         if freshTurn, case .add(let text) = change {
             let base = plan.compactMap { $0.id.flatMap(Int.init) }.max() ?? 0
             return [PlanItem(text: text, state: .todo, id: String(base + 1))]
@@ -415,6 +426,14 @@ public struct PlanItem: Codable, Sendable, Equatable, Hashable {
         case .add(let text):
             let next = (plan.compactMap { $0.id.flatMap(Int.init) }.max() ?? 0) + 1
             return plan + [PlanItem(text: text, state: .todo, id: String(next))]
+        case .created(let id, let subject):
+            if plan.contains(where: { $0.id == id }) { return plan }
+            // по порядку создания: первый ещё не подтверждённый пункт с таким названием (иначе просто первый такой)
+            let waiting = plan.indices.filter { plan[$0].id?.hasPrefix("~") == true }
+            guard let i = waiting.first(where: { plan[$0].text == subject }) ?? waiting.first else { return plan }
+            var p = plan
+            p[i].id = id
+            return p
         case .update(let id, let status, let text):
             if status == "deleted" { return plan.filter { $0.id != id } }
             return plan.map { item in

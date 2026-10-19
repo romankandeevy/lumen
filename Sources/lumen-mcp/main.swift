@@ -9,6 +9,15 @@ import LumenStorage
 // (вторая линия защиты после --allowedTools, техплан §4.3).
 // Протокол — JSON-RPC 2.0 построчно; нужны только initialize, tools/list, tools/call.
 
+// `lumen-mcp guard <файл-выключатель>` — хук Stop у claude: «страж готовности» (ReadinessGuard).
+// Не MCP-сервер: читает JSON хука со stdin, при необходимости печатает решение «вернуться к работе» и выходит.
+// Любая неполадка — молча отпустить: страж не должен мешать работе.
+if CommandLine.arguments.dropFirst().first == "guard" {
+    if let off = CommandLine.arguments.dropFirst(2).first, FileManager.default.fileExists(atPath: off) { exit(0) }
+    if let out = ReadinessGuard.hookOutput(for: FileHandle.standardInput.readDataToEndOfFile()) { print(out) }
+    exit(0)
+}
+
 let env = ProcessInfo.processInfo.environment
 guard let dbPath = env["LUMEN_DB"], let store = try? Store(path: URL(fileURLWithPath: dbPath)) else {
     FileHandle.standardError.write(Data("lumen-mcp: нет LUMEN_DB или база не открылась\n".utf8))

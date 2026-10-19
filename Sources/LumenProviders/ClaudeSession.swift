@@ -42,12 +42,22 @@ public final class ClaudeSession: @unchecked Sendable {
             return saved + builtinPlugins.filter { !saved.contains($0) }
         }
 
-        /// `--settings`: хуки из файла «Кастомизации» плюс выключенные плагины — одной строкой JSON
-        static func settings(file: String?, pluginsOff: [String]) -> String? {
+        /// Команда хука Stop — «страж готовности» (`lumen-mcp guard <флаг>`); только у агента (Рома, 19.10)
+        public var guardCommand: String?
+
+        /// `--settings`: хуки из файла «Кастомизации», страж готовности и выключенные плагины — одной строкой JSON
+        static func settings(file: String?, pluginsOff: [String], guardCommand: String? = nil) -> String? {
             var dict: [String: Any] = [:]
             if let file, let d = FileManager.default.contents(atPath: file),
                let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] { dict = o }
             else if let file { return file } // не JSON-файл — как есть
+            if let guardCommand {
+                var hooks = dict["hooks"] as? [String: Any] ?? [:]
+                var stop = hooks["Stop"] as? [[String: Any]] ?? []
+                stop.append(["hooks": [["type": "command", "command": guardCommand, "timeout": 30]]])
+                hooks["Stop"] = stop
+                dict["hooks"] = hooks
+            }
             if !pluginsOff.isEmpty { dict["enabledPlugins"] = Dictionary(uniqueKeysWithValues: pluginsOff.map { ($0, false) }) }
             guard !dict.isEmpty, let d = try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys]) else { return nil }
             return String(decoding: d, as: UTF8.self)
@@ -109,7 +119,7 @@ public final class ClaudeSession: @unchecked Sendable {
 
             for d in addDirs { a += ["--add-dir", d] }
             if let mcpConfig { a += ["--mcp-config", mcpConfig] }
-            if let s = Self.settings(file: settings, pluginsOff: pluginsOff) { a += ["--settings", s] }
+            if let s = Self.settings(file: settings, pluginsOff: pluginsOff, guardCommand: guardCommand) { a += ["--settings", s] }
             a += resume ? ["--resume", sessionID] : ["--session-id", sessionID]
             if resume, let resumeAt { a += ["--resume-session-at", resumeAt] }
             return a

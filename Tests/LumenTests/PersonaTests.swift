@@ -33,7 +33,7 @@ import Testing
     #expect(p.length == Persona().length && p.never == Persona().never)
 }
 
-@MainActor @Test func savedPersonaGoesIntoChatAndAgentPrompts() throws {
+@MainActor @Test func savedPersonaGoesIntoChatPromptButAgentHasRulesInstead() throws {
     let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-persona-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: home) }
     let app = try AppModel(paths: AppPaths(root: home))
@@ -41,7 +41,17 @@ import Testing
     p.always = ["Начинать ответ со слова ЙОХО"]
     app.savePersona(p)
     #expect(app.systemPrompt().contains("Начинать ответ со слова ЙОХО"))
-    #expect(app.agentPrompt().contains("Начинать ответ со слова ЙОХО"))
+    // у агента характера нет (19.10): ни тона, ни слова-пароля — только правила работы и свои правила человека
+    #expect(!app.agentPrompt().contains("Начинать ответ со слова ЙОХО"))
+    #expect(!app.agentPrompt().contains("— характер"))
+    #expect(app.agentPrompt().contains("Не пиши «готово», пока не проверил"))
+    app.update { $0.agentRules = "Не двигать кнопки без просьбы" }
+    #expect(app.agentPrompt().contains("Не двигать кнопки без просьбы"))
+    // скрытое «коротко, тёплый тон» к каждому сообщению — только у чата, не у агента
+    let chat = Conversation(title: "т", kind: .chat, backend: .subscription, model: .sonnet, effort: .medium)
+    let agent = Conversation(title: "т", kind: .agent, backend: .subscription, model: .sonnet, effort: .medium)
+    #expect(app.chat.styleReminder(chat).contains("lumen-style"))
+    #expect(app.chat.styleReminder(agent).isEmpty)
     // после перезапуска приложения — тот же характер
     let again = try AppModel(paths: AppPaths(root: home))
     #expect(again.persona == p)

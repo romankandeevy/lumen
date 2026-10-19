@@ -68,6 +68,21 @@ public enum ClaudeEvent: Sendable, Equatable {
         public var contextWindow = 0
     }
 
+    /// Из ответа инструмента: «Task #7 created successfully: Название» → номер и название. Текст — строкой или блоками.
+    static func taskCreated(_ block: [String: Any]) -> (id: String, subject: String)? {
+        guard block["type"] as? String == "tool_result" else { return nil }
+        let text: String
+        if let s = block["content"] as? String {
+            text = s
+        } else if let parts = block["content"] as? [[String: Any]] {
+            text = parts.compactMap { $0["text"] as? String }.joined(separator: "\n")
+        } else {
+            return nil
+        }
+        guard let m = text.firstMatch(of: /Task #(\d+) created successfully:?[ \t]*(.*)/) else { return nil }
+        return (String(m.1), String(m.2).trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
     /// Все события строки: в одном сообщении может быть несколько вызовов инструментов
     public static func decodeAll(_ line: Data) -> [ClaudeEvent] {
         if let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any], obj["type"] as? String == "assistant" {
@@ -94,7 +109,9 @@ public enum ClaudeEvent: Sendable, Equatable {
         if let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any], obj["type"] as? String == "user",
            let content = (obj["message"] as? [String: Any])?["content"] as? [[String: Any]],
            content.contains(where: { $0["type"] as? String == "tool_result" }) {
-            return [.toolDone]
+            // ответ на TaskCreate несёт настоящий номер задачи — по нему потом придёт TaskUpdate
+            let created: [ClaudeEvent] = content.compactMap(taskCreated).map { .plan(.created(id: $0.id, subject: $0.subject)) }
+            return [.toolDone] + created
         }
         return decode(line).map { [$0] } ?? []
     }

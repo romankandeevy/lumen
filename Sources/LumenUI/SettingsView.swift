@@ -384,6 +384,27 @@ struct SettingsView: View {
                                options: Effort.allCases.map { ($0, $0.short) })
                 }
             }
+            group("Как работает агент", footer: "Характера у агента нет: он работает по правилам. Свои правила дописываются к тем, что зашиты в Lumen: работать самому, не задавать лишних вопросов, проверять сделанное и писать отчёт.") {
+                row("Страж готовности", "Не даёт агенту закончить, пока он не собрал и не проверил правки, не доделал план или упала проверка. Действует сразу.", icon: "shield-check") {
+                    LSwitch(isOn: Binding(get: { app.prefs.agentGuard }, set: { on in
+                        app.update { $0.agentGuard = on }
+                        app.syncGuardFlag()
+                    }))
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Правила агента").tw(14, lh: 20)
+                    Text("Своими словами: что делать всегда и чего не делать никогда. Например: «не двигай существующие кнопки без просьбы».")
+                        .tw(12, lh: 16).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
+                    TextEditor(text: Binding(get: { app.prefs.agentRules }, set: { v in app.update { $0.agentRules = v } }))
+                        .font(.system(size: 13))
+                        .scrollContentBackground(.hidden)
+                        .padding(10)
+                        .frame(minHeight: 120)
+                        .background(p.background.opacity(0.6), in: RoundedRectangle(cornerRadius: R.xl))
+                        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
+                }
+                .padding(.vertical, 12)
+            }
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .top, spacing: 16) {
                     SubscriptionCard(app: app).frame(minWidth: 300)

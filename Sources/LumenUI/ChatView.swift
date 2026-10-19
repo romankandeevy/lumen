@@ -233,8 +233,16 @@ struct ChatView: View {
     private var restingPet: Bool {
         let pet = app.prefs.pet
         guard pet.enabled, pet.alwaysInChat, !pet.floating, !chat.messages.isEmpty || chat.streaming != nil else { return false }
-        let stepLine = chat.busy && !chat.thinking && chat.pendingPermission == nil && chat.liveStep != nil && chat.streaming == nil
-        return !(pet.inChat && (chat.thinking || stepLine))
+        return !(pet.inChat && (chat.thinking || liveStepRowShown))
+    }
+
+    /// Питомец уже стоит на строке идущего шага: отдельной строкой «Запускает…» (ответ ещё не начат)
+    /// или в группе шагов внутри пишущегося ответа, если она в нём последняя (см. MessageRow)
+    private var liveStepRowShown: Bool {
+        guard chat.busy, !chat.thinking, chat.pendingPermission == nil, chat.liveStep != nil else { return false }
+        guard let s = chat.streaming else { return true }
+        if let last = AnswerPiece.layout(text: NextStep.split(s.text).text, steps: s.steps).last, case .steps = last { return true }
+        return false
     }
 
     private func chatPet(_ mood: PetMood) -> some View {
@@ -310,6 +318,11 @@ struct ChatView: View {
                        (live.step.at ?? 0) >= (chat.streaming?.text.count ?? 0) {
                         LiveStepLine(text: live.step.text, since: live.since, tint: app.bot(chat.turnBot).map { BotColor.accent($0.hue) }, bot: app.bot(chat.turnBot))
                     }
+                    // шага на экране нет (пишется текст) — время хода всё равно на виду
+                    if chat.busy, !chat.thinking, chat.pendingPermission == nil, !liveStepRowShown, let start = chat.turnStart {
+                        TurnClockLine(text: chat.streaming == nil ? "Работает" : "Пишет ответ", since: start,
+                                      tint: app.bot(chat.turnBot).map { BotColor.accent($0.hue) })
+                    }
                     // claude долго молчит — сказать прямо, что происходит, и дать выход
                     // сбой связи: Lumen сам повторяет или ждёт сеть — видно, что не завис
                     if chat.busy, let c = chat.conversation, let note = chat.retryNote[c.id] {
@@ -359,6 +372,12 @@ struct ChatView: View {
                             } else {
                                 DotsSpinner(color: p.glow)
                                 Text("Думает…").tw(14, lh: 20).foregroundStyle(p.mutedFg).shimmer(p.foreground)
+                            }
+                            if let start = chat.turnStart {
+                                TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                                    Text(LiveStepLine.elapsed(ctx.date.timeIntervalSince(start))).tw(13, lh: 20)
+                                        .foregroundStyle(p.mutedFg.opacity(0.8)).monospacedDigit()
+                                }
                             }
                         }
                     }
@@ -1936,32 +1955,72 @@ struct SplitDropZone: View {
     }
 }
 
-/// Таблица из ответа: шапка жирным, строки через тонкие линии, ячейки с разметкой; широкая — листается вбок
+/// Таблица из ответа: шапка жирным, строки через тонкие линии, ячейки с разметкой; широкая — листается вбок.
+/// Ширина каждой колонки считается по тексту и фиксируется: у ячейки с известной шириной текст переносится правильно,
+/// и строка растёт по самой высокой ячейке. Без этого (Grid с ленивой шириной) переносы считались после высоты строки,
+/// и длинные ячейки наезжали на соседние строки (Рома, 19.10).
 struct MarkdownTable: View {
     let rows: [[String]]
 
     @Environment(\.palette) private var p
 
-    var body: some View {
+    static let minColumn: CGFloat = 80, maxColumn: CGFloat = 340, padding: CGFloat = 12
+
+    /// Ширина колонки: самая длинная ячейка одной строкой, но не уже minColumn и не шире maxColumn (дальше — перенос).
+    /// Считаем жирным шрифтом: он шире обычного, поэтому ячейка с **жирным** не обрежется.
+    static func columnWidths(_ rows: [[String]]) -> [CGFloat] {
         let cols = rows.map(\.count).max() ?? 0
+        let font = NSFont(name: "Geist-SemiBold", size: 14) ?? .systemFont(ofSize: 14, weight: .semibold)
+        return (0..<cols).map { j in
+            var widest: CGFloat = 0
+            for row in rows where j < row.count {
+                let plain = String(RichText.markdown(row[j]).characters)
+                widest = max(widest, (plain as NSString).size(withAttributes: [.font: font]).width)
+            }
+            return min(maxColumn, max(minColumn, ceil(widest) + 2 * padding + 6))
+        }
+    }
+
+    /// Если таблица шире места под ответом — сначала сжимаем самые широкие колонки (текст в них переносится),
+    /// а вбок листаем, только когда и так тесно (все колонки по floor)
+    static func fitted(_ widths: [CGFloat], to available: CGFloat, floor: CGFloat = 130) -> [CGFloat] {
+        let total = widths.reduce(0, +)
+        guard available > 0, total > available else { return widths }
+        let spare = widths.map { max(0, $0 - floor) }
+        let room = spare.reduce(0, +)
+        guard room > 0 else { return widths }
+        let k = min(1, (total - available) / room)
+        return zip(widths, spare).map { $0 - $1 * k }
+    }
+
+    @State private var available: CGFloat = 0
+
+    var body: some View {
+        let natural = Self.columnWidths(rows)
+        let widths = Self.fitted(natural, to: available)
+        let total = widths.reduce(0, +)
         ScrollView(.horizontal, showsIndicators: false) {
-            Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(rows.enumerated()), id: \.offset) { i, row in
-                    GridRow {
-                        ForEach(0..<cols, id: \.self) { j in
+                    HStack(alignment: .top, spacing: 0) {
+                        ForEach(Array(widths.enumerated()), id: \.offset) { j, w in
                             Text(RichText.markdown(j < row.count ? row[j] : ""))
                                 .chatTw(14, lh: 21).fontWeight(i == 0 ? .semibold : .regular)
                                 .textSelection(.enabled)
-                                .frame(minWidth: 60, maxWidth: 320, alignment: .leading)
+                                .frame(width: w - 2 * Self.padding, alignment: .leading)
                                 .fixedSize(horizontal: false, vertical: true)
-                                .padding(.horizontal, 12).padding(.vertical, 8)
+                                .padding(.horizontal, Self.padding).padding(.vertical, 8)
                         }
                     }
+                    .frame(width: total, alignment: .leading)
                     .background(i == 0 ? p.foreground.opacity(0.04) : .clear)
-                    if i < rows.count - 1 { Divider().overlay(p.border).gridCellUnsizedAxes(.horizontal) }
+                    if i < rows.count - 1 { p.border.frame(width: total, height: 1) }
                 }
             }
         }
+        // узкая таблица не растягивается на всю ширину ответа; широкая сначала сжимается, потом листается вбок
+        .frame(maxWidth: natural.reduce(0, +), alignment: .leading)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { available = $0 }
         .background(p.card.opacity(0.5), in: RoundedRectangle(cornerRadius: R.lg))
         .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
     }

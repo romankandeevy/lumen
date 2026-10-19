@@ -286,7 +286,9 @@ struct BotPassport: View {
         }
         .scrollIndicators(.never)
         .frame(width: RightPanel.width(windowWidth))
-        .background(p.sidebar.opacity(0.5))
+        // тот же цвет, что у основной области, и тонкая линия слева (Рома, 19.10)
+        .background(p.background)
+        .overlay(alignment: .leading) { p.border.frame(width: 1).ignoresSafeArea() }
         .foregroundStyle(p.foreground)
     }
 

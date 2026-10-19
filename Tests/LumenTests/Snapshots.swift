@@ -571,6 +571,43 @@ enum Snap {
     try await Snap.save(RichText(text: code.text).padding(20).environment(\.palette, Palette.lumen).background(Palette.lumen.background), "83-code", size: CGSize(width: 700, height: 420))
 }
 
+/// Таблица из ответа (19.10): длинные ячейки переносятся, строки не наезжают друг на друга
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotTable() async throws {
+    Snap.registerFonts()
+    let text = """
+    Сценарии, обновлённые под «Конструктор»:
+
+    | Сценарий | Было | Шаги | Зачем |
+    |---|---|---|---|
+    | **1. Новый способ** | A + B | Инструкция за 10 с → примеры → вставь → переделай → собери из плиток → напиши сам → скажи сам | Открыть грамматику и сразу собрать из неё своё |
+    | **2. Слова сферы** | Д | Новые слова → пары → по звуку → напиши слово → вставь в предложение известным способом → скажи | Ось «Слова» |
+    | **3. Слушаем** | Б | Сцена из сферы на слух → верно или нет → числа или похожие слова → диктант → ответь | Понимать живую речь |
+    | **4. Диалог по шагам** | Г | Реплика собеседника → выбери ответ → собери ответ → допиши → ответь голосом | Подготовка к «Разговору», только своя роль |
+    | **5. Ошибки** | новое | Русская ловушка → найди ошибку → выбери верное → исправь → скажи верно | Типичные ошибки русскоязычных |
+
+    Блок из восьми уроков строится так.
+    """
+    for (name, pal, width) in [("dark", Palette.lumen, 1100.0), ("light", Palette.light, 1100.0), ("narrow", Palette.lumen, 560.0)] {
+        let v = RichText(text: text).padding(24).frame(width: width, alignment: .leading)
+            .environment(\.palette, pal).background(pal.background)
+        try await Snap.save(v, "85-table-\(name)", size: CGSize(width: width, height: 620))
+    }
+}
+
+/// Время хода на виду (19.10): с начала хода, не с начала шага; есть и пока пишется текст
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotTurnClock() async throws {
+    Snap.registerFonts()
+    let start = Date().addingTimeInterval(-(2 * 3600 + 14 * 60 + 5))
+    let steps = [AgentStep(kind: .run, text: "Запускает swift test")]
+    let v = VStack(alignment: .leading, spacing: 22) {
+        LiveStepLine(text: "Запускает swift test", since: start)
+        StepsView(steps: steps, live: (start, nil))
+        TurnClockLine(text: "Пишет ответ", since: Date().addingTimeInterval(-134))
+    }
+    .padding(24).frame(width: 640, alignment: .leading)
+    try await Snap.save(v.environment(\.palette, Palette.light).background(Palette.light.background), "86-turn-clock", size: CGSize(width: 640, height: 220))
+}
+
 /// История шагов: идущий шаг в заголовке, раскрытая лента
 @MainActor @Test(.enabled(if: snapDir != nil)) func snapshotStepsHistory() async throws {
     Snap.registerFonts()

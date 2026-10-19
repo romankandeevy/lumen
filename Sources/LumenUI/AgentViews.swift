@@ -821,6 +821,31 @@ struct LiveStepLine: View {
 
     static func elapsed(_ t: TimeInterval) -> String {
         let s = max(0, Int(t))
-        return s < 60 ? "\(s) с" : "\(s / 60) мин \(s % 60) с"
+        if s < 60 { return "\(s) с" }
+        if s < 3600 { return "\(s / 60) мин \(s % 60) с" }
+        return "\(s / 3600) ч \(s % 3600 / 60) мин"
+    }
+}
+
+/// Время хода всегда на виду — и пока пишется текст, когда шага уже нет (Рома, 19.10): сколько прошло с начала хода
+struct TurnClockLine: View {
+    let text: String
+    let since: Date
+    var tint: Color?
+
+    @Environment(\.palette) private var p
+
+    var body: some View {
+        HStack(spacing: 10) {
+            LiveDot(color: tint ?? p.glow, size: 7).frame(width: 22)
+            TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                HStack(spacing: 8) {
+                    Text(text).tw(14, lh: 20).foregroundStyle(p.mutedFg).lineLimit(1)
+                    Text(LiveStepLine.elapsed(ctx.date.timeIntervalSince(since))).tw(13, lh: 20)
+                        .foregroundStyle(p.mutedFg.opacity(0.8)).monospacedDigit()
+                }
+            }
+            Spacer(minLength: 0)
+        }
     }
 }
