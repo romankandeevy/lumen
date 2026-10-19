@@ -142,6 +142,10 @@ public struct Via: Codable, Sendable, Equatable, Hashable {
     /// Сообщение подтянуто из Claude Code (перенесённый разговор догоняет то, что написано там)
     public static let claudeCode = Via(conversationID: nil, title: "Claude Code")
     public var isClaudeCode: Bool { self == Self.claudeCode }
+    /// Сообщение отправил сам Lumen за человека: утро, «меня нет — реши сам», «лимит сбросился» (19.10)
+    public static func auto(_ why: String) -> Via { Via(conversationID: nil, title: autoPrefix + why) }
+    static let autoPrefix = "lumen-auto:"
+    public var autoReason: String? { title.hasPrefix(Self.autoPrefix) ? String(title.dropFirst(Self.autoPrefix.count)) : nil }
 
     public init(conversationID: String? = nil, title: String) {
         self.conversationID = conversationID

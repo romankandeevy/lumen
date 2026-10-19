@@ -323,6 +323,14 @@ struct ChatView: View {
                         TurnClockLine(text: chat.streaming == nil ? "Работает" : "Пишет ответ", since: start,
                                       tint: app.bot(chat.turnBot).map { BotColor.accent($0.hue) })
                     }
+                    // ответила другая модель (лимит) или ночью ждём сброса лимита — сказать прямо
+                    if let c = chat.conversation, let note = chat.modelNote[c.id] {
+                        HStack(spacing: 8) {
+                            Icon("info", 13)
+                            Text(note).tw(13, lh: 18)
+                        }
+                        .foregroundStyle(p.mutedFg)
+                    }
                     // claude долго молчит — сказать прямо, что происходит, и дать выход
                     // сбой связи: Lumen сам повторяет или ждёт сеть — видно, что не завис
                     if chat.busy, let c = chat.conversation, let note = chat.retryNote[c.id] {
@@ -418,7 +426,7 @@ struct ChatView: View {
                 if chat.messages.contains(where: \.chapter) { ChaptersButton(chat: chat).padding(16) }
             }
             // где мы в переписке: у низа ли и какое сообщение сверху
-            .modifier(ScrollTracking(atBottom: $atBottom))
+            .modifier(ScrollTracking(atBottom: $atBottom) { proxy.scrollTo("bottom", anchor: .bottom) })
             // ширина поменялась (спрятали или показали панель, потянули окно) — ленивый список теряет место:
             // вернуть к низу или к тому сообщению, что было сверху
             // ширина поменялась (панель, браузер): был внизу — остаться внизу, когда ширина успокоится.
@@ -433,6 +441,11 @@ struct ChatView: View {
                     wasAtBottom = nil
                     if bottom { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
+            }
+            // окно переписки стало ниже или выше — выросло поле ввода (очередь, вложения, длинный черновик). Был внизу —
+            // остаться внизу: иначе последние строки уезжали под поле, и казалось, что переписку подняло вверх (Рома, 19.10)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { _ in
+                if atBottom { proxy.scrollTo("bottom", anchor: .bottom) }
             }
             // кнопка «вниз», когда отлистал вверх
             .overlay(alignment: .bottom) {
@@ -1051,6 +1064,7 @@ struct Composer: View {
     @State private var effortOpen = false
     @State private var folderOpen = false
     @State private var modeOpen = false
+    @State private var nightOpen = false
 
     private var chat: ChatController { controller ?? app.chat }
     private var model: ChatModel { chat.conversation?.model ?? (agent ? app.defaultAgentModel : app.prefs.model) }
@@ -1123,6 +1137,21 @@ struct Composer: View {
     }
 
     /// «@id » в начале текста (выбрали из списка, вставили, нажали участника группы) — превратить в чип
+    /// Файл бросили прямо на поле — оно вставило путь текстом («/var/folders/…/Снимок экрана….png»).
+    /// Путь убираем из черновика, а файл прикрепляем как вложение (Рома, 19.10). Папки остаются текстом: агенту это путь.
+    private func absorbDroppedFiles(old: String, new: String) {
+        guard let ins = DroppedPaths.insertion(old: old, new: new) else { return }
+        let fm = FileManager.default
+        guard let urls = DroppedPaths.files(in: ins.text, exists: { p in
+            var dir: ObjCBool = false
+            return fm.fileExists(atPath: p, isDirectory: &dir) && !dir.boolValue
+        }) else { return }
+        let added = urls.compactMap(app.importAttachment)
+        guard !added.isEmpty else { return }
+        attachments.append(contentsOf: added)
+        draft = ins.prefix + ins.suffix
+    }
+
     private func absorbMention() {
         guard !inBot, mentioned == nil, draft.hasPrefix("@"), let space = draft.firstIndex(where: { $0 == " " || $0 == "\n" }) else { return }
         let id = String(draft[draft.index(after: draft.startIndex)..<space]).lowercased()
@@ -1268,7 +1297,11 @@ struct Composer: View {
                 .lineLimit(big ? 4...14 : 2...12)
                 .focused($focused)
                 .onSubmit(send)
-                .onChange(of: draft) { absorbMention(); if slashIndex >= slashItems.count { slashIndex = 0 } }
+                .onChange(of: draft) { old, new in
+                    absorbDroppedFiles(old: old, new: new)
+                    absorbMention()
+                    if slashIndex >= slashItems.count { slashIndex = 0 }
+                }
                 // ⌫ в пустом поле — убрать чип; стрелки и Tab — по меню «/»
                 // Enter — отправить, Shift+Enter — новая строка; в настройках можно наоборот: ⌘Enter — отправить, Enter — строка
                 .onKeyPress(.return, phases: .down) { press in
@@ -1359,7 +1392,7 @@ struct Composer: View {
     @ViewBuilder private var leftControls: some View {
         // как в Claude: «+» в левом нижнем углу — картинки и файлы
         PlusMenu(app: app, agent: agent, canPickFolder: agent && chat.conversation == nil, draft: $draft, attachments: $attachments).fixedSize()
-        if agent { folderPicker.fixedSize(); modePicker.fixedSize() }
+        if agent { folderPicker.fixedSize(); modePicker.fixedSize(); nightToggle.fixedSize() }
         if let b = currentBot { botChip(b).fixedSize(); botFolderPicker(b).fixedSize(); botEffortPicker(b).fixedSize() }
         ElsewherePill(app: app)
     }
@@ -1590,6 +1623,39 @@ struct Composer: View {
         .help("Режим: \(mode.note)")
     }
 
+    /// «Ночь» (Рома, 19.10): оставить агента работать до утра — без вопросов и разрешений, Мак не спит, утром отчёт
+    private var nightToggle: some View {
+        let night = app.prefs.night
+        let on = night.active()
+        let until = night.until.map { Night.clock($0) } ?? night.wake
+        return PickerButton(open: $nightOpen) {
+            Icon("moon", 14).foregroundStyle(on ? p.glow : p.mutedFg)
+            Text(on ? "Ночь до \(until)" : "Ночь").font(.geist(12))
+        } panel: {
+            PopoverPanel(title: on ? "Ночь до \(until)" : "Ночь — агент работает сам до утра", width: 320) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Ничего не спрашивает и не ждёт разрешений, Мак не засыпает, кончится лимит — дождётся сброса и продолжит. Утром Lumen сам попросит у агента отчёт за ночь. Push и публикации — по-прежнему только с твоего OK.")
+                        .tw(12, lh: 17).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
+                    if !on {
+                        HStack {
+                            Text("Утро в").tw(13, lh: 18)
+                            Spacer(minLength: 8)
+                            PillPicker(value: Binding(get: { night.wake }, set: { v in app.update { $0.night.wake = v } }),
+                                       options: ["05:00", "06:00", "07:00", "08:00", "09:00"].map { ($0, $0) })
+                        }
+                    }
+                    LButton(title: on ? "Выключить ночь" : "Включить до \(night.wake)", icon: on ? "sun" : "moon",
+                            kind: on ? .outline : .primary, small: true) {
+                        if on { app.endNight(morning: false) } else { app.startNight() }
+                        nightOpen = false
+                    }
+                }
+                .padding(12)
+            }
+        }
+        .help(on ? "Ночь: агент работает сам до \(until)" : "Ночь: оставить агента работать до утра")
+    }
+
     /// `EffortPicker`: столбики уровня + название text-xs
     private var effortPicker: some View {
         PickerButton(open: $effortOpen) {
@@ -1754,8 +1820,14 @@ private struct ViaChip: View {
             if let id = via.conversationID, let c = app?.conversations.first(where: { $0.id == id }) { app?.openChat(c) }
         } label: {
             HStack(spacing: 4) {
-                Icon("at-sign", 11)
-                Text(via.fromBot ? "позвал \(via.title)" : "из чата «\(via.title)»").lineLimit(1)
+                if let why = via.autoReason {
+                    // отправил сам Lumen за человека (утро, «тебя не было рядом», «лимит сбросился»)
+                    Icon("sparkles", 11)
+                    Text("отправил Lumen: \(why)").lineLimit(1)
+                } else {
+                    Icon("at-sign", 11)
+                    Text(via.fromBot ? "позвал \(via.title)" : "из чата «\(via.title)»").lineLimit(1)
+                }
             }
             .tw(11, lh: 14).foregroundStyle(p.mutedFg)
             .contentShape(Rectangle())
@@ -2027,17 +2099,26 @@ struct MarkdownTable: View {
 }
 
 /// Следит за прокруткой переписки (macOS 15+): у низа ли она. Состояние меняется только на границе —
-/// иначе переписка перерисовывалась бы на каждом шаге прокрутки и лагала
-private struct ScrollTracking: ViewModifier {
+/// иначе переписка перерисовывалась бы на каждом шаге прокрутки и лагала.
+/// И держит низ: переписка выросла (план, шаги, живая строка — не только новые сообщения и текст) или окно переписки
+/// стало ниже (выросло поле ввода), а человек был внизу — `follow` возвращает к низу. Без этого всё новое уезжало под поле,
+/// и казалось, что переписку подняло вверх (Рома, 19.10). Отлистал вверх читать — не трогаем.
+struct ScrollTracking: ViewModifier {
     @Binding var atBottom: Bool
+    var follow: () -> Void = {}
 
     func body(content: Content) -> some View {
         if #available(macOS 15.0, *) {
             content
-                // расстояние до низа; «внизу» с запасом в обе стороны, чтобы на границе не дёргалось туда-сюда
-                .onScrollGeometryChange(for: CGFloat.self) { g in
-                    g.contentSize.height - (g.contentOffset.y + g.containerSize.height)
-                } action: { _, gap in
+                // [расстояние до низа, высота окна, высота переписки]; «внизу» с запасом в обе стороны, чтобы на границе не дёргалось
+                .onScrollGeometryChange(for: [CGFloat].self) { g in
+                    [g.contentSize.height - (g.contentOffset.y + g.containerSize.height), g.containerSize.height, g.contentSize.height]
+                } action: { old, new in
+                    if old.count == 3, atBottom, new[2] > old[2] + 0.5 || abs(new[1] - old[1]) > 0.5 {
+                        follow()
+                        return
+                    }
+                    let gap = new[0]
                     if atBottom && gap > 160 { atBottom = false } else if !atBottom && gap < 40 { atBottom = true }
                 }
         } else {

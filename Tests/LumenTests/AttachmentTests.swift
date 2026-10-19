@@ -93,3 +93,40 @@ func liveClaudeSeesImage() async throws {
     #expect(reply.text.lowercased().contains("зел"), "ответ: \(reply.text)")
     #expect(app.chat.messages.first?.attachments.count == 1)
 }
+
+// MARK: файл брошен прямо на поле ввода (19.10)
+
+/// Так это и случалось у Ромы: текстовое поле, на которое бросили файл, вставляет путь текстом
+@MainActor @Test func textFieldTurnsDroppedFileIntoPathAndWeTurnItBack() throws {
+    let path = "/var/folders/h8/abc/T/TemporaryItems/NSIRD_screencaptureui_x/Снимок экрана 2026-10-19 в 17.45.png"
+    let pb = NSPasteboard(name: NSPasteboard.Name("lumen-drop-\(UUID().uuidString)"))
+    defer { pb.releaseGlobally() }
+    pb.clearContents()
+    pb.writeObjects([URL(fileURLWithPath: path) as NSURL])
+    let field = NSTextView(frame: .init(x: 0, y: 0, width: 300, height: 40))
+    field.string = "Посмотри "
+    field.setSelectedRange(NSRange(location: 9, length: 0))
+    field.readSelection(from: pb)
+    #expect(field.string == "Посмотри " + path) // баг: вместо вложения — путь «/var/…»
+
+    let ins = try #require(DroppedPaths.insertion(old: "Посмотри ", new: field.string))
+    #expect(ins.text == path && ins.prefix == "Посмотри " && ins.suffix.isEmpty)
+    let urls = try #require(DroppedPaths.files(in: ins.text, exists: { $0 == path }))
+    #expect(urls.map(\.path) == [path])
+}
+
+@Test func droppedPathsAreRecognizedOnlyWhenTheyAreAllFiles() {
+    let files: Set<String> = ["/var/f/Снимок экрана 1.png", "/tmp/b.txt", "/tmp/c d.pdf"]
+    let exists = { (p: String) in files.contains(p) }
+    #expect(DroppedPaths.files(in: "/var/f/Снимок экрана 1.png", exists: exists)?.count == 1)
+    #expect(DroppedPaths.files(in: "/var/f/Снимок экрана 1.png /tmp/b.txt", exists: exists)?.map(\.lastPathComponent) == ["Снимок экрана 1.png", "b.txt"])
+    #expect(DroppedPaths.files(in: "/tmp/b.txt\n/tmp/c d.pdf\n", exists: exists)?.count == 2)
+    #expect(DroppedPaths.files(in: "file:///tmp/b.txt", exists: exists)?.count == 1)
+    #expect(DroppedPaths.files(in: "/tmp/c\\ d.pdf", exists: exists)?.count == 1)
+    // обычный текст, путь посреди фразы и несуществующий файл — это не вложение
+    #expect(DroppedPaths.files(in: "/tmp/b.txt и ещё текст", exists: exists) == nil)
+    #expect(DroppedPaths.files(in: "открой /tmp/b.txt", exists: exists) == nil)
+    #expect(DroppedPaths.files(in: "/tmp/nope.txt", exists: exists) == nil)
+    #expect(DroppedPaths.insertion(old: "abc", new: "abc") == nil)
+    #expect(DroppedPaths.insertion(old: "abc", new: "ab") == nil)
+}

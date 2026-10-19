@@ -44,6 +44,8 @@ public final class ClaudeSession: @unchecked Sendable {
 
         /// Команда хука Stop — «страж готовности» (`lumen-mcp guard <флаг>`); только у агента (Рома, 19.10)
         public var guardCommand: String?
+        /// Запасные модели на случай перегрузки или недоступности основной (`--fallback-model`, автовыбор модели)
+        public var fallbackModels: [String] = []
 
         /// `--settings`: хуки из файла «Кастомизации», страж готовности и выключенные плагины — одной строкой JSON
         static func settings(file: String?, pluginsOff: [String], guardCommand: String? = nil) -> String? {
@@ -92,7 +94,9 @@ public final class ClaudeSession: @unchecked Sendable {
                              mode: String = "auto") -> Config {
         let quiet = ["Read", "Glob", "Grep", "TodoWrite", "Task", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "ToolSearch", "WebSearch"]
         var c = Config(model: model, effort: effort, tools: nil, userSettings: true, sessionID: sessionID, resume: resume, cwd: folder,
-                       appendSystemPrompt: persona, allowedTools: quiet, disallowedTools: ["Bash(git push:*)", "Bash(git push)"])
+                       appendSystemPrompt: persona, allowedTools: quiet,
+                       // вопросы — текстом и карточкой «что дальше», а не окном AskUserQuestion; sudo ждёт пароль — у агента его нет
+                       disallowedTools: ["Bash(git push:*)", "Bash(git push)", "AskUserQuestion", "Bash(sudo:*)"])
         c.permissionMode = mode
         return c
     }
@@ -104,6 +108,7 @@ public final class ClaudeSession: @unchecked Sendable {
                      "--include-partial-messages", "--model", model, "--permission-mode", permissionMode]
             if asksHost { a += ["--permission-prompt-tool", "stdio"] }
             if let effort { a += ["--effort", effort] }
+            if !fallbackModels.isEmpty { a += ["--fallback-model", fallbackModels.joined(separator: ",")] }
             // свой промпт чата меняется (закреплённые факты) — пусть claude берёт его заново при --resume
             if let systemPrompt { a += ["--system-prompt", systemPrompt, "--system-prompt-snapshot", "off"] }
             if let appendSystemPrompt { a += ["--append-system-prompt", appendSystemPrompt] }

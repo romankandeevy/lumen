@@ -9,12 +9,17 @@ import LumenStorage
 // (вторая линия защиты после --allowedTools, техплан §4.3).
 // Протокол — JSON-RPC 2.0 построчно; нужны только initialize, tools/list, tools/call.
 
-// `lumen-mcp guard <файл-выключатель>` — хук Stop у claude: «страж готовности» (ReadinessGuard).
+// `lumen-mcp guard <файл-выключатель> [файл-ночи]` — хук Stop у claude: «страж готовности» (ReadinessGuard).
 // Не MCP-сервер: читает JSON хука со stdin, при необходимости печатает решение «вернуться к работе» и выходит.
+// В файле ночи — до какого времени спит человек (ISO 8601); нет файла — день.
 // Любая неполадка — молча отпустить: страж не должен мешать работе.
 if CommandLine.arguments.dropFirst().first == "guard" {
-    if let off = CommandLine.arguments.dropFirst(2).first, FileManager.default.fileExists(atPath: off) { exit(0) }
-    if let out = ReadinessGuard.hookOutput(for: FileHandle.standardInput.readDataToEndOfFile()) { print(out) }
+    let args = Array(CommandLine.arguments.dropFirst(2))
+    if let off = args.first, FileManager.default.fileExists(atPath: off) { exit(0) }
+    let night = args.dropFirst().first
+        .flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }
+        .flatMap { ISO8601DateFormatter().date(from: $0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    if let out = ReadinessGuard.hookOutput(for: FileHandle.standardInput.readDataToEndOfFile(), nightUntil: night) { print(out) }
     exit(0)
 }
 

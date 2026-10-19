@@ -20,6 +20,9 @@ public enum ReadinessGuard {
             #"pytest"#, #"python3?\s+-m\s+(pytest|unittest|mypy|ruff)"#, #"ruff"#, #"mypy"#, #"flake8"#, #"rspec"#,
             #"cargo\s+(build|test|check|clippy|run)"#, #"go\s+(build|test|vet|run)"#, #"gradle"#, #"mvn"#, #"dotnet\s+(build|test)"#,
             #"curl\s.*(localhost|127\.0\.0\.1)"#,
+            // запустил сам код: интерпретатором, скриптом или собранной программой (19.10, живой claude: `python3 -c "import calc; assert …"`)
+            #"python3?(\s+-[A-Za-z]+)*\s+(-c|-m\s|[\w./~-]+\.py)"#, #"node\s+(-e|[\w./~-]+\.(m?js|ts))"#, #"(deno|bun)\s+run"#,
+            #"ruby\s+(-e|[\w./~-]+\.rb)"#, #"swift\s+[\w./~-]+\.swift"#, #"(ba|z)?sh\s+[\w./~-]+\.sh"#, #"\./[\w./-]+"#,
         ]
         return try! NSRegularExpression(pattern: "(^|[\\s;&|(])(" + words.joined(separator: "|") + ")", options: [.caseInsensitive])
     }()
@@ -60,10 +63,28 @@ public enum ReadinessGuard {
         return false
     }
 
-    /// Причина вернуть агента к работе или nil — можно заканчивать
-    public static func verdict(transcript: String, stopHookActive: Bool) -> String? {
-        if stopHookActive { return nil }
+    /// Сколько раз за ход ночью можно вернуть агента к работе (дальше — отпустить: значит, делать правда нечего)
+    static let nightNudges = 40
+
+    /// Причина вернуть агента к работе или nil — можно заканчивать.
+    /// `nightUntil` — идёт «Ночь» (человек спит до этого времени): тогда, пока не утро и агент не написал, что всё сделал
+    /// и проверил (`<lumen-night-done/>`), он работает дальше. Два захода подряд без единого действия — отпускаем.
+    public static func verdict(transcript: String, stopHookActive: Bool, nightUntil: Date? = nil, now: Date = Date()) -> String? {
         let turn = lastTurn(transcript)
+        let day = stopHookActive ? nil : dayVerdict(turn)
+        guard let until = nightUntil, now < until else { return day }
+        let feedbacks = turn.indices.filter { isHookFeedback(turn[$0]) }
+        if let last = feedbacks.last, !turn[(last + 1)...].contains(where: hasToolUse) { return day }
+        if feedbacks.count >= nightNudges || lastAssistantText(turn).contains(Night.doneMark) { return day }
+        let left = Int(until.timeIntervalSince(now) / 60)
+        let night = "Ночь: человек спит до \(Night.clock(until)), осталось \(left / 60) ч \(left % 60) мин. Продолжай сам: доделай задачу, "
+            + "проверь результат, исправь найденное. Ничего не спрашивай и не жди одобрений. Если всё сделано и проверено — "
+            + "заверши ответ отчётом и поставь в конце \(Night.doneMark)."
+        return day.map { $0 + " " + night } ?? "Рано заканчивать. " + night
+    }
+
+    /// Проверки днём: правки без проверки, упавшая проверка, несделанный план
+    static func dayVerdict(_ turn: [[String: Any]]) -> String? {
 
         struct Use { let id: String; let name: String; let input: [String: Any]; let seq: Int }
         var uses: [Use] = []
@@ -127,11 +148,12 @@ public enum ReadinessGuard {
     }
 
     /// Ответ хука для claude: JSON с решением или nil — пусть заканчивает. `stdin` — то, что claude передал хуку.
-    public static func hookOutput(for stdin: Data) -> String? {
+    public static func hookOutput(for stdin: Data, nightUntil: Date? = nil, now: Date = Date()) -> String? {
         guard let input = try? JSONSerialization.jsonObject(with: stdin) as? [String: Any],
               let file = input["transcript_path"] as? String,
               let text = try? String(contentsOfFile: file, encoding: .utf8),
-              let reason = verdict(transcript: text, stopHookActive: input["stop_hook_active"] as? Bool ?? false),
+              let reason = verdict(transcript: text, stopHookActive: input["stop_hook_active"] as? Bool ?? false,
+                                   nightUntil: nightUntil, now: now),
               let data = try? JSONSerialization.data(withJSONObject: ["decision": "block", "reason": reason]) else { return nil }
         return String(decoding: data, as: UTF8.self)
     }
@@ -151,8 +173,28 @@ public enum ReadinessGuard {
         return turn.reversed()
     }
 
+    /// Ответ стража, который claude подкладывает агенту сообщением («Stop hook feedback: …») — это не человек
+    static func isHookFeedback(_ obj: [String: Any]) -> Bool {
+        guard obj["type"] as? String == "user" else { return false }
+        let content = (obj["message"] as? [String: Any])?["content"]
+        let text = (content as? String) ?? ((content as? [[String: Any]])?.compactMap { $0["text"] as? String }.joined() ?? "")
+        return text.hasPrefix("Stop hook feedback")
+    }
+
+    static func hasToolUse(_ obj: [String: Any]) -> Bool {
+        ((obj["message"] as? [String: Any])?["content"] as? [[String: Any]] ?? []).contains { $0["type"] as? String == "tool_use" }
+    }
+
+    static func lastAssistantText(_ turn: [[String: Any]]) -> String {
+        for obj in turn.reversed() where obj["type"] as? String == "assistant" {
+            let texts = ((obj["message"] as? [String: Any])?["content"] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }
+            if !texts.isEmpty { return texts.joined(separator: "\n") }
+        }
+        return ""
+    }
+
     static func isHumanMessage(_ obj: [String: Any]) -> Bool {
-        guard obj["type"] as? String == "user", obj["isMeta"] as? Bool != true else { return false }
+        guard obj["type"] as? String == "user", obj["isMeta"] as? Bool != true, !isHookFeedback(obj) else { return false }
         let content = (obj["message"] as? [String: Any])?["content"]
         if content is String { return true }
         guard let blocks = content as? [[String: Any]] else { return false }

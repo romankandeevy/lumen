@@ -129,7 +129,21 @@ final class ChatController {
         let id = UUID()
         var text: String
         var attachments: [Attachment]
+        /// Отправил сам Lumen (утро, «меня нет — реши сам»)
+        var via: Via? = nil
     }
+
+    // MARK: самостоятельная работа (Autonomy.swift)
+
+    /// Модель на этот ход вместо выбранной (у выбранной кончился лимит) и пояснение для человека
+    var modelOverride: [String: ChatModel] = [:]
+    var modelNote: [String: String] = [:]
+    /// Сколько раз подряд Lumen ответил за отошедшего человека «реши сам» — не больше трёх, дальше ждём его
+    @ObservationIgnored var autoContinues: [String: Int] = [:]
+    /// Разговоры агента, которые работали этой ночью: утром им — «заверши и напиши отчёт»
+    @ObservationIgnored var nightConversations: Set<String> = []
+    /// Ждём сброса лимита, чтобы продолжить (ночью)
+    @ObservationIgnored var limitWaits: [String: Task<Void, Never>] = [:]
     private(set) var queue: [String: [Queued]] = [:]
     /// Очередь открытого разговора
     var openQueue: [Queued] { conversation.flatMap { queue[$0.id] } ?? [] }
@@ -170,7 +184,7 @@ final class ChatController {
               let c = app.conversations.first(where: { $0.id == id }) ?? (conversation?.id == id ? conversation : nil) else { return }
         let next = q.removeFirst()
         queue[id] = q.isEmpty ? nil : q
-        begin(c, text: next.text, attachments: next.attachments, isNew: false)
+        begin(c, text: next.text, attachments: next.attachments, isNew: false, via: next.via)
     }
 
     private var openTurn: Turn? { conversation.flatMap { turns[$0.id] } }
@@ -394,6 +408,8 @@ final class ChatController {
     func send(_ raw: String, attachments: [Attachment] = []) {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachments.isEmpty else { return }
+        // человек сам написал — счёт ответов «реши сам» за него с нуля
+        if let c = conversation { autoContinues[c.id] = nil }
         // группа уже отвечает — сообщение в комнату, раунды начнутся заново с ним после текущего бота
         if busy, let c = conversation, c.kind == .group, let tr = turns[c.id] {
             var u = ChatMessage(conversationID: c.id, role: .user, text: text)
@@ -427,14 +443,16 @@ final class ChatController {
     }
 
     /// Начать ход в разговоре — открытом или (из очереди) в том, куда человек уже не смотрит
-    private func begin(_ conv: Conversation, text: String, attachments: [Attachment], isNew: Bool) {
+    func begin(_ conv: Conversation, text: String, attachments: [Attachment], isNew: Bool, via: Via? = nil) {
         var c = conv
+        if c.kind == .agent, app.prefs.night.active() { nightConversations.insert(c.id) }
         let open = isNew || conversation?.id == c.id
         if c.usesCLI && c.cliSessionID == nil { c.cliSessionID = UUID().uuidString.lowercased() }
         do {
             try app.store.save(c)
             var u = ChatMessage(conversationID: c.id, role: .user, text: text)
             u.attachments = attachments
+            u.via = via
             let user = try app.store.save(u)
             if open {
                 conversation = c
@@ -477,8 +495,12 @@ final class ChatController {
             } else if c.model.isGPT {
                 await self.runCodex(c, text: self.unseenContext(history, c) + text + self.styleReminder(c), attachments: attachments)
             } else if c.usesCLI {
-                await self.runCLI(c, text: self.unseenContext(history, c) + text + self.styleReminder(c), attachments: attachments,
-                                  hadTurnsBefore: history.contains { $0.role == .assistant && $0.error == nil && ($0.botID == nil || c.kind == .bot) })
+                // после своего сжатия — свежая сессия claude: первым скрытым сообщением идёт записка-передача
+                let handoff = self.pendingHandoff(c.id)
+                await self.runCLI(c, text: (handoff.map(Handoff.prefix) ?? "") + self.unseenContext(history, c) + text
+                                  + self.styleReminder(c) + self.autonomyNote(c), attachments: attachments,
+                                  hadTurnsBefore: handoff == nil && history.contains { $0.role == .assistant && $0.error == nil && ($0.botID == nil || c.kind == .bot) })
+                if handoff != nil, (try? self.app.store.messages(in: c.id))?.last?.error == nil { self.clearHandoff(c.id) }
             } else {
                 await self.runAPI(c, history: history)
             }
@@ -491,6 +513,8 @@ final class ChatController {
             }
             self.settleOrb()
             self.app.reloadConversations()
+            // сжать окно, ответить «реши сам», если человек отошёл, ночью — дождаться лимита (Autonomy.swift)
+            if c.usesCLI, delegate == nil { await self.afterTurn(c, stopped: stopped) }
             self.dispatchQueue(c.id, stopped: stopped)
         }
     }
@@ -839,9 +863,19 @@ final class ChatController {
         }
     }
 
-    /// «Сжать разговор»: claude пересказывает старое и освобождает окно (`/compact`, проверено в спайке)
+    /// «Сжать разговор»: своё сжатие — агент пишет записку-передачу, дальше свежая сессия (Autonomy.swift).
+    /// Не вышло — как раньше, `/compact` у самого claude
     func compact() {
-        guard let c = conversation, c.usesCLI, !busy, let cli = app.cli else { return }
+        guard let c = conversation, c.usesCLI, !busy else { return }
+        Task {
+            // остановили — ничего не делать; не вышло — сжать силами claude
+            if let done = await handoffCompact(c), !done { compactByClaude(c) }
+        }
+    }
+
+    /// `/compact` у claude: он пересказывает старое и освобождает окно (проверено в спайке)
+    func compactByClaude(_ c: Conversation) {
+        guard c.usesCLI, turns[c.id] == nil, let cli = app.cli else { return }
         turns[c.id] = Turn(c)
         app.orb = .thinking
         Task {
@@ -915,6 +949,8 @@ final class ChatController {
             await finish(c, text: "", error: "Claude Code не найден. Поставь его и войди в Настройках → Модели и оплата.")
             return
         }
+        // у выбранной модели кончился лимит на неделю — ход ответит следующая по силе (автовыбор модели)
+        if !retried { chooseModel(c) }
         // вход в сайты коннекторов продлевается до хода; продлили — процесс поднимется с новым токеном (--resume)
         if await app.freshenOAuth(app.connectorsFor(c)) { restart(c.id) }
         if c.backend == .api, let stop = app.limitReached {
@@ -985,6 +1021,8 @@ final class ChatController {
                     } else {
                         pendingPermissions[c.id] = PendingPermission(conversationID: c.id, request: req)
                         if conversation?.id == c.id { app.orb = .idle }
+                        // человек отошёл или спит — не ждать его вечно (Autonomy.swift)
+                        watchPermission(c, req, session)
                     }
                 case .finished(let r):
                     result = r
@@ -1036,6 +1074,12 @@ final class ChatController {
             } else if result.ok {
                 await finish(c, text: answer.isEmpty ? result.text : answer, changes: changes, context: ctx)
             } else {
+                // лимит у этой модели кончился — сразу ответить другой, у которой он есть (автовыбор модели)
+                let failure = result.text.isEmpty ? session.errorOutput : result.text
+                if !retried, answer.isEmpty, await switchModelAfterLimit(c, failure) {
+                    await runCLI(c, text: text, attachments: attachments, hadTurnsBefore: hadTurnsBefore, retried: true)
+                    return
+                }
                 app.log("claude ответил ошибкой: \(result.text)\nstderr:\n\(session.errorOutput)", conversation: c)
                 await finish(c, text: answer, error: Self.cliError(result.text.isEmpty ? session.errorOutput : result.text), changes: changes, context: ctx)
             }
@@ -1177,9 +1221,10 @@ final class ChatController {
 
     /// Тёплый процесс на разговор. Если сменились модель или effort — перезапуск с `--resume`.
     private func cliSession(for c: Conversation, cli: ClaudeCLI, resume: Bool) throws -> ClaudeSession {
-        if let s = sessions[c.id], s.isRunning, s.config.model == c.model.rawValue, s.config.effort == c.effort.rawValue {
-            // режим меняется на ходу, без перезапуска
-            if c.kind == .agent, let mode = c.mode, sessionModes[c.id] != mode {
+        let model = effectiveModel(c)
+        if let s = sessions[c.id], s.isRunning, s.config.model == model.rawValue, s.config.effort == c.effort.rawValue {
+            // режим меняется на ходу, без перезапуска (ночью — обход разрешений)
+            if c.kind == .agent, let mode = effectiveMode(c), sessionModes[c.id] != mode {
                 s.setMode(mode.rawValue)
                 sessionModes[c.id] = mode
             }
@@ -1206,8 +1251,8 @@ final class ChatController {
             // позванный бот может работать минутами — MCP-вызову delegate даём до 15 минут
             if bot.can.contains(.bots) { config.extraEnv["MCP_TOOL_TIMEOUT"] = "900000" }
         } else if c.kind == .agent, let folder = c.folder {
-            let mode = c.mode ?? app.prefs.agentMode
-            config = .agent(model: c.model.rawValue, effort: c.effort.rawValue, persona: app.agentPrompt(for: c),
+            let mode = effectiveMode(c) ?? app.prefs.agentMode
+            config = .agent(model: model.rawValue, effort: c.effort.rawValue, persona: app.agentPrompt(for: c),
                             folder: URL(fileURLWithPath: folder), sessionID: sid, resume: resume, mode: mode.rawValue)
             sessionModes[c.id] = mode
             config.addDirs = (c.extraPaths ?? []).filter { FileManager.default.fileExists(atPath: $0) }
@@ -1218,9 +1263,11 @@ final class ChatController {
             if c.backend == .api, let key = app.keychain.read(Keychain.anthropicKey) { config.extraEnv["ANTHROPIC_API_KEY"] = key }
         } else {
             // у чата своя папка для временного (а не «/», откуда запущено приложение)
-            config = .init(model: c.model.rawValue, effort: c.effort.rawValue, systemPrompt: app.systemPrompt(for: c),
+            config = .init(model: model.rawValue, effort: c.effort.rawValue, systemPrompt: app.systemPrompt(for: c),
                            tools: [], userSettings: false, sessionID: sid, resume: resume, cwd: app.chatFolder(c))
         }
+        // перегрузка или недоступность модели — claude сам ответит запасной (автовыбор модели)
+        if bot == nil, app.prefs.autoModel { config.fallbackModels = ModelChoice.chain(after: model).prefix(2).map(\.rawValue) }
         // память: lumen-mcp с инструментами remember и recall
         if let mcp = try? app.writeMCPConfig(for: c, memoryReadOnly: bot.map { !$0.can.contains(.memory) } ?? false) {
             config.mcpConfig = mcp.path
@@ -1709,7 +1756,7 @@ extension AppModel {
     var guardCommand: String? {
         guard let bin = mcpBinary else { return nil }
         func quoted(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
-        return quoted(bin.path) + " guard " + quoted(guardFlag.path)
+        return quoted(bin.path) + " guard " + quoted(guardFlag.path) + " " + quoted(nightFile.path)
     }
 
     /// lumen-mcp лежит рядом с Lumen в бандле; в тестах — рядом с собранными продуктами (LUMEN_MCP)
@@ -1824,5 +1871,216 @@ extension AppModel {
         lines.append(BrowserTools.rules)
         lines.append(Visuals.rules)
         return lines.joined(separator: "\n")
+    }
+}
+
+// MARK: - Самостоятельная работа (Рома, 19.10): присутствие, ночь, автовыбор модели, своё сжатие
+// Правила без интерфейса — LumenCore/Autonomy.swift, выбор модели — LumenProviders/ModelChoice.swift
+
+extension ChatController {
+    /// Модель этого хода: выбранная или та, что подменила её из-за лимита
+    func effectiveModel(_ c: Conversation) -> ChatModel { modelOverride[c.id] ?? c.model }
+
+    /// Режим агента: ночью — обход разрешений (человек спит, спрашивать некого), иначе выбранный
+    func effectiveMode(_ c: Conversation) -> AgentMode? {
+        c.kind == .agent && app.prefs.night.active() ? .bypassPermissions : c.mode
+    }
+
+    /// Перед ходом: у выбранной модели кончился недельный лимит — взять следующую по силе, у которой он есть
+    func chooseModel(_ c: Conversation) {
+        guard app.prefs.autoModel, !c.model.isGPT else {
+            modelOverride[c.id] = nil
+            modelNote[c.id] = nil
+            return
+        }
+        let pick = ModelChoice.pick(c.model, usage: app.usage)
+        modelOverride[c.id] = pick.model == c.model ? nil : pick.model
+        modelNote[c.id] = pick.why
+    }
+
+    /// Ход упал на лимите: обновить лимиты и, если другая модель может ответить, — ответить ею (true)
+    func switchModelAfterLimit(_ c: Conversation, _ failure: String) async -> Bool {
+        guard app.prefs.autoModel, UsageLimit.isLimit(failure), !c.model.isGPT else { return false }
+        let now = effectiveModel(c)
+        await app.refreshUsage()
+        var usage = app.usage
+        // claude сказал «лимит», а /usage этого у модели ещё не показал — считаем её исчерпанной
+        if !usage.contains(where: { $0.kind == .weekModel(now.name) && $0.percent >= 100 }) {
+            usage.append(UsageWindow(kind: .weekModel(now.name), percent: 100, resetsAt: nil))
+        }
+        let pick = ModelChoice.pick(now, usage: usage)
+        guard pick.model != now else { return false }
+        app.log("Лимит у \(now.name) — отвечает \(pick.model.name)", conversation: c)
+        modelOverride[c.id] = pick.model
+        modelNote[c.id] = pick.why ?? "Лимит \(now.name) исчерпан — отвечает \(pick.model.name)"
+        sessions[c.id]?.close()
+        sessions[c.id] = nil
+        return true
+    }
+
+    /// Скрытая пометка к сообщению агенту: ночь или человек отошёл (правила к ним — в AgentRules)
+    func autonomyNote(_ c: Conversation) -> String {
+        guard c.kind == .agent else { return "" }
+        if let until = app.prefs.night.until, app.prefs.night.active() { return Night.note(until: until) }
+        if app.prefs.presence, app.away { return Presence.awayNote }
+        return ""
+    }
+
+    /// Агент ждёт разрешения, а человека нет (отошёл дольше 30 с) или он спит — ответить «пропусти, сделай остальное»
+    func watchPermission(_ c: Conversation, _ req: ClaudeEvent.PermissionRequest, _ session: ClaudeSession) {
+        Task { @MainActor [weak self] in
+            var waited: TimeInterval = 0
+            while let self, self.pendingPermissions[c.id]?.request.id == req.id {
+                let away = self.app.prefs.presence && self.app.away
+                if self.app.prefs.night.active() || (away && waited >= 30) {
+                    session.respond(req.id, allow: false, message: Presence.deniedWhileAway)
+                    self.pendingPermissions[c.id] = nil
+                    self.app.log("«\(req.tool)» ждал разрешения, а человека нет — ответил «пропусти»", conversation: c)
+                    return
+                }
+                try? await Task.sleep(for: .seconds(5))
+                waited += 5
+            }
+        }
+    }
+
+    /// После хода: своё сжатие, «реши сам» за отошедшего человека, ночью — ждать сброса лимита
+    func afterTurn(_ c: Conversation, stopped: Bool) async {
+        guard !stopped, c.kind == .agent || c.kind == .chat,
+              let last = (try? app.store.messages(in: c.id))?.last, last.role == .assistant else { return }
+        let night = app.prefs.night.active()
+        if let err = last.error {
+            // ночью кончился лимит подписки — дождаться сброса и продолжить
+            if UsageLimit.isLimit(err), night, app.prefs.night.waitForLimits, c.kind == .agent { waitForLimit(c) }
+            return
+        }
+        if app.prefs.autoCompact, let used = last.contextTokens, let window = last.contextWindow,
+           Handoff.due(used: used, window: window, percent: app.prefs.compactAt) {
+            _ = await handoffCompact(c)
+        }
+        // агент спросил, а человек отошёл (или спит) — ответить за него «реши сам», не больше трёх раз подряд
+        guard c.kind == .agent, last.next?.ask != nil, night || (app.prefs.presence && app.away),
+              (autoContinues[c.id] ?? 0) < 3, queue[c.id]?.isEmpty ?? true, turns[c.id] == nil else { return }
+        autoContinues[c.id, default: 0] += 1
+        app.log("Агент спросил, а человека нет рядом — ответил «реши сам»", conversation: c)
+        begin(app.conversations.first { $0.id == c.id } ?? c, text: Presence.autoAnswer, attachments: [], isNew: false,
+              via: .auto("тебя не было рядом"))
+    }
+
+    /// Ночью кончился лимит: ждать сброса (по /usage) и написать агенту «продолжай»
+    func waitForLimit(_ c: Conversation) {
+        guard limitWaits[c.id] == nil else { return }
+        modelNote[c.id] = "Лимит подписки кончился — жду сброса и продолжу сам"
+        limitWaits[c.id] = Task { @MainActor [weak self] in
+            var cleared = false
+            while let self, self.app.prefs.night.active(), !Task.isCancelled {
+                await self.app.refreshUsage()
+                let full = self.app.usage.filter { $0.percent >= 100 }
+                if !self.app.usage.isEmpty, full.isEmpty { cleared = true; break }
+                let reset = full.compactMap(\.resetsAt).max() ?? Date().addingTimeInterval(15 * 60)
+                try? await Task.sleep(for: .seconds(min(max(reset.timeIntervalSinceNow + 60, 60), 30 * 60)))
+            }
+            guard let self else { return }
+            self.limitWaits[c.id] = nil
+            self.modelNote[c.id] = nil
+            // ночь кончилась раньше — утреннее сообщение отправится само
+            guard cleared, !Task.isCancelled, self.turns[c.id] == nil else { return }
+            self.begin(self.app.conversations.first { $0.id == c.id } ?? c, text: "Лимит подписки обновился — продолжай с того места, где остановился.",
+                       attachments: [], isNew: false, via: .auto("лимит сбросился"))
+        }
+    }
+
+    /// Ночь началась: идущие ходы агента — в обход разрешений, их разговоры получат утреннее сообщение
+    func nightStarted() {
+        for (id, tr) in turns where tr.conversation.kind == .agent {
+            nightConversations.insert(id)
+            if let s = sessions[id], s.isRunning {
+                s.setMode(AgentMode.bypassPermissions.rawValue)
+                sessionModes[id] = .bypassPermissions
+            }
+        }
+    }
+
+    /// Утро: разговорам, что работали ночью, — «заверши и напиши отчёт». Идёт ход — встанет в очередь и уйдёт после него
+    func morning(_ text: String) {
+        let ids = nightConversations
+        nightConversations = []
+        for id in ids {
+            limitWaits[id]?.cancel()
+            limitWaits[id] = nil
+            modelNote[id] = nil
+            guard let c = app.conversations.first(where: { $0.id == id }) else { continue }
+            if turns[id] != nil {
+                queue[id, default: []].append(Queued(text: text, attachments: [], via: .auto("утро")))
+            } else {
+                begin(c, text: text, attachments: [], isNew: false, via: .auto("утро"))
+            }
+        }
+    }
+
+    // MARK: своё сжатие
+
+    func handoffFile(_ id: String) -> URL {
+        app.paths.run.appendingPathComponent(id, isDirectory: true).appendingPathComponent("handoff.md")
+    }
+
+    /// Записка ждёт первого хода свежей сессии
+    func pendingHandoff(_ id: String) -> String? { try? String(contentsOf: handoffFile(id), encoding: .utf8) }
+
+    func clearHandoff(_ id: String) { try? FileManager.default.removeItem(at: handoffFile(id)) }
+
+    /// Своё сжатие: агент пишет себе записку-передачу, Lumen хранит её и начинает свежую сессию claude —
+    /// записка уйдёт первым скрытым сообщением следующего хода. true — сжато, false — не вышло, nil — остановили
+    func handoffCompact(_ conv: Conversation) async -> Bool? {
+        guard conv.usesCLI, turns[conv.id] == nil, let cli = app.cli else { return false }
+        var c = app.conversations.first { $0.id == conv.id } ?? conv
+        let tr = Turn(c)
+        tr.thinking = false
+        turns[c.id] = tr
+        retryNote[c.id] = "Сжимаю разговор: агент пишет себе записку-передачу"
+        defer {
+            retryNote[c.id] = nil
+            turns[c.id] = nil
+            settleOrb()
+        }
+        var note = ""
+        do {
+            let session = try cliSession(for: c, cli: cli, resume: true)
+            for await ev in try session.send(Handoff.request) {
+                if case .textDelta(let t) = ev { note += t }
+                if case .finished(let r) = ev {
+                    if !r.text.isEmpty { note = r.text }
+                    break
+                }
+            }
+        } catch {
+            app.log("Сжатие: \(error.localizedDescription)", conversation: c)
+        }
+        if tr.stopRequested { return nil }
+        note = NextStep.split(note).text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard note.count > 300 else {
+            app.log("Сжатие не удалось: записка пустая или слишком короткая (\(note.count) знаков)", conversation: c)
+            return false
+        }
+        // свежая сессия: прошлая остаётся в claude, но к ней больше не возвращаемся
+        sessions[c.id]?.close()
+        sessions[c.id] = nil
+        rewindAt[c.id] = nil
+        c.cliSessionID = UUID().uuidString.lowercased()
+        try? app.store.save(c)
+        if conversation?.id == c.id { conversation?.cliSessionID = c.cliSessionID }
+        if let i = app.conversations.firstIndex(where: { $0.id == c.id }) { app.conversations[i].cliSessionID = c.cliSessionID }
+        let file = handoffFile(c.id)
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? note.write(to: file, atomically: true, encoding: .utf8)
+        let words = note.split(whereSeparator: \.isWhitespace).count
+        var m = ChatMessage(conversationID: c.id, role: .assistant, text: "", model: effectiveModel(c),
+                            note: "Lumen сжал разговор: агент записал себе главное (\(words) слов) и продолжит с этой запиской в свежей сессии — окно контекста свободно")
+        // окно теперь почти пустое: в нём только записка
+        m.contextTokens = note.count / 3
+        m.contextWindow = (try? app.store.messages(in: c.id))?.last(where: { $0.contextWindow != nil })?.contextWindow
+        if let saved = try? app.store.save(m), conversation?.id == c.id { messages.append(saved) }
+        app.log("Сжал разговор: записка \(words) слов, новая сессия \(c.cliSessionID ?? "")", conversation: c)
+        return true
     }
 }

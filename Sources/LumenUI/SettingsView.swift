@@ -391,6 +391,21 @@ struct SettingsView: View {
                         app.syncGuardFlag()
                     }))
                 }
+                row("Спрашивать, только когда я рядом", "Отошёл больше чем на 5 минут или экран заблокирован — Lumen сам отвечает агенту «реши сам», а то, что ждёт твоего OK, агент пропускает и пишет об этом в отчёте.", icon: "user") {
+                    LSwitch(isOn: Binding(get: { app.prefs.presence }, set: { on in app.update { $0.presence = on } }))
+                }
+                row("Автовыбор модели", "Модель перегружена — отвечает запасная. У выбранной кончился лимит на неделю — следующая по силе, у которой он есть.", icon: "refresh-cw") {
+                    LSwitch(isOn: Binding(get: { app.prefs.autoModel }, set: { on in app.update { $0.autoModel = on } }))
+                }
+                row("Сжимать разговор сам", "Окно заполнено — агент пишет себе записку о главном, и разговор продолжается в свежей сессии. Не позже 400 тыс. токенов.", icon: "layers") {
+                    HStack(spacing: 8) {
+                        if app.prefs.autoCompact {
+                            PillPicker(value: Binding(get: { app.prefs.compactAt }, set: { v in app.update { $0.compactAt = v } }),
+                                       options: [50, 70, 90].map { ($0, "\($0)%") })
+                        }
+                        LSwitch(isOn: Binding(get: { app.prefs.autoCompact }, set: { on in app.update { $0.autoCompact = on } }))
+                    }
+                }
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Правила агента").tw(14, lh: 20)
                     Text("Своими словами: что делать всегда и чего не делать никогда. Например: «не двигай существующие кнопки без просьбы».")
@@ -400,6 +415,29 @@ struct SettingsView: View {
                         .scrollContentBackground(.hidden)
                         .padding(10)
                         .frame(minHeight: 120)
+                        .background(p.background.opacity(0.6), in: RoundedRectangle(cornerRadius: R.xl))
+                        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
+                }
+                .padding(.vertical, 12)
+            }
+            group("Ночь", footer: "Включается кнопкой «Ночь» у поля агента. Агент работает сам до утра: без вопросов и разрешений. Утром Lumen отправит ему сообщение ниже.") {
+                row("Утро в", nil, icon: "sunrise") {
+                    PillPicker(value: Binding(get: { app.prefs.night.wake }, set: { v in app.update { $0.night.wake = v } }),
+                               options: ["05:00", "06:00", "07:00", "08:00", "09:00"].map { ($0, $0) })
+                }
+                row("Не давать Маку засыпать", "Пока идёт ночь. Экран может гаснуть.", icon: "moon") {
+                    LSwitch(isOn: Binding(get: { app.prefs.night.keepAwake }, set: { on in app.update { $0.night.keepAwake = on }; app.syncNight() }))
+                }
+                row("Кончится лимит — дождаться и продолжить", "Lumen смотрит, когда сбросится лимит подписки, и пишет агенту «продолжай».", icon: "clock") {
+                    LSwitch(isOn: Binding(get: { app.prefs.night.waitForLimits }, set: { on in app.update { $0.night.waitForLimits = on } }))
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Сообщение утром").tw(14, lh: 20)
+                    TextEditor(text: Binding(get: { app.prefs.night.morning }, set: { v in app.update { $0.night.morning = v } }))
+                        .font(.system(size: 13))
+                        .scrollContentBackground(.hidden)
+                        .padding(10)
+                        .frame(minHeight: 80)
                         .background(p.background.opacity(0.6), in: RoundedRectangle(cornerRadius: R.xl))
                         .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
                 }

@@ -101,3 +101,68 @@ public struct Attachment: Codable, Sendable, Equatable, Hashable, Identifiable {
         attachments.filter { $0.kind != .image }.compactMap { $0.contentBlock()?["text"] as? String }.joined(separator: "\n\n")
     }
 }
+
+/// Файл, брошенный прямо на поле ввода (или вставленный), поле само превращает в текст — путь вида
+/// «/var/folders/…/Снимок экрана ….png». Рома видел вместо вложения «var и всякое разное» (19.10).
+/// Здесь — узнать такую вставку: что добавилось в черновик и не путь ли это к существующим файлам.
+public enum DroppedPaths {
+    /// Что вставилось между старым и новым текстом (общее начало и конец отрезаны). nil — ничего не добавилось
+    public static func insertion(old: String, new: String) -> (text: String, prefix: String, suffix: String)? {
+        guard new.count > old.count else { return nil }
+        let o = Array(old), n = Array(new)
+        var start = 0
+        while start < o.count, o[start] == n[start] { start += 1 }
+        var end = 0
+        while end < o.count - start, o[o.count - 1 - end] == n[n.count - 1 - end] { end += 1 }
+        let inserted = String(n[start..<(n.count - end)])
+        return inserted.isEmpty ? nil : (inserted, String(n[..<start]), String(n[(n.count - end)...]))
+    }
+
+    /// Вставка целиком состоит из путей к существующим файлам (папки не в счёт) — их адреса; иначе nil.
+    /// Пути со пробелами, несколько путей через перевод строки или пробел, `file://` и `\ ` из Терминала.
+    public static func files(in inserted: String, exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> [URL]? {
+        let text = inserted.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.hasPrefix("/") || text.hasPrefix("file://") || text.hasPrefix("~/") else { return nil }
+        var urls: [URL] = []
+        for line in text.split(whereSeparator: \.isNewline).map({ $0.trimmingCharacters(in: .whitespaces) }) where !line.isEmpty {
+            guard let found = paths(in: line, exists: exists) else { return nil }
+            urls += found
+        }
+        return urls.isEmpty ? nil : urls
+    }
+
+    static func path(_ raw: String) -> String {
+        var s = raw.trimmingCharacters(in: CharacterSet(charactersIn: "\"' "))
+        if s.hasPrefix("file://"), let u = URL(string: s) { s = u.path }
+        if s.hasPrefix("~/") { s = NSHomeDirectory() + s.dropFirst(1) }
+        return s.replacingOccurrences(of: "\\ ", with: " ")
+    }
+
+    /// Одна строка: один путь (с пробелами) или несколько, каждый начинается с «/» или «file://»
+    static func paths(in line: String, exists: (String) -> Bool) -> [URL]? {
+        let whole = path(line)
+        if exists(whole) { return [URL(fileURLWithPath: whole)] }
+        // несколько путей через пробел: режем перед каждым « /» и « file://» и собираем куски, пока не найдётся файл
+        var starts: [String.Index] = []
+        var i = line.startIndex
+        while i < line.endIndex {
+            let next = line.index(after: i)
+            if line[i].isWhitespace, next < line.endIndex, line[next...].hasPrefix("/") || line[next...].hasPrefix("file://") || line[next...].hasPrefix("~/") {
+                starts.append(next)
+            }
+            i = next
+        }
+        guard !starts.isEmpty else { return nil }
+        let bounds = [line.startIndex] + starts + [line.endIndex]
+        var out: [URL] = []
+        var from = 0
+        while from < bounds.count - 1 {
+            var hit: Int?
+            for to in (from + 1)..<bounds.count where exists(path(String(line[bounds[from]..<bounds[to]]))) { hit = to; break }
+            guard let to = hit else { return nil }
+            out.append(URL(fileURLWithPath: path(String(line[bounds[from]..<bounds[to]]))))
+            from = to
+        }
+        return out
+    }
+}

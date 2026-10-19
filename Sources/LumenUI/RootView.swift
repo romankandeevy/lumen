@@ -105,6 +105,8 @@ public struct RootView: View {
         .task { if app.claude == .checking { await app.refreshClaude() } }
         .task { if app.codex == .checking { await app.refreshCodex() } }
         .task { await app.selfShotIfAsked() }
+        // «Ночь» переживает перезапуск Lumen: файл для стража, «не засыпать», будильник
+        .task { app.syncNight() }
         // перенесённые разговоры: названия, проекты и картинки — как в приложении Claude
         .task { if ProcessInfo.processInfo.environment["LUMEN_SELFSHOT"] == nil { await app.refreshFromClaude() } }
         .task {

@@ -33,6 +33,9 @@ public final class AppModel {
     }
     var browserWidth: Double = 620
     @ObservationIgnored var browserServer: BrowserServer?
+    /// «Ночь»: Мак не засыпает, будильник на утро (Autonomy.swift)
+    @ObservationIgnored var nightActivity: NSObjectProtocol?
+    @ObservationIgnored var nightTimer: Task<Void, Never>?
     /// Перенесённые разговоры: когда файл сессии claude менялся в последний раз (живое слежение за Claude Code)
     var claudeTouched: [String: Date] = [:]
     /// Что сейчас с перенесённым разговором в Claude Code (идёт, повторяет, тихо) — по записям, не по времени файла

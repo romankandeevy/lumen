@@ -38,6 +38,13 @@ private func verdict(_ lines: [String], active: Bool = false) -> String? {
 @Test func guardLetsGoAfterBuildOrTests() {
     #expect(verdict([human("почини")] + edit("1") + bash("2", "swift test --filter Foo")) == nil)
     #expect(verdict([human("почини")] + edit("1") + bash("2", "cd app && npm run build")) == nil)
+    // запустил сам код — тоже проверка (живой claude 19.10 проверял так, а страж его возвращал)
+    #expect(verdict([human("почини")] + edit("1") + bash("2", "python3 -I -c \\\"import calc; assert calc.mul(3, 4) == 12\\\"")) == nil)
+    #expect(verdict([human("почини")] + edit("1") + bash("2", "python3 -m py_compile calc.py")) == nil)
+    #expect(verdict([human("почини")] + edit("1") + bash("2", "./run.sh")) == nil)
+    #expect(verdict([human("почини")] + edit("1") + bash("2", "node scripts/check.mjs")) == nil)
+    // а просто посмотреть файл — не проверка
+    #expect(verdict([human("почини")] + edit("1") + bash("2", "cat calc.py")) != nil)
     // проверка до последней правки не считается
     #expect(verdict([human("почини")] + bash("1", "swift build") + edit("2")) != nil)
 }

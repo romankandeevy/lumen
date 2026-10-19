@@ -178,6 +178,15 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var agentRules = ""
     /// «Страж готовности»: не даёт агенту закончить ход, пока не проверено сделанное (хук Stop у claude)
     public var agentGuard = true
+    /// «Присутствие»: агент спрашивает, только когда человек за компьютером; отошёл — Lumen отвечает «реши сам»
+    public var presence = true
+    /// Режим «Ночь»
+    public var night = NightPrefs()
+    /// Автовыбор модели: запасные при перегрузке и другая модель, когда у выбранной кончился лимит на неделю
+    public var autoModel = true
+    /// Свой автокомпакт: при заполнении окна — записка-передача и свежая сессия
+    public var autoCompact = true
+    public var compactAt = Handoff.defaultPercent
 
     /// Режимы в поле: все, кроме скрытых; хотя бы один остаётся всегда
     public var visibleModes: [AgentMode] {
@@ -265,6 +274,11 @@ public struct Preferences: Codable, Sendable, Equatable {
         projectContextAuto = (try? c.decodeIfPresent(Bool.self, forKey: .projectContextAuto)) ?? true
         agentRules = (try? c.decodeIfPresent(String.self, forKey: .agentRules)) ?? ""
         agentGuard = (try? c.decodeIfPresent(Bool.self, forKey: .agentGuard)) ?? true
+        presence = (try? c.decodeIfPresent(Bool.self, forKey: .presence)) ?? true
+        night = (try? c.decodeIfPresent(NightPrefs.self, forKey: .night)) ?? NightPrefs()
+        autoModel = (try? c.decodeIfPresent(Bool.self, forKey: .autoModel)) ?? true
+        autoCompact = (try? c.decodeIfPresent(Bool.self, forKey: .autoCompact)) ?? true
+        compactAt = (try? c.decodeIfPresent(Int.self, forKey: .compactAt)) ?? Handoff.defaultPercent
     }
 }
 
