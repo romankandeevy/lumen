@@ -292,8 +292,9 @@ struct PanelBlock<Content: View>: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(p.card.opacity(0.55), in: RoundedRectangle(cornerRadius: R.xl))
-        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(dropTarget ? p.glow.opacity(0.5) : p.border))
+        // без рамки: блоки отделяет только мягкая подложка (минимализм, 19.10); рамка — только когда сюда тащат блок
+        .background(p.foreground.opacity(0.035), in: RoundedRectangle(cornerRadius: R.xl))
+        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(dropTarget ? p.glow.opacity(0.5) : .clear))
         .onHover { hover = $0 }
         // перетащить блок: бросаешь на другой — встаёт перед ним
         .draggable(id) {

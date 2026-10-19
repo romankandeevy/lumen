@@ -378,3 +378,16 @@ import Testing
     #expect(msgs.filter { $0.role == .user }.map(\.text) == ["Вопрос"])
     #expect(msgs.count == 2 && msgs.last?.id != bad.id)
 }
+
+/// 19.10: две команды сразу, одна закончилась — вторая ещё идёт (ждёт блокировку). Каждый ответ инструмента — своё событие,
+/// иначе Lumen считал, что команд нет, писал «ждёт ответа API» и на третьей минуте прерывал идущую команду
+@Test func everyToolResultIsItsOwnEvent() {
+    let uses = #"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"a","name":"Bash","input":{"command":"swift build"}},{"type":"tool_use","id":"b","name":"Bash","input":{"command":"ls"}}]}}"#
+    let firstDone = #"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"b","content":"ok"}]}}"#
+    let both = #"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"a","content":"ok"},{"type":"tool_result","tool_use_id":"b","content":"ok"}]}}"#
+    var open = 0
+    for ev in ClaudeEvent.decodeAll(Data(uses.utf8)) { if case .step = ev { open += 1 } }
+    for ev in ClaudeEvent.decodeAll(Data(firstDone.utf8)) { if case .toolDone = ev { open -= 1 } }
+    #expect(open == 1) // swift build ещё идёт — сторож не должен считать это тишиной
+    #expect(ClaudeEvent.decodeAll(Data(both.utf8)).filter { if case .toolDone = $0 { true } else { false } }.count == 2)
+}

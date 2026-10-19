@@ -131,3 +131,18 @@ private struct FakeChat: View {
     print("поле ввода выросло: до правки \(before) pt от низа, после — \(after) pt")
     if #available(macOS 15.0, *) { #expect(after < 40) }
 }
+
+/// Переписка без «резинки» (Рома, 19.10): дальше начала и конца не тянется
+@MainActor @Test func transcriptHasNoOverscroll() async throws {
+    let host = NSHostingView(rootView: ScrollView { VStack { ForEach(0..<60, id: \.self) { Text("строка \($0)") } }.background(NoBounce()) }
+        .frame(width: 300, height: 300))
+    host.frame = CGRect(x: 0, y: 0, width: 300, height: 300)
+    let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = host
+    defer { window.close() }
+    try await Task.sleep(for: .milliseconds(300))
+    func find(_ v: NSView) -> NSScrollView? { if let s = v as? NSScrollView { return s }; for x in v.subviews { if let s = find(x) { return s } }; return nil }
+    let scroll = try #require(find(host))
+    #expect(scroll.verticalScrollElasticity == .none)
+}

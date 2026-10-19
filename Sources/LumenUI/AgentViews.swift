@@ -54,9 +54,9 @@ struct AgentHome: View {
                         Text("папка без git — «Изменения» после хода не покажутся")
                     }
                     Spacer(minLength: 8)
-                    HStack(spacing: 4) { Icon("laptop", 14); Text("этот Мак · push только с твоего OK") }
+                    HStack(spacing: 4) { Icon("lock", 12); Text("push — только с твоего OK") }
                 }
-                .tw(12, lh: 16).foregroundStyle(p.mutedFg)
+                .tw(11, lh: 14).foregroundStyle(p.mutedFg.opacity(0.8))
                 .padding(.horizontal, 4).padding(.top, 12)
 
                 if !recent.isEmpty {
@@ -157,6 +157,9 @@ struct StepsView: View {
     @State private var hover = false
     /// Какой шаг раскрыт: что он делал (путь, команда, правка)
     @State private var detailRow: Int?
+    @State private var historyHeight: CGFloat = 0
+    /// Сказать переписке, что шаги раскрыты: пока человек их читает, она не уезжает вниз за новым текстом
+    @Environment(\.stepsOpened) private var stepsOpened
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -167,6 +170,8 @@ struct StepsView: View {
             if open { history.transition(.opacity.combined(with: .move(edge: .top))) }
         }
         .onAppear { if initiallyOpen { open = true } }
+        .onChange(of: open) { _, now in stepsOpened(now) }
+        .onDisappear { if open { stepsOpened(false) } }
     }
 
     @ViewBuilder private var header: some View {
@@ -237,13 +242,14 @@ struct StepsView: View {
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
-        return Group {
-            if steps.count > 10 {
-                ScrollView { list }.frame(maxHeight: 300).scrollIndicators(.automatic)
-            } else {
-                list
-            }
+        // своя область прокрутки не выше 300 pt (Рома, 19.10): листаешь шаги — листаются они, а не вся переписка.
+        // «Резинка» внутри всегда — так прокрутка у края не перескакивает на переписку
+        return ScrollView {
+            list.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { historyHeight = $0 }
         }
+        .scrollBounceBehavior(.always)
+        .scrollIndicators(.automatic)
+        .frame(height: min(max(historyHeight, 1), 300))
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(p.foreground.opacity(0.025), in: RoundedRectangle(cornerRadius: R.lg))
         .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
@@ -846,6 +852,40 @@ struct TurnClockLine: View {
                 }
             }
             Spacer(minLength: 0)
+        }
+    }
+}
+
+
+/// Раскрыли или свернули шаги: переписка, пока они раскрыты, не уезжает вниз за ответом (StepsView → ChatView)
+private struct StepsOpenedKey: EnvironmentKey {
+    static let defaultValue: @MainActor @Sendable (Bool) -> Void = { _ in }
+}
+
+extension EnvironmentValues {
+    var stepsOpened: @MainActor @Sendable (Bool) -> Void {
+        get { self[StepsOpenedKey.self] }
+        set { self[StepsOpenedKey.self] = newValue }
+    }
+}
+
+/// Без «резинки» (Рома, 19.10): переписка не тянется дальше начала и конца. SwiftUI так не умеет — настраиваем NSScrollView
+struct NoBounce: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { Probe() }
+    func updateNSView(_ view: NSView, context: Context) { (view as? Probe)?.apply() }
+
+    final class Probe: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            apply()
+        }
+
+        func apply() {
+            DispatchQueue.main.async { [weak self] in
+                guard let scroll = self?.enclosingScrollView else { return }
+                scroll.verticalScrollElasticity = .none
+                scroll.horizontalScrollElasticity = .none
+            }
         }
     }
 }

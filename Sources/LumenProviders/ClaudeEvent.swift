@@ -111,7 +111,9 @@ public enum ClaudeEvent: Sendable, Equatable {
            content.contains(where: { $0["type"] as? String == "tool_result" }) {
             // ответ на TaskCreate несёт настоящий номер задачи — по нему потом придёт TaskUpdate
             let created: [ClaudeEvent] = content.compactMap(taskCreated).map { .plan(.created(id: $0.id, subject: $0.subject)) }
-            return [.toolDone] + created
+            // по событию на каждый ответ инструмента: при нескольких командах сразу Lumen считает, сколько ещё идёт
+            let done = content.filter { $0["type"] as? String == "tool_result" }.map { _ in ClaudeEvent.toolDone }
+            return done + created
         }
         return decode(line).map { [$0] } ?? []
     }

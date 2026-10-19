@@ -200,16 +200,10 @@ struct Sidebar: View {
                         if !projects.isEmpty { Color.clear.frame(height: 8) }
                         // проектов нет — «Новый проект» там, где был бы их раздел: над разговорами
                         if projects.isEmpty {
-                            Button { app.createProject(folder: app.tab == .agent ? app.agentFolder : nil, kind: kind) } label: {
-                                HStack(spacing: 6) {
-                                    Icon("folder-plus", 14)
-                                    Text("Новый проект").tw(12, lh: 16)
-                                }
-                                .foregroundStyle(p.mutedFg)
-                                .padding(.horizontal, 10).padding(.vertical, 6)
-                                .contentShape(Rectangle())
+                            // такая же строка, как «Новый чат» и «Память»: один размер, один отступ (минимализм, 19.10)
+                            NavRow(title: "Новый проект", icon: "folder-plus", active: false) {
+                                app.createProject(folder: app.tab == .agent ? app.agentFolder : nil, kind: kind)
                             }
-                            .buttonStyle(.plain)
                             .padding(.bottom, 10)
                         }
                         let recent = mine.filter { $0.projectID == nil && !$0.pinned }

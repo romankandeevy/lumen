@@ -146,6 +146,9 @@ public final class ClaudeSession: @unchecked Sendable {
     /// Поток событий текущего хода. Между ходами событий почти нет; что пришло — достаётся следующему ходу.
     private var turn: AsyncStream<ClaudeEvent>.Continuation?
     private let lock = NSLock()
+    private var lastOutputAt = Date()
+    /// Когда claude последний раз что-то вывел (текст, размышление, событие) — он жив, даже если ответ ещё не пишется
+    public var lastOutput: Date { lock.lock(); defer { lock.unlock() }; return lastOutputAt }
 
     public init(cli: ClaudeCLI, config: Config) throws {
         self.config = config
@@ -164,6 +167,7 @@ public final class ClaudeSession: @unchecked Sendable {
         output.fileHandleForReading.readabilityHandler = { [weak self] h in
             let chunk = h.availableData
             guard let self, !chunk.isEmpty else { return }
+            self.lock.lock(); self.lastOutputAt = Date(); self.lock.unlock()
             for line in lines.append(chunk) {
                 if let sink = self.onLog, let l = ClaudeLog.summarize(line, state: self.logState) { sink(l) }
                 for ev in ClaudeEvent.decodeAll(line) { self.deliver(ev) }

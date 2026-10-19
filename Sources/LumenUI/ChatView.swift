@@ -16,6 +16,8 @@ struct ChatView: View {
     @State private var dropping = false
     /// Переписка у самого низа — тогда кнопка «вниз» не нужна, а при смене ширины окна держимся низа
     @State private var atBottom = true
+    /// Сколько блоков шагов раскрыто: пока человек их читает, переписка не уезжает вниз за ответом (Рома, 19.10)
+    @State private var openedSteps = 0
     /// Был ли внизу, когда начала меняться ширина, и счётчик изменений ширины
     @State private var wasAtBottom: Bool?
     @State private var widthGeneration = 0
@@ -136,15 +138,16 @@ struct ChatView: View {
                             Text("Проект «\(projectName)»")
                             Text("·").foregroundStyle(p.foreground.opacity(0.2))
                         }
-                        Text(folder.map { AppModel.isHome($0) ? "Агент во всех моих файлах" : "Агент в папке \($0.lastPathComponent)" } ?? "Агент во всех моих файлах")
-                        Text("·").foregroundStyle(p.foreground.opacity(0.2))
-                        Icon("laptop", 12)
-                        Text("на этом Маке" + (backend == .api ? ", по ключу API" : ""))
+                        Text(folder.map { AppModel.isHome($0) ? "Все мои файлы" : "Папка \($0.lastPathComponent)" } ?? "Все мои файлы")
+                        if backend == .api {
+                            Text("·").foregroundStyle(p.foreground.opacity(0.2))
+                            Text("по ключу API")
+                        }
                     }
                     .tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(1)
-                } else {
-                    Text(projectName.map { "Проект «\($0)» · чат видит контекст проекта" + (backend == .api ? " · через API" : "") }
-                         ?? "Чат — просто разговор, Lumen ничего не трогает" + (backend == .api ? " · через API" : ""))
+                } else if projectName != nil || backend == .api {
+                    // вторая строка — только когда в ней есть что сказать (минимализм, 19.10)
+                    Text([projectName.map { "Проект «\($0)»" }, backend == .api ? "через API" : nil].compactMap { $0 }.joined(separator: " · "))
                         .tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(1)
                 }
             }
@@ -391,6 +394,8 @@ struct ChatView: View {
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
+                // без «резинки» сверху и снизу
+                .background(NoBounce())
                 // поля по бокам: на узком окне переписка не упирается в края
                 .padding(.horizontal, 44).padding(.vertical, 32)
                 .frame(maxWidth: columnWidth)
@@ -413,8 +418,9 @@ struct ChatView: View {
                 }
             }
             // за ответом вниз — только если человек и так внизу; отлистал вверх читать — не дёргать
-            .onChange(of: chat.messages.count) { if atBottom || chat.messages.last?.role == .user { proxy.scrollTo("bottom", anchor: .bottom) } }
-            .onChange(of: chat.streaming?.text.count) { if atBottom { proxy.scrollTo("bottom", anchor: .bottom) } }
+            .onChange(of: chat.messages.count) { if (atBottom && openedSteps == 0) || chat.messages.last?.role == .user { proxy.scrollTo("bottom", anchor: .bottom) } }
+            .onChange(of: chat.streaming?.text.count) { if atBottom && openedSteps == 0 { proxy.scrollTo("bottom", anchor: .bottom) } }
+            .environment(\.stepsOpened) { opened in openedSteps = max(0, openedSteps + (opened ? 1 : -1)) }
             .onChange(of: chat.pendingPermission?.request.id) { withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("bottom", anchor: .bottom) } }
             .onChange(of: chat.scrollTarget) { _, id in
                 guard let id else { return }
@@ -426,7 +432,7 @@ struct ChatView: View {
                 if chat.messages.contains(where: \.chapter) { ChaptersButton(chat: chat).padding(16) }
             }
             // где мы в переписке: у низа ли и какое сообщение сверху
-            .modifier(ScrollTracking(atBottom: $atBottom) { proxy.scrollTo("bottom", anchor: .bottom) })
+            .modifier(ScrollTracking(atBottom: $atBottom) { if openedSteps == 0 { proxy.scrollTo("bottom", anchor: .bottom) } })
             // ширина поменялась (спрятали или показали панель, потянули окно) — ленивый список теряет место:
             // вернуть к низу или к тому сообщению, что было сверху
             // ширина поменялась (панель, браузер): был внизу — остаться внизу, когда ширина успокоится.
@@ -569,7 +575,7 @@ struct MessageRow: View {
             .font(.geist(12)).foregroundStyle(p.mutedFg)
             .frame(maxWidth: .infinity)
         } else if message.role == .user {
-            VStack(alignment: .trailing, spacing: 8) {
+            VStack(alignment: .trailing, spacing: 4) {
             if !message.attachments.isEmpty {
                 MessageAttachments(items: message.attachments).frame(maxWidth: .infinity, alignment: .trailing)
             }
@@ -1294,7 +1300,7 @@ struct Composer: View {
                 .textFieldStyle(.plain)
                 .font(.geist(big ? 15 : 14))
                 .lineSpacing(big ? 6 : 3)
-                .lineLimit(big ? 4...14 : 2...12)
+                .lineLimit(big ? 4...14 : 1...12)
                 .focused($focused)
                 .onSubmit(send)
                 .onChange(of: draft) { old, new in
@@ -1341,7 +1347,7 @@ struct Composer: View {
                     return .handled
                 }
             }
-                .frame(minHeight: big ? 96 : 48, alignment: .topLeading)
+                .frame(minHeight: big ? 96 : 24, alignment: .topLeading) // одна строка, растёт с текстом (минимализм, 19.10)
             // один ряд: слева «+», папка и режим, справа модель, «сколько думать» и отправить
             HStack(spacing: 2) {
                 leftControls
@@ -1575,7 +1581,7 @@ struct Composer: View {
     /// `ModelPicker`: Sparkles text-glow + название text-xs medium + стрелка
     private var modelPicker: some View {
         PickerButton(open: $modelOpen) {
-            Text(model.name).font(.geist(12, .medium))
+            Text(model.name).font(.geist(12))
         } panel: {
             PopoverPanel(title: "Модель") {
                 ForEach(models) { m in
@@ -1599,7 +1605,7 @@ struct Composer: View {
 
     private var modePicker: some View {
         PickerButton(open: $modeOpen) {
-            Icon(mode.icon, 14).foregroundStyle(mode == .bypassPermissions ? Palette.destructive : p.glow)
+            Icon(mode.icon, 14).foregroundStyle(mode == .bypassPermissions ? Palette.destructive : p.mutedFg)
             Text(mode.name).font(.geist(12))
         } panel: {
             PopoverPanel(title: "Режим · Shift+Tab — следующий", width: 300) {
@@ -1742,7 +1748,8 @@ struct PickerButton<Label: View, Panel: View>: View {
                 label
                 Icon("chevron-down", 12).opacity(0.5)
             }
-            .foregroundStyle(p.foreground)
+            // все подписи под полем одного цвета и веса; ярче — под курсором и пока открыто (минимализм, 19.10)
+            .foregroundStyle(hover || open ? p.foreground : p.mutedFg)
             .padding(.horizontal, bordered ? 10 : 8).frame(height: bordered ? 32 : 28)
             .background(bordered ? p.background.opacity(hover ? 0.6 : 0.4) : (hover ? p.foreground.opacity(0.05) : .clear),
                         in: RoundedRectangle(cornerRadius: bordered ? R.md : R.lg))

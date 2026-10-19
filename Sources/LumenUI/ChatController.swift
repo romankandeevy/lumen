@@ -973,15 +973,19 @@ final class ChatController {
             let turn = attachments.isEmpty ? try session.send(text)
                 : try session.send(content: Attachment.userContent(text: text, attachments: attachments, agent: c.kind != .chat || c.projectID != nil))
             if isStopped(c) { session.interrupt() }
-            // сторож: claude молчит не на инструменте (значит, ждёт API) дольше stallLimit — прервать, потом повторить
-            var toolOpen = false
+            // сторож: claude молчит не на инструменте (значит, ждёт API) дольше stallLimit — прервать, потом повторить.
+            // Команды считаются поштучно: при нескольких сразу одна закончилась — остальные ещё идут (Рома, 19.10:
+            // команда ждала блокировку, а Lumen писал «ждёт ответа API» и на третьей минуте прерывал её).
+            // Любой вывод claude (и размышление) — признак жизни.
+            var openTools = 0
             var stalled = false
             let watchdog = Task { @MainActor [weak self] in
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(5))
                     guard let self, self.turns[c.id] != nil else { return }
+                    if session.lastOutput > (self.lastSign[c.id] ?? .distantPast) { self.lastSign[c.id] = session.lastOutput }
                     let quiet = Date().timeIntervalSince(max(self.lastSign[c.id] ?? .distantPast, self.turns[c.id]?.start ?? Date()))
-                    if !toolOpen, self.pendingPermissions[c.id] == nil, quiet > Self.stallLimit {
+                    if openTools == 0, self.pendingPermissions[c.id] == nil, quiet > Self.stallLimit {
                         stalled = true
                         self.app.log("claude молчит \(Int(quiet)) с без инструмента — прерываю ход", conversation: c)
                         session.interrupt()
@@ -993,12 +997,11 @@ final class ChatController {
             for await ev in turn {
                 switch ev {
                 case .textDelta(let t):
-                    toolOpen = false
-                    toolRunning[c.id] = nil
+                    if openTools == 0 { toolRunning[c.id] = nil }
                     retryNote[c.id] = nil
                     answer += appendStreaming(t, c)
                 case .step(let step):
-                    toolOpen = true
+                    openTools += 1
                     toolRunning[c.id] = true
                     retryNote[c.id] = nil
                     appendStep(step, c)
@@ -1008,8 +1011,8 @@ final class ChatController {
                 case .anchor(let a):
                     turns[c.id]?.anchor = a
                 case .toolDone:
-                    toolOpen = false
-                    toolRunning[c.id] = nil
+                    openTools = max(0, openTools - 1)
+                    if openTools == 0 { toolRunning[c.id] = nil }
                     // позванный Lumen бот ответил — его сообщение уже в базе
                     pullBotReplies(c)
                 case .plan(let change):
