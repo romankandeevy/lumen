@@ -31,6 +31,10 @@ extension AppModel {
         if let b = bots.first {
             shots.append(("bot-chat", { [self] in searchOpen = false; openBot(b.id) }))
         }
+        // экран новой задачи при открытом браузере: колонка не должна выходить за свою область
+        let browserWasOpenForHome = browserOpen
+        shots.insert(("agent-new-browser", { [self] in tab = .agent; newAgentTask(); browserOpen = true }), at: 3)
+        shots.insert(("agent-new-browser-restore", { [self] in browserOpen = browserWasOpenForHome }), at: 4)
         // браузер сбоку: адрес наверху у крестика, вкладки под ним
         let browserWasOpen = browserOpen
         shots.append(("browser", { [self] in
@@ -57,6 +61,19 @@ extension AppModel {
         shots.append(("theme-restore", { [self] in update { $0.themeID = was.0; $0.appearance = was.1; $0.userThemes = was.2 } }))
         for s in SettingsView.Section.visible(self) {
             shots.append(("settings-\(s)", { [self] in searchOpen = false; page = .settings(s) }))
+        }
+        // поле ввода с чипом бота и длинным текстом: через тот же запрос «@id», что и щелчок по участнику группы
+        shots.insert(("composer-chip", { [self] in
+            tab = .chat; newChat()
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(0.6))
+                chat.mentionRequest = "@designer привет, как дела? Это длинный текст, чтобы проверить перенос строки под чипом и поведение поля ввода при росте текста вниз, а потом стереть всё ⌫"
+            }
+        }), at: 0)
+        // LUMEN_SELFSHOT_ONLY=имя,имя — только эти снимки
+        if let only = ProcessInfo.processInfo.environment["LUMEN_SELFSHOT_ONLY"] {
+            let names = Set(only.split(separator: ",").map(String.init))
+            shots = shots.filter { names.contains($0.0) }
         }
         for (name, go) in shots {
             go()

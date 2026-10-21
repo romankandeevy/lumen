@@ -693,3 +693,39 @@ struct Shimmer: ViewModifier {
 extension View {
     func shimmer(_ color: Color) -> some View { modifier(Shimmer(color: color)) }
 }
+
+/// Место, за которое тянут окно: пустая полоса шапки двигает окно, двойной щелчок — по-системному (развернуть или свернуть)
+struct WindowDragArea: NSViewRepresentable {
+    func makeNSView(context: Context) -> DragView { DragView() }
+    func updateNSView(_ v: DragView, context: Context) {}
+
+    final class DragView: NSView {
+        override var mouseDownCanMoveWindow: Bool { true }
+
+        override func mouseDown(with event: NSEvent) {
+            guard event.clickCount == 2, let window else { super.mouseDown(with: event); return }
+            switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {
+            case "Minimize": window.performMiniaturize(nil)
+            case "None": break
+            default: window.performZoom(nil)
+            }
+        }
+    }
+}
+
+/// Крутящаяся дуга 13 pt — «идёт работа» в таблетке задач
+struct PillSpinner: View {
+    let color: Color
+
+    var body: some View {
+        TimelineView(.animation) { ctx in
+            let t = ctx.date.timeIntervalSinceReferenceDate
+            ZStack {
+                Circle().stroke(color.opacity(0.3), lineWidth: 1.6)
+                Circle().trim(from: 0, to: 0.28).stroke(color, style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
+                    .rotationEffect(.degrees((t * 360).truncatingRemainder(dividingBy: 360)))
+            }
+        }
+        .frame(width: 13, height: 13)
+    }
+}

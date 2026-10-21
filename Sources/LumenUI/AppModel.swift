@@ -414,10 +414,10 @@ public final class AppModel {
     }
 
     /// Меню разговора — как у Claude: закрепить, переименовать, удалить (с буквами)
-    func showChatMenu(_ c: Conversation, at point: CGPoint) {
+    func showChatMenu(_ c: Conversation, at point: CGPoint, rename: (() -> Void)? = nil) {
         menu = MenuState(items: [
             MenuItem(title: c.pinned ? "Открепить" : "Закрепить", key: "p") { [weak self] in self?.togglePin(c) },
-            MenuItem(title: "Переименовать", key: "r") { [weak self] in self?.renamingID = c.id },
+            MenuItem(title: "Переименовать", key: "r") { [weak self] in if let rename { rename() } else { self?.renamingID = c.id } },
             MenuItem(title: "Переместить в проект…", key: "m") { [weak self] in
                 // второе меню открывается на том же месте
                 DispatchQueue.main.async { self?.showMoveMenu(c, at: point) }

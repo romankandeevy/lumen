@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><title>Шапка Lumen — макет</title>
+<style>
+*{margin:0;box-sizing:border-box}
+body{background:#050608;width:1240px;padding:28px 20px;font-family:-apple-system,"SF Pro Text",Helvetica,sans-serif;-webkit-font-smoothing:antialiased}
+.cap{color:#6b7080;font-size:12px;margin:22px 0 8px 4px;letter-spacing:.02em}
+.cap:first-child{margin-top:0}
+.win{display:flex;width:1200px;height:300px;border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,.07)}
+.side{width:230px;background:linear-gradient(180deg,#101116,#0C0D11);border-right:1px solid rgba(255,255,255,.06);position:relative}
+.dots{position:absolute;left:16px;top:19px;display:flex;gap:8px}
+.dots i{width:12px;height:12px;border-radius:50%;background:#3a3d46}
+.main{position:relative;flex:1;background:#0A0B0F;overflow:hidden}
+.neb{position:absolute;inset:0;background:
+ radial-gradient(closest-side at 30% 40%,rgba(43,79,214,.14),transparent 70%),
+ radial-gradient(closest-side at 80% 20%,rgba(14,110,140,.08),transparent 70%)}
+.bar{position:absolute;left:0;right:0;top:0;height:52px;display:flex;align-items:center;justify-content:center;z-index:3;transition:.2s}
+.bar.solid{background:rgba(10,11,15,.72);backdrop-filter:blur(16px) saturate(1.2);-webkit-backdrop-filter:blur(16px) saturate(1.2);border-bottom:1px solid rgba(255,255,255,.06)}
+.title{display:flex;align-items:center;gap:6px;font-size:13.5px;font-weight:500;color:#D5D9E2;max-width:50%;white-space:nowrap}
+.title .proj{color:#8D93A3}.title .sl{color:#7C8292;font-weight:400}
+.chev{width:12px;height:12px;stroke:#7C8292;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.right{position:absolute;right:12px;top:10px;display:flex;align-items:center;gap:2px}
+.ib{width:32px;height:32px;border-radius:9px;display:grid;place-items:center}
+.ib svg{width:17px;height:17px;stroke:#8D93A3;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.ib.hov{background:rgba(255,255,255,.045)}.ib.hov svg{stroke:#F1F3F8}
+.pill{height:28px;padding:0 11px;border-radius:999px;display:flex;align-items:center;gap:7px;font-size:12.5px;color:#9DB4FF;background:rgba(91,134,255,.12);margin-right:6px}
+.spin{width:13px;height:13px;border-radius:50%;border:1.6px solid rgba(157,180,255,.3);border-top-color:#9DB4FF}
+.toggle{position:absolute;left:78px;top:10px}
+.msgs{position:absolute;left:0;right:0;top:0;padding:0 0 0 0;z-index:1}
+.col{width:520px;margin:0 auto;position:relative}
+.u{margin-left:auto;width:max-content;background:#1b1d24;border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:9px 16px;color:#d5d9e2;font-size:14px}
+.a{color:#c4c9d6;font-size:14px;line-height:22px;margin-top:22px}
+.scrim{position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(10,11,15,.35) 15%,rgba(10,11,15,.35) 85%,transparent);z-index:0}
+.vig{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 45%,transparent 55%,rgba(0,0,0,.45));z-index:2;pointer-events:none}
+.hero{position:absolute;inset:0;display:grid;place-items:center;z-index:1}
+.orb{width:56px;height:56px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#dfe7ff,#5b86ff 45%,#1d36ac 80%);box-shadow:0 0 0 1px rgba(255,255,255,.1) inset}
+.hello{font-family:Georgia,serif;font-size:40px;color:#e8ebf3;margin-left:18px;letter-spacing:-.02em}
+.row{display:flex;align-items:center}
+</style></head><body>
+
+<div class="cap">1 · Пустой экран — шапка прозрачная, названия нет (его роль у приветствия)</div>
+<div class="win"><div class="side"><div class="dots"><i></i><i></i><i></i></div></div>
+ <div class="main"><div class="neb"></div><div class="vig"></div>
+  <div class="hero"><div class="row"><div class="orb"></div><div class="hello">Привет, Рома</div></div></div>
+  <div class="bar"><div class="right">
+    <div class="ib"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"/></svg></div>
+    <div class="ib"><svg viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg></div>
+    <div class="ib"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></div>
+  </div></div></div></div>
+
+<div class="cap">2 · Чат, начало — прозрачная шапка, заголовок по центру; при наведении справа от него появляется шеврон</div>
+<div class="win"><div class="side"><div class="dots"><i></i><i></i><i></i></div></div>
+ <div class="main"><div class="neb" style="opacity:.45"></div><div class="scrim"></div><div class="vig"></div>
+  <div class="msgs"><div class="col" style="padding-top:70px"><div class="u">Привет</div>
+   <div class="a">Привет, Рома! Рад тебя видеть. Чем займёмся сегодня: что-то делаем по коду, дизайну или просто поболтаем?</div></div></div>
+  <div class="bar"><div class="title">Приветствие и вопрос <svg class="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></div>
+   <div class="right">
+    <div class="ib"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"/></svg></div>
+    <div class="ib"><svg viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg></div>
+    <div class="ib hov"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></div>
+  </div></div></div></div>
+
+<div class="cap">3 · Прокрутили больше 4 px — фон rgba(10,11,15,.72), размытие 16, линия 1 px; внутри проекта «Проект / Чат»; справа таблетка фоновых задач</div>
+<div class="win"><div class="side"><div class="dots"><i></i><i></i><i></i></div></div>
+ <div class="main"><div class="neb" style="opacity:.45"></div><div class="scrim"></div><div class="vig"></div>
+  <div class="msgs"><div class="col" style="padding-top:10px">
+   <div class="a" style="margin-top:0">Сначала смотрим, что уже лежит в папке: макеты, сборка и тесты. Потом решаем, что из этого трогаем.</div>
+   <div class="a">Дальше — шапка: убираем знак и жирный заголовок слева, заголовок идёт по центру, а справа остаются только кнопки.</div>
+   <div class="a">Размытие появляется, только когда под шапкой уже что-то есть.</div></div></div>
+  <div class="bar solid"><div class="title"><span class="proj">Lumen</span><span class="sl">/</span>Шапка и фон</div>
+   <div class="right">
+    <div class="pill"><div class="spin"></div>2 задачи</div>
+    <div class="ib"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"/></svg></div>
+    <div class="ib"><svg viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg></div>
+    <div class="ib"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></div>
+  </div></div></div></div>
+
+<div class="cap">4 · Панель спрятана — слева после кнопок окна остаётся только кнопка «показать панель»</div>
+<div class="win"><div class="main" style="border-left:0"><div class="neb" style="opacity:.45"></div><div class="vig"></div>
+  <div class="dots" style="z-index:4"><i></i><i></i><i></i></div>
+  <div class="bar"><div class="ib toggle" style="position:absolute;left:78px;top:10px"><svg viewBox="0 0 24 24" style="width:17px;height:17px;stroke:#8D93A3;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg></div>
+   <div class="title">Приветствие и вопрос</div>
+   <div class="right">
+    <div class="ib"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"/></svg></div>
+    <div class="ib"><svg viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg></div>
+    <div class="ib"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></div>
+  </div></div></div></div>
+</body></html>

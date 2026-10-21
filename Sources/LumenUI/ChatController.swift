@@ -22,6 +22,8 @@ final class ChatController {
         var conversation: Conversation
         var message: ChatMessage?
         var thinking = true
+        /// Запускается процесс claude (первые секунды нового разговора: навыки, коннекторы) — это не «думает»
+        var launching = false
         /// Чей ответ идёт: бот (его знак вместо сферы) или Lumen
         var bot: String?
         @ObservationIgnored var task: Task<Void, Never>?
@@ -196,6 +198,8 @@ final class ChatController {
     var busy: Bool { openTurn != nil }
     var streaming: ChatMessage? { openTurn?.message }
     var thinking: Bool { openTurn?.thinking ?? false }
+    /// Ответа ещё нет, потому что claude только запускается
+    var launching: Bool { (openTurn?.thinking ?? false) && (openTurn?.launching ?? false) }
     /// Чей ответ идёт в открытом разговоре
     var turnBot: String? { openTurn?.bot }
     private func isStopped(_ c: Conversation) -> Bool { turns[c.id]?.stopRequested ?? false }
@@ -1000,6 +1004,9 @@ final class ChatController {
             defer { watchdog.cancel() }
             for await ev in turn {
                 switch ev {
+                case .started:
+                    // claude поднялся (навыки и коннекторы загружены) — дальше ждём ответ модели
+                    turns[c.id]?.launching = false
                 case .textDelta(let t):
                     if openTools == 0 { toolRunning[c.id] = nil }
                     retryNote[c.id] = nil
@@ -1238,6 +1245,7 @@ final class ChatController {
             return s
         }
         sessions[c.id]?.close()
+        turns[c.id]?.launching = true
         // не больше трёх живых процессов: старые гасим, их ход продолжится через --resume
         // гасим только простаивающие: идущий ход в другом разговоре не трогаем
         if sessions.count >= 3, let oldest = sessions.keys.first(where: { $0 != c.id && turns[$0] == nil }) {
@@ -1442,6 +1450,7 @@ final class ChatController {
         guard let tr = turns[c.id] else { return t }
         if tr.thinking {
             tr.thinking = false
+            tr.launching = false
             if conversation?.id == c.id { app.orb = .writing }
         }
         if tr.message == nil { tr.message = ChatMessage(conversationID: c.id, role: .assistant, text: "", model: c.model); tr.message?.botID = tr.bot }
@@ -1532,6 +1541,7 @@ final class ChatController {
         guard let tr = turns[c.id] else { return }
         if tr.thinking {
             tr.thinking = false
+            tr.launching = false
             if conversation?.id == c.id { app.orb = .idle }
         }
         if tr.message == nil { tr.message = ChatMessage(conversationID: c.id, role: .assistant, text: "", model: c.model); tr.message?.botID = tr.bot }

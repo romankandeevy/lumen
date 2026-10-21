@@ -10,6 +10,8 @@ extension AppModel {
     /// Запустить сокет браузера для lumen-mcp (один раз за запуск)
     func startBrowser() {
         guard browserServer == nil else { return }
+        // проверочный запуск (LUMEN_SELFSHOT) — второй экземпляр: сокет браузера не трогает, иначе уведёт его у настоящего Lumen
+        guard ProcessInfo.processInfo.environment["LUMEN_SELFSHOT"] == nil else { return }
         let server = BrowserServer(path: paths.browserSocket.path) { [weak self] tool, args, who, conv in
             nonisolated(unsafe) let a = args
             guard let self else { return .init(text: "Lumen закрывается.", error: true) }

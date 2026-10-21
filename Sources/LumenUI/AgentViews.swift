@@ -16,7 +16,6 @@ struct AgentHome: View {
     @State private var gitChecked = false
     @State private var gitInitError: String?
     @State private var composerFocused = false
-    @State private var showAll = false
 
     private var folder: URL? { app.agentFolder }
 
@@ -27,6 +26,7 @@ struct AgentHome: View {
     }
 
     var body: some View {
+        GeometryReader { geo in
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 headline
@@ -43,10 +43,10 @@ struct AgentHome: View {
             .frame(maxWidth: 700)
             .padding(.horizontal, 24)
             .padding(.vertical, 40)
-            .frame(maxWidth: .infinity)
-            .containerRelativeFrame(.vertical, alignment: .center) { h, _ in h }
+            .frame(maxWidth: .infinity, minHeight: geo.size.height)
         }
         .scrollIndicators(.never)
+        }
         .foregroundStyle(p.foreground)
         .task(id: folder) { await refreshGit() }
         // имя папки в заголовке — ссылка: открывает выбор папки в поле ввода
@@ -130,9 +130,9 @@ struct AgentHome: View {
         }
     }
 
-    /// «Недавно в этой папке»: три задачи, остальные — по «Все задачи в папке»
+    /// «Недавно в этой папке»: только три последние задачи
     private var recentList: some View {
-        let shown = showAll ? tasks : Array(tasks.prefix(3))
+        let shown = Array(tasks.prefix(3))
         let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
         return VStack(alignment: .leading, spacing: 0) {
             Text("Недавно в этой папке").font(.geist(12.5, .medium)).foregroundStyle(p.mutedFg)
@@ -146,13 +146,6 @@ struct AgentHome: View {
             .background(p.borderBase.opacity(0.02), in: shape)
             .clipShape(shape)
             .overlay(shape.strokeBorder(p.borderBase.opacity(0.07)))
-            if tasks.count > 3 {
-                InlineTextButton(title: showAll ? "Свернуть" : "Все задачи в папке · \(tasks.count)", color: p.mutedFg) {
-                    withAnimation(.easeOut(duration: 0.18)) { showAll.toggle() }
-                }
-                .font(.geist(13))
-                .padding(.leading, 4).padding(.top, 10)
-            }
         }
     }
 }
