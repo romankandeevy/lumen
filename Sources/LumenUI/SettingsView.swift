@@ -482,9 +482,8 @@ struct SettingsNavRow: View {
             }
             .foregroundStyle(active || hover || framed ? p.foreground : p.foreground.opacity(0.75))
             .padding(.leading, sub ? 22 : 10).padding(.trailing, 8).frame(height: 32)
-            .background(active ? p.foreground.opacity(0.07) : (hover ? p.foreground.opacity(0.04) : .clear), in: RoundedRectangle(cornerRadius: R.lg))
-            .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(framed ? p.border : .clear))
-            .overlay(alignment: .leading) { if active { GlowBar().padding(.leading, sub ? 12 : 0) } }
+            .rowBackground(active: active, hover: hover, radius: 10)
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(framed && !active ? p.border : .clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

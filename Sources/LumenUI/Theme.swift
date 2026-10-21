@@ -25,16 +25,49 @@ public struct Palette: Sendable {
     var onGlow: Color { isLight ? .white : .black }
     var scheme: ColorScheme { isLight ? .light : .dark }
 
+    // Оттенки из макета 21.10 (синий шар): выводятся из цветов темы, у «Люмена» совпадают с макетом
+    /// Приветствие
+    var textStrong: Color { foreground.mixed(with: isLight ? .black : .white, 0.2) }
+    /// Текст ответа
+    var textBody: Color { foreground.mixed(with: background, 0.05) }
+    /// Неактивные названия в «Недавних»
+    var textSoft: Color { foreground.mixed(with: background, 0.12) }
+    /// Модель и «сколько думать» под полем
+    var textControl: Color { foreground.mixed(with: background, 0.2) }
+    /// Даты, подсказка в поле, клавиши, стрелки
+    var faint: Color { mutedFg.mixed(with: background, 0.13) }
+    /// Акцент заливкой; `glow` — акцент значков, курсора и рамки фокуса
+    var accent: Color { glowSoftBase }
+    /// Текст на акцентной подложке
+    var accentSoft: Color { glow.mixed(with: isLight ? .black : .white, 0.25) }
+    var accentTint: Color { glowSoftBase.opacity(0.12) }
+    /// Подложка под курсором у всех «призрачных» кнопок
+    var hover: Color { borderBase.opacity(0.045) }
+    /// Линия справа у панели и разделители
+    var line: Color { borderBase.opacity(0.06 * borderScale) }
+    /// Выбранная строка: мягкая подложка сверху вниз и тонкое кольцо внутри — без цветной черты
+    var activeFill: LinearGradient {
+        LinearGradient(colors: [borderBase.opacity(0.075), borderBase.opacity(0.045)], startPoint: .top, endPoint: .bottom)
+    }
+    var activeRing: Color { borderBase.opacity(0.06) }
+    /// Шар «Люмена» — точно как в макете; у других тем — из их света (Orb.swift)
+    var orbSpec = false
+
     static let destructive = Color(hex: 0xFF6467)
     static let ok = Color(hex: 0x34D399)
 
-    static let lumen = Palette(
-        background: Color(hex: 0x0C0A07), foreground: Color(hex: 0xF0EBE0), card: Color(hex: 0x15110D),
-        secondary: Color(hex: 0x221D17), muted: Color(hex: 0x1F1B16), mutedFg: Color(hex: 0x9F978B),
-        sidebar: Color(hex: 0x070504), sidebarAccent: Color(hex: 0x1A1510),
-        primary: Color(hex: 0xFAE6BB), primaryFg: Color(hex: 0x1C140C), popover: Color(hex: 0x1A1510),
-        glow: Color(hex: 0xFEC766), glowCore: Color(hex: 0xFFF8DB), glowSoftBase: Color(hex: 0xF5B75B),
-        borderBase: Color(hex: 0xF7E2B8), isMono: false)
+    /// «Люмен» (21.10): почти чёрный с синей дымкой, стеклянный синий шар; синий — единственный акцент
+    static let lumen: Palette = {
+        var p = Palette(
+            background: Color(hex: 0x0A0B0F), foreground: Color(hex: 0xF1F3F8), card: Color(hex: 0x121318),
+            secondary: Color(hex: 0x1B1D23), muted: Color(hex: 0x16181D), mutedFg: Color(hex: 0x8D93A3),
+            sidebar: Color(hex: 0x101116), sidebarAccent: Color(hex: 0x191B21),
+            primary: Color(hex: 0xF1F3F8), primaryFg: Color(hex: 0x0A0B0F), popover: Color(hex: 0x14161C),
+            glow: Color(hex: 0x7FA0FF), glowCore: Color(hex: 0xDCE5FF), glowSoftBase: Color(hex: 0x5B86FF),
+            borderBase: Color(hex: 0xFFFFFF), isMono: false)
+        p.orbSpec = true
+        return p
+    }()
 
     static let mono = Palette(
         background: Color(hex: 0x0C0C0C), foreground: Color(hex: 0xF5F5F5), card: Color(hex: 0x141414),
@@ -44,14 +77,18 @@ public struct Palette: Sendable {
         glow: Color(hex: 0xE4E4E4), glowCore: Color(hex: 0xFFFFFF), glowSoftBase: Color(hex: 0xFFFFFF),
         borderBase: Color(hex: 0xFFFFFF), isMono: true)
 
-    /// Светлая: тёплая бумага, тёмные чернила, янтарный свет темнее — чтобы читался на белом
-    static let light = Palette(
-        background: Color(hex: 0xFBF9F5), foreground: Color(hex: 0x1E1A15), card: Color(hex: 0xFFFFFF),
-        secondary: Color(hex: 0xF0ECE4), muted: Color(hex: 0xF3F0EA), mutedFg: Color(hex: 0x716A60),
-        sidebar: Color(hex: 0xF4F1EB), sidebarAccent: Color(hex: 0xE8E3D9),
-        primary: Color(hex: 0x1E1A15), primaryFg: Color(hex: 0xFFFFFF), popover: Color(hex: 0xFFFFFF),
-        glow: Color(hex: 0xC97A12), glowCore: Color(hex: 0xFFF1D0), glowSoftBase: Color(hex: 0xE8A23A),
-        borderBase: Color(hex: 0x2A2016), isMono: false, isLight: true)
+    /// Светлая: холодная бумага, тёмные чернила, синий темнее — чтобы читался на белом. Шар тот же, что у тёмной
+    static let light: Palette = {
+        var p = Palette(
+            background: Color(hex: 0xF6F7FA), foreground: Color(hex: 0x14161C), card: Color(hex: 0xFFFFFF),
+            secondary: Color(hex: 0xE9ECF2), muted: Color(hex: 0xEEF0F5), mutedFg: Color(hex: 0x5E6575),
+            sidebar: Color(hex: 0xEFF1F5), sidebarAccent: Color(hex: 0xE3E6EE),
+            primary: Color(hex: 0x14161C), primaryFg: Color(hex: 0xFFFFFF), popover: Color(hex: 0xFFFFFF),
+            glow: Color(hex: 0x3B63E6), glowCore: Color(hex: 0xE4EBFF), glowSoftBase: Color(hex: 0x4A72F5),
+            borderBase: Color(hex: 0x0E1220), isMono: false, isLight: true)
+        p.orbSpec = true
+        return p
+    }()
 
     /// Своя тема: всё считается от оттенка; tint — насколько фон и панели окрашены этим оттенком
     static func custom(_ c: CustomTheme) -> Palette {
@@ -98,7 +135,7 @@ public struct Palette: Sendable {
 
         /// Встроенные: у каждой — своя идея света (лампа, полдень и полночь, закат, северное сияние, луна)
         static let builtIn: [Family] = [
-            Family(id: "lumen", name: "Люмен", note: "Тёплый свет лампы", dark: .lumen, light: .light),
+            Family(id: "lumen", name: "Люмен", note: "Стеклянный синий шар", dark: .lumen, light: .light),
             Family(id: "mono", name: "Монохром", note: "Чёрное и белое, как Пульт", dark: .mono, light: .monoLight),
             hue("sunset", "Закат", "Медь и угли вечернего неба", 16, 0.45),
             hue("aurora", "Сияние", "Зелёный свет северной ночи", 162, 0.4),
@@ -159,6 +196,8 @@ public struct Palette: Sendable {
             borderBase: newFg ? fg : borderBase, isMono: isMono, isLight: isLight)
         p.borderScale = borderScale
         p.diffSigns = diffSigns
+        // свой акцент — и шар из него
+        p.orbSpec = orbSpec && o.accent == nil
         return p
     }
 
@@ -172,6 +211,7 @@ public struct Palette: Sendable {
                         isMono: isMono, isLight: isLight)
         p.borderScale = max(0.4, 1 + k * 1.2)
         p.diffSigns = diffSigns
+        p.orbSpec = orbSpec
         return p
     }
 
@@ -254,23 +294,62 @@ extension EnvironmentValues {
     }
 }
 
-// MARK: шрифт Geist (как в макете), лежит в Resources/Fonts
+// MARK: шрифты. Интерфейс — системный (SF Pro, макет 21.10); Geist остался выбором для текста переписки,
+// Literata — только приветствие. Оба лежат в Resources/Fonts
 
 extension Font {
     /// Масштаб шрифтов интерфейса (Настройки → Тема → Расширенные): 1 = базовые 14 pt
     nonisolated(unsafe) static var uiScale: CGFloat = 1
 
+    /// Шрифт интерфейса. Имя осталось от Geist: так он зовётся по всему коду
     static func geist(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        let size = size * uiScale
-        let name: String
-        switch weight {
-        case .medium: name = "Geist-Medium"
-        case .semibold: name = "Geist-SemiBold"
-        case .bold, .heavy, .black: name = "Geist-Bold"
-        default: name = "Geist-Regular"
-        }
+        .system(size: size * uiScale, weight: weight)
+    }
+
+    /// Geist для текста переписки («Шрифты и масштаб» → Geist)
+    static func geistFace(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        let name = GeistFace.name(weight)
         // без бандла (swift run) шрифта нет — системный того же веса
         return NSFont(name: name, size: size) != nil ? .custom(name, size: size) : .system(size: size, weight: weight)
+    }
+
+    /// Приветствие: Literata с оптическим размером под кегль (opsz 7…72), вес 400
+    @MainActor static func greeting(_ size: CGFloat) -> Font {
+        Font(Greeting.font(size * uiScale))
+    }
+}
+
+enum GeistFace {
+    static func name(_ weight: Font.Weight) -> String {
+        switch weight {
+        case .medium: "Geist-Medium"
+        case .semibold: "Geist-SemiBold"
+        case .bold, .heavy, .black: "Geist-Bold"
+        default: "Geist-Regular"
+        }
+    }
+}
+
+enum Greeting {
+    @MainActor private static var cache: [CGFloat: NSFont] = [:]
+
+    /// Оси variable-шрифта: «opsz» и «wght» по их 4-буквенным тегам
+    @MainActor static func font(_ size: CGFloat) -> NSFont {
+        if let f = cache[size] { return f }
+        func tag(_ s: String) -> NSNumber { NSNumber(value: s.utf8.reduce(UInt32(0)) { $0 << 8 | UInt32($1) }) }
+        let f: NSFont
+        if let base = NSFont(name: "Literata", size: size) {
+            let d = base.fontDescriptor.addingAttributes([
+                NSFontDescriptor.AttributeName(rawValue: kCTFontVariationAttribute as String): [tag("opsz"): min(72, max(7, size)), tag("wght"): 400],
+            ])
+            f = NSFont(descriptor: d, size: size) ?? base
+        } else {
+            // шрифта нет (swift run) — системный с засечками
+            let sys = NSFont.systemFont(ofSize: size)
+            f = sys.fontDescriptor.withDesign(.serif).flatMap { NSFont(descriptor: $0, size: size) } ?? sys
+        }
+        cache[size] = f
+        return f
     }
 }
 
@@ -335,7 +414,10 @@ private struct ChatTextStyle: ViewModifier {
     func body(content: Content) -> some View {
         let s = size * t.scale, l = lh * t.scale
         switch t.font {
-        case .geist: content.tw(s, lh: l)
+        case .geist:
+            let natural = LineMetrics.geistHeight(s * Font.uiScale)
+            let extra = max(0, l * Font.uiScale - natural)
+            content.font(.geistFace(s * Font.uiScale)).lineSpacing(extra).padding(.vertical, extra / 2)
         case .system, .serif, .mono:
             let design: Font.Design = t.font == .serif ? .serif : (t.font == .mono ? .monospaced : .default)
             let natural = ceil(NSFont.systemFont(ofSize: s).ascender - NSFont.systemFont(ofSize: s).descender + NSFont.systemFont(ofSize: s).leading)
@@ -354,16 +436,31 @@ extension View {
 enum LineMetrics {
     @MainActor private static var cache: [String: CGFloat] = [:]
 
-    /// Естественная высота строки шрифта (как её рисует Text)
+    /// Естественная высота строки шрифта интерфейса (как её рисует Text)
     static func height(_ size: CGFloat, _ weight: Font.Weight) -> CGFloat {
-        let name: String
-        switch weight {
-        case .medium: name = "Geist-Medium"
-        case .semibold: name = "Geist-SemiBold"
-        case .bold, .heavy, .black: name = "Geist-Bold"
-        default: name = "Geist-Regular"
-        }
-        let font = NSFont(name: name, size: size) ?? .systemFont(ofSize: size)
+        let font = NSFont.systemFont(ofSize: size, weight: weight.ns)
         return ceil(font.ascender - font.descender + font.leading)
+    }
+
+    /// То же для Geist в переписке
+    static func geistHeight(_ size: CGFloat) -> CGFloat {
+        let font = NSFont(name: GeistFace.name(.regular), size: size) ?? .systemFont(ofSize: size)
+        return ceil(font.ascender - font.descender + font.leading)
+    }
+}
+
+extension Font.Weight {
+    var ns: NSFont.Weight {
+        switch self {
+        case .ultraLight: .ultraLight
+        case .thin: .thin
+        case .light: .light
+        case .medium: .medium
+        case .semibold: .semibold
+        case .bold: .bold
+        case .heavy: .heavy
+        case .black: .black
+        default: .regular
+        }
     }
 }

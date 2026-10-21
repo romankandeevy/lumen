@@ -30,7 +30,7 @@ struct LinkText: NSViewRepresentable {
         context.coordinator.key = key
         v.linkTextAttributes = [.foregroundColor: NSColor(p.glow), .cursor: NSCursor.pointingHand]
         v.textContainerInset = NSSize(width: 0, height: m.extra / 2)
-        v.setText(Self.styled(text, base: m.font, size: m.size, extra: m.extra, color: NSColor(p.foreground)))
+        v.setText(Self.styled(text, base: m.font, size: m.size, extra: m.extra, color: NSColor(p.textBody)))
         v.invalidateIntrinsicContentSize()
     }
 
@@ -60,7 +60,7 @@ struct LinkText: NSViewRepresentable {
         switch t.font {
         case .geist:
             let s = size * scale * Font.uiScale, l = lineHeight * scale * Font.uiScale
-            return (NSFont(name: "Geist-Regular", size: s) ?? .systemFont(ofSize: s), s, max(0, l - LineMetrics.height(s, .regular)))
+            return (NSFont(name: "Geist-Regular", size: s) ?? .systemFont(ofSize: s), s, max(0, l - LineMetrics.geistHeight(s)))
         case .system, .serif, .mono:
             let s = size * scale, l = lineHeight * scale
             let sys = NSFont.systemFont(ofSize: s)

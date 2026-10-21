@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // Общие элементы — как в макете (shadcn `components/ui/*` + `components/page.tsx`).
@@ -10,6 +11,33 @@ enum R {
     static let xl: CGFloat = 16.8
     static let xxl: CGFloat = 21.6
     static let xxxl: CGFloat = 26.4
+}
+
+/// Подложка строки списка (макет 21.10): выбранная — мягкий градиент и тонкое кольцо внутри, под курсором — едва заметная.
+/// Цветной черты слева нет нигде
+struct RowBackground: ViewModifier {
+    let active: Bool
+    let hover: Bool
+    var radius: CGFloat = 11
+
+    @Environment(\.palette) private var p
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        content.background {
+            if active {
+                shape.fill(p.activeFill).overlay(shape.strokeBorder(p.activeRing))
+            } else if hover {
+                shape.fill(p.hover)
+            }
+        }
+    }
+}
+
+extension View {
+    func rowBackground(active: Bool, hover: Bool, radius: CGFloat = 11) -> some View {
+        modifier(RowBackground(active: active, hover: hover, radius: radius))
+    }
 }
 
 /// Кнопка shadcn. Размеры: default h36 px10 text14, sm h32 px12 text14→13, xs h24 px8 text12.
@@ -72,7 +100,8 @@ struct LButton: View {
 
     private var fg: Color {
         switch kind {
-        case .glow: p.onGlow
+        // синяя заливка, белый текст; у монохрома — светлая заливка, тёмный текст
+        case .glow: p.isMono ? p.onGlow : .white
         case .primary: p.primaryFg
         case .secondary, .outline: p.foreground
         case .ghost: p.foreground
@@ -81,7 +110,7 @@ struct LButton: View {
 
     private var bg: Color {
         switch kind {
-        case .glow: hover ? p.glow.opacity(0.85) : p.glow
+        case .glow: (p.isMono ? p.glow : p.accent).opacity(hover ? 0.88 : 1)
         case .primary: hover ? p.primary.opacity(0.8) : p.primary
         case .secondary: hover ? p.secondary.opacity(0.8) : p.secondary
         case .outline: hover ? p.input.opacity(0.5) : p.input.opacity(0.3)
@@ -298,6 +327,8 @@ struct GlowField<Trailing: View>: View {
     @Binding var text: String
     var secure = false
     var mono = false
+    /// Значок слева (поиск, ссылка)
+    var icon: String? = nil
     var onSubmit: () -> Void = {}
     @ViewBuilder var trailing: Trailing
 
@@ -305,38 +336,70 @@ struct GlowField<Trailing: View>: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
+            if let icon { Icon(icon, 15).foregroundStyle(focused ? p.glow : p.faint) }
             Group {
                 // подсказка приглушённая — чтобы не путалась с введённым текстом
                 if secure {
-                    SecureField(text: $text, prompt: Text(placeholder).foregroundStyle(p.mutedFg.opacity(0.7))) { EmptyView() }
+                    SecureField(text: $text, prompt: Text(placeholder).foregroundStyle(p.faint)) { EmptyView() }
                 } else {
-                    TextField(text: $text, prompt: Text(placeholder).foregroundStyle(p.mutedFg.opacity(0.7))) { EmptyView() }
+                    TextField(text: $text, prompt: Text(placeholder).foregroundStyle(p.faint)) { EmptyView() }
                 }
             }
             .textFieldStyle(.plain)
-            .font(mono ? .system(size: 12, design: .monospaced) : .geist(16))
+            .font(mono ? .system(size: 12.5, design: .monospaced) : .geist(15))
             .focused($focused)
             .onSubmit(onSubmit)
             trailing
         }
-        .padding(.horizontal, mono ? 12 : 16)
-        .frame(height: mono ? 36 : 44)
-        .background(p.input.opacity(0.3), in: RoundedRectangle(cornerRadius: R.lg))
-        .overlay(RoundedRectangle(cornerRadius: R.lg)
-            .strokeBorder(focused ? p.glow.opacity(mono ? 0.35 : 0.5) : p.border))
-        .shadow(color: focused && mono ? p.glowSoft : .clear, radius: 16)
-        .animation(.easeOut(duration: 0.4), value: focused)
+        .padding(.horizontal, 14)
+        .frame(height: mono ? 38 : 44)
+        .fieldGlass(focused: focused)
     }
 }
 
 extension GlowField where Trailing == EmptyView {
-    init(placeholder: String, text: Binding<String>, secure: Bool = false, mono: Bool = false, onSubmit: @escaping () -> Void = {}) {
-        self.init(placeholder: placeholder, text: text, secure: secure, mono: mono, onSubmit: onSubmit) { EmptyView() }
+    init(placeholder: String, text: Binding<String>, secure: Bool = false, mono: Bool = false, icon: String? = nil,
+         onSubmit: @escaping () -> Void = {}) {
+        self.init(placeholder: placeholder, text: text, secure: secure, mono: mono, icon: icon, onSubmit: onSubmit) { EmptyView() }
     }
 }
 
-/// Переключатель shadcn: 32×18, светится, когда включён
+/// Стекло поля ввода (как у поля сообщения, только мельче): мягкий градиент, кольцо 1px внутри, светлая кромка сверху;
+/// в фокусе кольцо синее и вокруг 3px мягкого синего — без неонового свечения
+struct FieldGlass: ViewModifier {
+    let focused: Bool
+    var radius: CGFloat = 12
+
+    @Environment(\.palette) private var p
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        content
+            .background {
+                shape.fill(p.isLight ? AnyShapeStyle(p.card)
+                           : AnyShapeStyle(LinearGradient(colors: [p.borderBase.opacity(0.05), p.borderBase.opacity(0.025)], startPoint: .top, endPoint: .bottom)))
+            }
+            .overlay {
+                ZStack {
+                    shape.strokeBorder(focused ? p.glow.opacity(0.42) : p.borderBase.opacity(0.09))
+                    shape.inset(by: 1).strokeBorder(LinearGradient(colors: [.white.opacity(p.isLight ? 0 : 0.05), .clear],
+                                                                  startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.2)))
+                    if focused {
+                        RoundedRectangle(cornerRadius: radius + 3, style: .continuous)
+                            .strokeBorder(p.accent.opacity(0.10), lineWidth: 3).padding(-3)
+                    }
+                }
+                .allowsHitTesting(false)
+            }
+            .animation(.easeOut(duration: 0.2), value: focused)
+    }
+}
+
+extension View {
+    func fieldGlass(focused: Bool, radius: CGFloat = 12) -> some View { modifier(FieldGlass(focused: focused, radius: radius)) }
+}
+
 struct LSwitch: View {
     @Binding var isOn: Bool
 
@@ -376,20 +439,180 @@ struct PopoverOption<Leading: View>: View {
         Button(action: action) {
             HStack(spacing: 12) {
                 icon
-                VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 1) {
                     Text(name).font(.geist(14, .medium))
-                    Text(note).font(.geist(12)).foregroundStyle(p.mutedFg)
+                    Text(note).font(.geist(12.5)).foregroundStyle(p.mutedFg)
                 }
                 Spacer(minLength: 0)
                 if active { Icon("check", 16).foregroundStyle(p.glow) }
             }
             .foregroundStyle(p.foreground)
-            .padding(.horizontal, 8).padding(.vertical, 8)
-            .background(active ? p.muted : (hover ? p.muted.opacity(0.6) : .clear), in: RoundedRectangle(cornerRadius: R.lg))
+            .padding(.horizontal, 11).padding(.vertical, 9)
+            .background(hover ? p.borderBase.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
+        .accessibilityAddTraits(active ? [.isSelected] : [])
+    }
+}
+
+/// Список-выбор во всплывающем меню (модель, «сколько думать»): название, пояснение, галочка у выбранного.
+/// ↑↓ — подсветка, ↩ — выбрать, Esc и щелчок мимо — закрыть (DismissMonitor у PickerButton)
+struct ListboxPanel<ID: Hashable>: View {
+    struct Item {
+        let id: ID
+        let name: String
+        let note: String
+        /// Разделитель над строкой
+        var gap = false
+    }
+
+    let items: [Item]
+    let selected: ID
+    var width: CGFloat = 252
+    let pick: (ID) -> Void
+
+    @Environment(\.palette) private var p
+    @State private var hi: Int?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.offset) { i, it in
+                if it.gap { p.line.frame(height: 1).padding(.vertical, 5).padding(.horizontal, 4) }
+                Button { pick(it.id) } label: {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(it.name).font(.geist(14, .medium)).foregroundStyle(p.foreground)
+                            Text(it.note).font(.geist(12.5)).foregroundStyle(p.mutedFg)
+                        }
+                        Spacer(minLength: 0)
+                        if it.id == selected { Icon("check", 16).foregroundStyle(p.glow) }
+                    }
+                    .padding(.horizontal, 11).padding(.vertical, 9)
+                    .background(hi == i ? p.borderBase.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .onHover { if $0 { hi = i } }
+                .accessibilityAddTraits(it.id == selected ? [.isSelected] : [])
+            }
+        }
+        .padding(6)
+        .frame(width: width)
+        .accessibilityElement(children: .contain)
+        .background(KeyMonitor { key in
+            switch key {
+            case 125: hi = ((hi ?? -1) + 1) % items.count; return true // ↓
+            case 126: hi = ((hi ?? items.count) - 1 + items.count) % items.count; return true // ↑
+            case 36, 76: // ↩
+                if let h = hi, items.indices.contains(h) { pick(items[h].id) }
+                return true
+            default: return false
+            }
+        })
+        .onAppear { hi = items.firstIndex { $0.id == selected } }
+    }
+}
+
+/// Облик всплывающего меню (макет 21.10): фон popover, скругление 16, кольцо внутри и глубокая тень
+struct PopoverChrome: ViewModifier {
+    @Environment(\.palette) private var p
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        content
+            .background(p.popover)
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(p.borderBase.opacity(0.08)))
+            .shadow(color: .black.opacity(p.isLight ? 0.14 : 0.55), radius: 30, y: 24)
+    }
+}
+
+extension View {
+    func popoverChrome() -> some View { modifier(PopoverChrome()) }
+}
+
+/// Закрыть плавающее меню: щелчок мимо него (по своим границам) или Esc
+struct DismissMonitor: NSViewRepresentable {
+    let close: () -> Void
+
+    func makeNSView(context: Context) -> MonitorView {
+        let v = MonitorView()
+        v.close = close
+        return v
+    }
+
+    func updateNSView(_ v: MonitorView, context: Context) { v.close = close }
+
+    static func dismantleNSView(_ v: MonitorView, coordinator: ()) { v.stop() }
+
+    final class MonitorView: NSView {
+        var close: () -> Void = {}
+        private var monitor: Any?
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            stop()
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] e in
+                guard let self, let w = self.window else { return e }
+                if e.type == .keyDown {
+                    guard e.keyCode == 53 else { return e } // Esc
+                    self.close()
+                    return nil
+                }
+                guard e.window === w else { return e }
+                if !self.bounds.contains(self.convert(e.locationInWindow, from: nil)) {
+                    DispatchQueue.main.async { self.close() }
+                }
+                return e
+            }
+        }
+
+        func stop() {
+            if let m = monitor { NSEvent.removeMonitor(m) }
+            monitor = nil
+        }
+    }
+}
+
+/// Клавиши для открытого меню, пока фокус в поле ввода: true — клавиша съедена
+struct KeyMonitor: NSViewRepresentable {
+    let handle: (UInt16) -> Bool
+
+    func makeNSView(context: Context) -> MonitorView {
+        let v = MonitorView()
+        v.handle = handle
+        return v
+    }
+
+    func updateNSView(_ v: MonitorView, context: Context) { v.handle = handle }
+
+    static func dismantleNSView(_ v: MonitorView, coordinator: ()) { v.stop() }
+
+    final class MonitorView: NSView {
+        var handle: (UInt16) -> Bool = { _ in false }
+        private var monitor: Any?
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            stop()
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+                guard let self, e.window === self.window else { return e }
+                return self.handle(e.keyCode) ? nil : e
+            }
+        }
+
+        func stop() {
+            if let m = monitor { NSEvent.removeMonitor(m) }
+            monitor = nil
+        }
     }
 }
 
@@ -403,7 +626,9 @@ struct PopoverPanel<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(title).font(.geist(12)).foregroundStyle(p.mutedFg).padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 8)
+            if !title.isEmpty {
+                Text(title).font(.geist(12.5)).foregroundStyle(p.mutedFg).padding(.horizontal, 11).padding(.top, 4).padding(.bottom, 8)
+            }
             content
         }
         .padding(6)

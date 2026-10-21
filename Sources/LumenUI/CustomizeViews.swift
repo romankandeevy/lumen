@@ -21,6 +21,7 @@ struct ConnectorsTab: View {
     @State private var found: [MCPRegistry.Entry] = []
     @State private var searching = false
     @State private var searchNote: String?
+    @FocusState private var pasteFocused: Bool
 
     var body: some View {
         ScrollView {
@@ -55,26 +56,33 @@ struct ConnectorsTab: View {
     /// Вставить что угодно — Lumen поймёт сам
     private var pasteBox: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 8) {
+            // одно поле-стекло: слева значок, справа кнопки — внутри поля, как у поля сообщения
+            HStack(alignment: .top, spacing: 10) {
+                Icon("link", 15).foregroundStyle(pasteFocused ? p.glow : p.faint).padding(.top, 3)
                 TextField(text: $paste, axis: .vertical) {
                     Text("Вставь, что дали: JSON из README, «claude mcp add …», адрес сайта или команду «npx …»")
-                        .foregroundStyle(p.mutedFg.opacity(0.7))
+                        .foregroundStyle(p.faint)
                 }
                 .textFieldStyle(.plain)
-                .font(.system(size: 12, design: .monospaced))
+                .font(.system(size: 12.5, design: .monospaced))
+                .lineSpacing(3)
                 .lineLimit(1...8)
-                .padding(.horizontal, 12).padding(.vertical, 10)
-                .background(p.input.opacity(0.3), in: RoundedRectangle(cornerRadius: R.lg))
-                .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
+                .padding(.top, 2)
+                .focused($pasteFocused)
                 .onSubmit(addPasted)
-                LButton(title: "Добавить", icon: "plus", kind: .primary, small: true) { addPasted() }
-                    .disabled(paste.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .padding(.top, 4)
-                LButton(title: "Вручную", kind: .outline, small: true) {
+                LButton(title: "Вручную", kind: .ghost, small: true) {
                     editing = ConnectorEdit(name: "", server: MCPServer())
                 }
-                .padding(.top, 4)
+                .fixedSize()
+                LButton(title: "Добавить", icon: "plus", kind: .glow, small: true) { addPasted() }
+                    .disabled(paste.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .fixedSize()
             }
+            .padding(.leading, 14).padding(.trailing, 6).padding(.vertical, 6)
+            .frame(minHeight: 44)
+            .fieldGlass(focused: pasteFocused, radius: 14)
+            .contentShape(Rectangle())
+            .onTapGesture { pasteFocused = true }
             if let pasteNote {
                 Text(pasteNote).tw(12, lh: 16).foregroundStyle(p.mutedFg)
             }
@@ -106,10 +114,11 @@ struct ConnectorsTab: View {
     private var registry: some View {
         VStack(alignment: .leading, spacing: 8) {
             GroupTitle(text: "Найти в реестре MCP")
-            HStack(spacing: 8) {
-                GlowField(placeholder: "Например: notion, postgres, figma, telegram", text: $query, mono: true) { search() }
-                LButton(title: "Найти", icon: "search", kind: .outline, small: true, busy: searching) { search() }
+            GlowField(placeholder: "Например: notion, postgres, figma, telegram", text: $query, icon: "search", onSubmit: { search() }) {
+                LButton(title: "Найти", kind: .glow, small: true, busy: searching) { search() }
                     .disabled(query.trimmingCharacters(in: .whitespaces).isEmpty || searching)
+                    .fixedSize()
+                    .padding(.trailing, -8)
             }
             if let searchNote { Text(searchNote).tw(12, lh: 16).foregroundStyle(p.mutedFg) }
             ForEach(found) { e in
@@ -185,6 +194,20 @@ private struct ConnectorRow: View {
                     if !s.note.isEmpty {
                         Text(s.note).tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(2)
                     }
+                    // тот же сервис есть официальным — это главный выход, он выше
+                    officialOffer(s, missing: missing)
+                    // не хватает ключа — вписать прямо здесь, «Получить ключ» открывает страницу, где его выдают
+                    if !missing.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(missing, id: \.self) { k in
+                                KeyEntry(key: k, page: KeyHelp.page(for: k, server: s)) { v in
+                                    app.setSecret(k, v)
+                                    app.checkConnector(name)
+                                }
+                            }
+                        }
+                        .padding(.top, 8)
+                    }
                 }
                 Spacer(minLength: 12)
                 LSwitch(isOn: Binding(get: { !s.disabled }, set: { app.setConnector(name, enabled: $0) }))
@@ -208,6 +231,34 @@ private struct ConnectorRow: View {
                 MenuItem(title: s.disabled ? "Включить" : "Выключить", key: "t") { app.setConnector(name, enabled: s.disabled) },
                 MenuItem(title: "Удалить", key: "d", destructive: true, separated: true) { app.removeConnector(name) },
             ], anchor: point)
+        }
+    }
+
+    /// Тот же сервис через посредника не работает (нет ключа или ошибка) — предложить официальный готовый
+    @ViewBuilder private func officialOffer(_ s: MCPServer, missing: [String]) -> some View {
+        let broken: Bool = {
+            if !missing.isEmpty { return true }
+            if case .failed = app.connectorStatus[name] { return true }
+            return false
+        }()
+        if broken, let preset = ConnectorPreset.official(for: name, server: s) {
+            HStack(spacing: 10) {
+                Icon("info", 14).foregroundStyle(p.glow)
+                Text("У сервиса есть официальный коннектор «\(preset.title)» — \(preset.asks.isEmpty ? "без ключа" : "нужен только \(preset.asks.map(\.key).joined(separator: ", "))").")
+                    .tw(12.5, lh: 17).foregroundStyle(p.textSoft).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                LButton(title: "Поставить официальный", icon: preset.icon, kind: .outline, small: true) {
+                    var server = preset.server
+                    server.note = preset.note
+                    app.saveConnector(server, name: name, replacing: name)
+                    open = name
+                    if app.missingSecrets(server).isEmpty { app.checkConnector(name) } else { app.connectorStatus[name] = nil }
+                }
+                .fixedSize()
+            }
+            .padding(.horizontal, 12).padding(.vertical, 10)
+            .background(p.accentTint, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .padding(.top, 8)
         }
     }
 
@@ -263,10 +314,6 @@ private struct ConnectorRow: View {
             case nil:
                 EmptyView()
             }
-            if !missing.isEmpty {
-                Text("Впиши \(missing.joined(separator: ", ")) в «Изменить» — значение уйдёт в Связку ключей.")
-                    .tw(12, lh: 16).foregroundStyle(p.mutedFg)
-            }
             let bots = app.bots.filter { $0.connectors.contains(name) }
             Text(bots.isEmpty ? "Видят: Lumen и агент. Ботам — включи в настройках бота."
                  : "Видят: Lumen, агент и " + bots.map { "@\($0.id)" }.joined(separator: ", "))
@@ -281,6 +328,43 @@ private struct ConnectorRow: View {
             }
         }
         .padding(.horizontal, 14).padding(.bottom, 14)
+    }
+}
+
+/// Ключ для коннектора прямо в карточке: поле (уйдёт в Связку ключей), «Получить ключ» — открыть страницу,
+/// где его выдают, «Сохранить» — и сразу проверить коннектор
+struct KeyEntry: View {
+    let key: String
+    let page: KeyHelp.Page?
+    let save: (String) -> Void
+
+    @Environment(\.palette) private var p
+    @State private var value = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                GlowField(placeholder: "Вставь \(key)", text: $value, secure: true, mono: true) { commit() }
+                if let page {
+                    LButton(title: "Получить ключ", icon: "external-link", kind: .outline, small: true) { NSWorkspace.shared.open(page.url) }
+                        .fixedSize()
+                        .help(page.url.absoluteString)
+                }
+                LButton(title: "Сохранить", kind: .glow, small: true) { commit() }
+                    .disabled(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .fixedSize()
+            }
+            Text(page.map { $0.how + " Ключ уйдёт в Связку ключей." } ?? "Вставь ключ — он уйдёт в Связку ключей.")
+                .tw(11.5, lh: 15).foregroundStyle(p.mutedFg)
+        }
+    }
+
+    private func commit() {
+        let v = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !v.isEmpty else { return }
+        // «Bearer ghp_…» скопировали целиком — в заголовке «Bearer» уже есть
+        save(v.lowercased().hasPrefix("bearer ") ? String(v.dropFirst(7)) : v)
+        value = ""
     }
 }
 
@@ -314,10 +398,16 @@ private struct PresetCard: View {
             Text(preset.note).tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(3).fixedSize(horizontal: false, vertical: true)
             if asking {
                 ForEach(preset.asks, id: \.key) { a in
-                    VStack(alignment: .leading, spacing: 4) {
-                        GlowField(placeholder: a.key, text: Binding(get: { values[a.key] ?? "" }, set: { values[a.key] = $0 }),
-                                  secure: true, mono: true) { finish() }
-                        Text(a.hint).tw(11, lh: 14).foregroundStyle(p.mutedFg)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 8) {
+                            GlowField(placeholder: a.key, text: Binding(get: { values[a.key] ?? "" }, set: { values[a.key] = $0 }),
+                                      secure: true, mono: true) { finish() }
+                            if let page = KeyHelp.page(for: a.key, server: preset.server, hint: a.hint) {
+                                LButton(title: "Получить ключ", icon: "external-link", kind: .outline, small: true) { NSWorkspace.shared.open(page.url) }
+                                    .fixedSize()
+                            }
+                        }
+                        Text(KeyHelp.page(for: a.key, server: preset.server, hint: a.hint)?.how ?? a.hint).tw(11.5, lh: 15).foregroundStyle(p.mutedFg)
                     }
                 }
                 HStack {

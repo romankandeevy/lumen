@@ -50,7 +50,7 @@ struct OnboardingView: View {
 
     private var hello: some View {
         VStack(spacing: 0) {
-            Orb(state: .thinking, size: 96)
+            Orb(state: .thinking, size: 96, halo: 0.7)
             Text("Привет. Я Lumen.")
                 .font(.geist(30, .semibold)).tracking(-0.9)
                 .padding(.top, 40)
@@ -235,20 +235,20 @@ struct LumenLight: View {
     @Environment(\.palette) private var p
 
     var body: some View {
+        // макет 21.10: radial-gradient(1100px 620px at 50% 40%, rgba(58,92,220,.075), прозрачно на 70%)
         GeometryReader { g in
-            ZStack(alignment: .topLeading) {
-                spot(rx: 900, ry: 520).position(x: g.size.width * 0.06, y: g.size.height * -0.08)
-                spot(rx: 600, ry: 300).position(x: g.size.width * 0.5, y: g.size.height * 1.2)
-            }
+            spot(rx: 1100, ry: 620).position(x: g.size.width * 0.5, y: g.size.height * 0.4)
         }
         .opacity(level)
         .animation(.easeInOut(duration: 1.2), value: level)
         .allowsHitTesting(false)
+        .clipped()
     }
 
     private func spot(rx: CGFloat, ry: CGFloat) -> some View {
-        Rectangle()
-            .fill(EllipticalGradient(stops: [.init(color: p.glowFaint, location: 0), .init(color: .clear, location: 0.7)],
+        let c = p.orbSpec ? Color(.sRGB, red: 58 / 255, green: 92 / 255, blue: 220 / 255) : p.glowSoftBase
+        return Rectangle()
+            .fill(EllipticalGradient(stops: [.init(color: c.opacity(p.isLight ? 0.05 : 0.075), location: 0), .init(color: .clear, location: 0.7)],
                                      center: .center, startRadiusFraction: 0, endRadiusFraction: 0.5))
             .frame(width: rx * 2, height: ry * 2)
     }

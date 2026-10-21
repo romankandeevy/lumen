@@ -26,7 +26,11 @@ public struct Git: Sendable {
     }
 
     public func info() async -> Info? {
-        guard await isRepo, let branch = try? await git(["rev-parse", "--abbrev-ref", "HEAD"]) else { return nil }
+        guard await isRepo else { return nil }
+        // только что сделанный git init: коммитов нет, HEAD ещё никуда не указывает — ветку берём из symbolic-ref
+        var branch = try? await git(["rev-parse", "--abbrev-ref", "HEAD"])
+        if branch == nil { branch = try? await git(["symbolic-ref", "--short", "HEAD"]) }
+        guard let branch else { return nil }
         let changed = (try? await status().count) ?? 0
         return Info(branch: branch.trimmingCharacters(in: .whitespacesAndNewlines), changed: changed)
     }
@@ -115,6 +119,12 @@ public struct Git: Sendable {
     func hash(_ path: String) async throws -> String {
         guard FileManager.default.fileExists(atPath: folder.appendingPathComponent(path).path) else { return "deleted" }
         return try await git(["hash-object", "--", path]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// «Включить git» на экране новой задачи: `git init` в папке — тогда после хода видно «Изменения».
+    /// Ничего не коммитит: первый коммит — по просьбе человека
+    public func initRepo() async throws {
+        try await git(["init"])
     }
 
     @discardableResult

@@ -51,7 +51,7 @@ struct SkillsView: View {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 12) {
                     MiniSegmented(value: $app.skillsMode, options: [(.mine, "Мои, \(app.skills.count)"), (.catalog, "Каталог skills.sh")])
-                    GlowField(placeholder: "Ссылка на навык на GitHub", text: $link, mono: true) { install(link) }
+                    GlowField(placeholder: "Ссылка на навык на GitHub", text: $link, mono: true, icon: "link") { install(link) }
                     LButton(title: "Поставить", icon: "download", kind: .outline, small: true, busy: installing == link && !link.isEmpty) { install(link) }
                         .disabled(link.trimmingCharacters(in: .whitespaces).isEmpty || installing != nil)
                 }
@@ -79,7 +79,11 @@ struct SkillsView: View {
             .background(p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xl))
             .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
         }
-        ForEach(app.skills) { s in SkillRow(app: app, skill: s) }
+        // две карточки в ряд (Рома, 21.10)
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12, alignment: .top), GridItem(.flexible(), spacing: 12, alignment: .top)],
+                  alignment: .leading, spacing: 12) {
+            ForEach(app.skills) { s in SkillRow(app: app, skill: s) }
+        }
     }
 
     private func install(_ l: String, origin: SkillInfo.Origin = .github) {
@@ -96,6 +100,8 @@ struct SkillsView: View {
 
 }
 
+/// Карточка своего навыка (Рома, 21.10): две в ряд, значок в плашке, название и откуда навык, пояснение в две строки,
+/// внизу — сколько раз брали и кнопка «Включить» / «Выключить» вместо переключателя. Щелчок по карточке — открыть
 private struct SkillRow: View {
     @Bindable var app: AppModel
     let skill: Skill
@@ -103,39 +109,54 @@ private struct SkillRow: View {
     @Environment(\.palette) private var p
     @State private var hover = false
 
+    private var on: Bool { skill.info.enabled }
+
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Icon(skill.info.origin == .learned ? "lightbulb" : "book-open", 16)
-                .foregroundStyle(skill.info.enabled ? p.glow : p.mutedFg).padding(.top, 2)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(skill.name).tw(14, .medium, lh: 20)
-                Text(skill.description).tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(2)
-                HStack(spacing: 6) {
-                    chip(origin)
-                    let n = app.skillUses[skill.name] ?? 0
-                    chip(n == 0 ? "ещё не брали" : "брали \(n) " + Plural.form(n, "раз", "раза", "раз"))
-                    if !skill.files.isEmpty { chip("\(skill.files.count) " + Plural.form(skill.files.count, "файл", "файла", "файлов")) }
-                    if !skill.info.warnings.isEmpty {
-                        IconLabel(text: skill.info.warnings.joined(separator: ", "), icon: "triangle-alert", size: 11)
-                            .tw(11, lh: 14).foregroundStyle(Palette.destructive).lineLimit(1)
-                    }
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 12) {
+                Icon(skill.info.origin == .learned ? "lightbulb" : "book-open", 17)
+                    .foregroundStyle(on ? p.glow : p.mutedFg)
+                    .frame(width: 36, height: 36)
+                    .background(on ? p.accentTint : p.hover, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(skill.name).font(.geist(15, .semibold)).lineLimit(1).truncationMode(.tail)
+                        .foregroundStyle(on ? p.foreground : p.textSoft)
+                    Text(on ? origin : origin + " · выключен").font(.geist(12.5)).foregroundStyle(p.faint).lineLimit(1)
                 }
-                .padding(.top, 2)
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 12)
-            LSwitch(isOn: Binding(get: { skill.info.enabled }, set: { app.setSkill(skill, enabled: $0) }))
-                .help(skill.info.enabled ? "Модель видит навык" : "Выключен — модель его не видит")
+            Text(skill.description.isEmpty ? "Без описания" : skill.description)
+                .tw(13, lh: 19).foregroundStyle(p.mutedFg).lineLimit(2)
+                // всегда место под две строки: карточки в ряду одной высоты
+                .frame(maxWidth: .infinity, minHeight: 38, alignment: .topLeading)
+                .padding(.top, 12)
+            if !skill.info.warnings.isEmpty {
+                IconLabel(text: skill.info.warnings.joined(separator: ", "), icon: "triangle-alert", size: 11)
+                    .tw(11.5, lh: 15).foregroundStyle(Palette.destructive).lineLimit(1).padding(.top, 6)
+            }
+            HStack(spacing: 6) {
+                let n = app.skillUses[skill.name] ?? 0
+                chip(n == 0 ? "ещё не брали" : "брали \(n) " + Plural.form(n, "раз", "раза", "раз"))
+                if !skill.files.isEmpty { chip("\(skill.files.count) " + Plural.form(skill.files.count, "файл", "файла", "файлов")) }
+                Spacer(minLength: 8)
+                ToggleButton(on: on) { app.setSkill(skill, enabled: !on) }
+            }
+            .padding(.top, 14)
         }
-        .padding(14)
-        .background(hover ? p.card.opacity(0.7) : p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xl))
-        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
-        .contentShape(Rectangle())
+        .padding(16)
+        .background(shape.fill(LinearGradient(colors: [p.borderBase.opacity(hover ? 0.06 : 0.045), p.borderBase.opacity(hover ? 0.035 : 0.02)],
+                                              startPoint: .top, endPoint: .bottom)))
+        .overlay(shape.strokeBorder(p.borderBase.opacity(hover ? 0.12 : 0.07)))
+        .contentShape(shape)
         .onTapGesture { app.page = .skillEditor(skill.name) }
         .onHover { hover = $0 }
+        .animation(.easeOut(duration: 0.14), value: hover)
+        .help("Открыть навык")
         .onRightClick { point in
             app.menu = MenuState(items: [
                 MenuItem(title: "Открыть", key: "o") { app.page = .skillEditor(skill.name) },
-                MenuItem(title: skill.info.enabled ? "Выключить" : "Включить", key: "e") { app.setSkill(skill, enabled: !skill.info.enabled) },
+                MenuItem(title: on ? "Выключить" : "Включить", key: "e") { app.setSkill(skill, enabled: !on) },
                 MenuItem(title: "Показать в Finder", key: "f") { NSWorkspace.shared.activateFileViewerSelecting([skill.folder]) },
                 MenuItem(title: "Удалить", key: "d", destructive: true, separated: true) { app.removeSkill(skill) },
             ], anchor: point)
@@ -144,17 +165,47 @@ private struct SkillRow: View {
 
     private var origin: String {
         switch skill.info.origin {
-        case .created: "свой"
-        case .learned: "сам научился"
-        case .github: "GitHub"
-        case .catalog: "skills.sh"
+        case .created: "Свой"
+        case .learned: "Сам научился"
+        case .github: "С GitHub"
+        case .catalog: "Из skills.sh"
         }
     }
 
     private func chip(_ t: String) -> some View {
-        Text(t).tw(11, lh: 14).foregroundStyle(p.mutedFg)
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(p.foreground.opacity(0.06), in: RoundedRectangle(cornerRadius: R.md))
+        Text(t).tw(11.5, lh: 14).foregroundStyle(p.mutedFg)
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(p.hover, in: Capsule())
+    }
+}
+
+/// «Включить» — синяя, «Выключить» — тихая с тонким кольцом (вместо переключателя)
+private struct ToggleButton: View {
+    let on: Bool
+    let action: () -> Void
+
+    @Environment(\.palette) private var p
+    @State private var hover = false
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
+        Button(action: action) {
+            Text(on ? "Выключить" : "Включить")
+                .font(.geist(13, .medium))
+                .foregroundStyle(on ? (hover ? p.foreground : p.textControl) : .white)
+                .padding(.horizontal, 12).frame(height: 30)
+                .background {
+                    if on {
+                        shape.fill(hover ? p.hover : .clear).overlay(shape.strokeBorder(p.borderBase.opacity(hover ? 0.16 : 0.1)))
+                    } else {
+                        shape.fill(p.accent.opacity(hover ? 0.88 : 1))
+                    }
+                }
+                .contentShape(shape)
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .help(on ? "Выключить — модель перестанет видеть навык" : "Включить — модель снова видит навык")
     }
 }
 

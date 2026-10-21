@@ -88,7 +88,7 @@ public enum ChatWidth: String, Codable, Sendable, CaseIterable {
 
     /// max-w-[44rem] / [60rem] / [88rem]
     public var points: Double {
-        switch self { case .normal: 704; case .wide: 960; case .full: 1408 }
+        switch self { case .normal: 720; case .wide: 960; case .full: 1408 }
     }
 }
 
@@ -155,7 +155,7 @@ public struct Preferences: Codable, Sendable, Equatable {
     /// Левая панель спрятана (кнопка рядом с кнопками окна, как в Claude)
     public var sidebarHidden = false
     /// Ширина левой панели и правой (контекст, паспорт бота) — тянутся за край, не шире половины окна
-    public var sidebarWidth: Double = 256
+    public var sidebarWidth: Double = 284
     public var panelWidth: Double = 320
     /// Модель и «сколько думать» для новой задачи агента (у чата — `model` и `effort`)
     public var agentModel: ChatModel?
@@ -258,7 +258,7 @@ public struct Preferences: Codable, Sendable, Equatable {
         monthlyLimit = try c.decodeIfPresent(Int.self, forKey: .monthlyLimit) ?? 100
         contextOpen = try c.decodeIfPresent(Bool.self, forKey: .contextOpen) ?? false
         sidebarHidden = try c.decodeIfPresent(Bool.self, forKey: .sidebarHidden) ?? false
-        sidebarWidth = try c.decodeIfPresent(Double.self, forKey: .sidebarWidth) ?? 256
+        sidebarWidth = try c.decodeIfPresent(Double.self, forKey: .sidebarWidth) ?? 284
         panelWidth = try c.decodeIfPresent(Double.self, forKey: .panelWidth) ?? 320
         betaUpdates = try c.decodeIfPresent(Bool.self, forKey: .betaUpdates) ?? false
         agentModel = try? c.decodeIfPresent(ChatModel.self, forKey: .agentModel)

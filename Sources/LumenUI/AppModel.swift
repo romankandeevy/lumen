@@ -20,7 +20,7 @@ public final class AppModel {
     /// «Характер»: как Lumen говорит, думает и действует (Persona.swift) — в инструкциях чата и агента
     var persona: Persona
     /// Ширина панелей — отдельно от настроек: пока тянут, перерисовывается только панель, сохраняется в конце
-    var sidebarWidth: Double = 256
+    var sidebarWidth: Double = 284
     /// Встроенный браузер сбоку (BrowserPane.swift): им пользуются и человек, и агенты
     let browser = BrowserModel()
     /// Свои ссылки браузера: звёздочка в адресной строке и «Добавить ссылку» на пустой вкладке
@@ -128,6 +128,10 @@ public final class AppModel {
     var botRuns: [String: String] = [:]
     var renamingProjectID: String?
     var searchOpen = false
+    /// Артефакты, которые «Прикрепить» отправил в чат: поле ввода забирает их, когда чат открыт (ArtifactsView)
+    var attachInbox: [Attachment] = []
+    /// Щелчок по имени папки в заголовке новой задачи — открыть выбор папки в поле ввода (как у кнопки папки)
+    var folderPickerRequest = 0
     var renamingID: String?
     /// Подсказки пустого чата, придуманные Lumen (Suggestions.swift)
     var suggestionCache: SuggestionCache?

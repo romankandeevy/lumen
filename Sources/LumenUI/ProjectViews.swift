@@ -66,7 +66,7 @@ struct ProjectRow: View {
             Button { app.openProject(project) } label: {
                 HStack(spacing: 8) {
                     Icon(open ? "folder-open" : "folder", 16).foregroundStyle(active ? p.glow : p.mutedFg)
-                    Text(project.name).font(.geist(14)).lineLimit(1)
+                    Text(project.name).font(.geist(13.5)).lineLimit(1)
                         .foregroundStyle(active || hover ? p.foreground : p.foreground.opacity(0.8))
                     Spacer(minLength: 4)
                     if count > 0 && !(hover || dotsHover) { Text("\(count)").font(.geist(11)).foregroundStyle(p.mutedFg) }
@@ -78,8 +78,7 @@ struct ProjectRow: View {
             .buttonStyle(.plain)
         }
         .padding(.leading, 4).padding(.trailing, 10).frame(height: 32)
-        .background(active ? p.foreground.opacity(0.07) : (hover ? p.foreground.opacity(0.05) : .clear), in: RoundedRectangle(cornerRadius: R.lg))
-        .overlay(alignment: .leading) { if active { GlowBar() } }
+        .rowBackground(active: active, hover: hover, radius: 10)
         .onHover { hover = $0 }
         .overlay(alignment: .trailing) {
             if hover || dotsHover {
@@ -111,14 +110,15 @@ struct SmallPlus: View {
 
     var body: some View {
         Button(action: action) {
-            Icon("plus", 14).foregroundStyle(hover ? p.foreground : p.mutedFg)
+            Icon("plus", side >= 28 ? 16 : 14).foregroundStyle(hover ? p.foreground : p.mutedFg)
                 .frame(width: side, height: side)
-                .background(hover ? p.foreground.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: side > 20 ? R.md : R.sm))
+                .background(hover ? p.hover : .clear, in: RoundedRectangle(cornerRadius: side > 20 ? 8 : R.sm, style: .continuous))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
         .help(help)
+        .accessibilityLabel(help)
     }
 }
 

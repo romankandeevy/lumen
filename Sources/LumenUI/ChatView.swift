@@ -21,6 +21,8 @@ struct ChatView: View {
     /// Был ли внизу, когда начала меняться ширина, и счётчик изменений ширины
     @State private var wasAtBottom: Bool?
     @State private var widthGeneration = 0
+    /// Поле ввода в фокусе — шар приветствия «горячий», ореол ярче
+    @State private var composerFocused = false
 
     private var chat: ChatController { controller ?? app.chat }
     private var isSplit: Bool { controller != nil }
@@ -66,7 +68,7 @@ struct ChatView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 transcript
-                Composer(app: app, draft: $draft, attachments: $attachments, backend: backend, agent: agent, controller: controller)
+                Composer(app: app, draft: $draft, attachments: $attachments, backend: backend, agent: agent, controller: controller, disclaimer: true)
             }
         }
         .foregroundStyle(p.foreground)
@@ -97,6 +99,15 @@ struct ChatView: View {
             }
         }
         .animation(.easeOut(duration: 0.15), value: app.draggingChat)
+        // прикрепили с «Артефактов» — в поле ввода этого разговора
+        .onAppear(perform: takeInbox)
+        .onChange(of: app.attachInbox) { takeInbox() }
+    }
+
+    private func takeInbox() {
+        guard !isSplit, !app.attachInbox.isEmpty else { return }
+        for a in app.attachInbox where !attachments.contains(where: { $0.path == a.path }) { attachments.append(a) }
+        app.attachInbox = []
     }
 
     /// h-14 border-b px-5 gap-3: знак 28 со сферой 18, заголовок text-sm medium, подпись text-xs
@@ -109,9 +120,9 @@ struct ChatView: View {
             } else if agent {
                 Icon("folder", 16).foregroundStyle(p.glow)
                     .frame(width: 28, height: 28)
-                    .background(p.foreground.opacity(0.07), in: RoundedRectangle(cornerRadius: R.lg))
+                    .background(p.hover, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             } else {
-                Orb(state: app.orb, size: 18).frame(width: 28, height: 28)
+                Orb(state: app.orb, size: 20, animated: false)
             }
             VStack(alignment: .leading, spacing: 0) {
                 if let group {
@@ -129,9 +140,10 @@ struct ChatView: View {
                 } else if let c = chat.conversation {
                     RenamableTitle(app: app, conversation: c)
                 } else {
-                    Text(agent ? "Новая задача" : "Новый чат").tw(14, .medium, lh: 20).lineLimit(1)
+                    Text(agent ? "Новая задача" : "Новый чат").tw(15, .semibold, lh: 20).lineLimit(1)
                 }
-                if bot != nil || group != nil {
+                // новая задача: папка уже в заголовке экрана и на кнопке в поле — третий раз не нужен
+                if bot != nil || group != nil || (agent && chat.conversation == nil) {
                 } else if agent {
                     HStack(spacing: 6) {
                         if let projectName {
@@ -159,41 +171,45 @@ struct ChatView: View {
             if let bot { IconButton(icon: "pencil", help: "Изменить бота") { app.page = .botEditor(bot.id) } }
             if let group { IconButton(icon: "pencil", help: "Изменить группу") { app.page = .groupEditor(group.id) } }
             if !isSplit {
-                IconButton(icon: "globe", help: "Браузер сбоку (⇧⌘B): агенты работают в нём, ты входишь в аккаунты", active: app.browserOpen) {
+                IconButton(icon: "globe", help: "Браузер сбоку (⇧⌘B): агенты работают в нём, ты входишь в аккаунты", active: app.browserOpen,
+                           side: 36, iconSize: 18) {
                     app.toggleBrowser()
                 }
                 IconButton(icon: "panel-right", help: bot == nil ? "Контекст: память, окно, расход" : "Паспорт бота: что может и что отрезано",
-                           active: app.prefs.contextOpen) {
+                           active: app.prefs.contextOpen, side: 36, iconSize: 18) {
                     app.update { $0.contextOpen.toggle() }
                 }
             }
         }
-        .padding(.horizontal, 20)
+        .padding(.leading, 22).padding(.trailing, 14)
         // панель спрятана — слева кнопки окна и «показать панель»
         .padding(.leading, app.prefs.sidebarHidden ? 150 : 0)
-        .frame(height: 56)
+        .frame(height: 60)
     }
 
     /// Пустой экран как в Claude: крупное приветствие, под ним сразу поле ввода, ниже — подсказки
     private var startScreen: some View {
-        VStack(spacing: 0) {
-            Spacer(minLength: 24)
-            greeting
-                .padding(.bottom, 28)
-            Composer(app: app, draft: $draft, attachments: $attachments, backend: backend, agent: false)
-            // подсказок для начала разговора в чате нет (Рома, 18.10)
-            Spacer(minLength: 24)
-            Spacer(minLength: 24)
+        GeometryReader { g in
+            VStack(spacing: 0) {
+                Spacer(minLength: 24)
+                greeting
+                    .padding(.bottom, 46)
+                Composer(app: app, draft: $draft, attachments: $attachments, backend: backend, agent: false, focusedOut: $composerFocused)
+                // подсказок для начала разговора в чате нет (Рома, 18.10). Снизу запас ~13% высоты — всё чуть выше центра
+                Spacer(minLength: 24)
+                Color.clear.frame(height: g.size.height * 0.13)
+            }
+            .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity)
     }
+
 
     @ViewBuilder private var greeting: some View {
         if let group {
             VStack(spacing: 10) {
                 HStack(spacing: 16) {
                     GroupAvatars(bots: app.groupMembers(group), size: 40)
-                    Text(group.name).font(.system(size: 38, weight: .regular, design: .serif)).lineLimit(1)
+                    Text(group.name).font(.greeting(38)).tracking(-0.76).foregroundStyle(p.textStrong).lineLimit(1)
                 }
                 Text("Пиши всем — ответят по очереди. «@id …» — ответит только он.")
                     .tw(13, lh: 18).foregroundStyle(p.mutedFg)
@@ -202,16 +218,23 @@ struct ChatView: View {
             VStack(spacing: 10) {
                 HStack(spacing: 16) {
                     BotAvatar(bot: bot, size: 44)
-                    Text(bot.name).font(.system(size: 38, weight: .regular, design: .serif)).lineLimit(1)
+                    Text(bot.name).font(.greeting(38)).tracking(-0.76).foregroundStyle(p.textStrong).lineLimit(1)
                 }
                 if !bot.role.isEmpty { Text(bot.role).tw(13, lh: 18).foregroundStyle(p.mutedFg) }
             }
         } else {
-            HStack(spacing: 16) {
-                Orb(state: app.orb, size: 44)
-                Text(app.profile.name.isEmpty ? "Привет" : "Привет, \(app.profile.name)")
-                    .font(.system(size: 40, weight: .regular, design: .serif)).lineLimit(1)
+            // шар 78 и «Привет, имя» — Literata 60, в узком окне шар встаёт над текстом. Без свечения сзади (Рома, 21.10)
+            let hot = composerFocused || !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let text = Text(app.profile.name.isEmpty ? "Привет" : "Привет, \(app.profile.name)")
+                .font(.greeting(60)).tracking(-1.2).foregroundStyle(p.textStrong)
+                .lineLimit(1).fixedSize()
+                .accessibilityAddTraits(.isHeader)
+            let orb = Orb(state: app.orb, size: 78, hot: hot, glow: false)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 26) { orb; text }
+                VStack(spacing: 26) { orb; text.minimumScaleFactor(0.5) }
             }
+            .padding(.horizontal, 28)
         }
     }
 
@@ -231,14 +254,6 @@ struct ChatView: View {
         }
     }
 
-    /// Питомец сидит в переписке (слева от последнего ответа или того, что сейчас пишется), если он включён «всегда в переписке»,
-    /// не висит поверх окон и не стоит сейчас на строке «работает» вместо точек — тогда двух не бывает, и паузы между ними нет
-    private var restingPet: Bool {
-        let pet = app.prefs.pet
-        guard pet.enabled, pet.alwaysInChat, !pet.floating, !chat.messages.isEmpty || chat.streaming != nil else { return false }
-        return !(pet.inChat && (chat.thinking || liveStepRowShown))
-    }
-
     /// Питомец уже стоит на строке идущего шага: отдельной строкой «Запускает…» (ответ ещё не начат)
     /// или в группе шагов внутри пишущегося ответа, если она в нём последняя (см. MessageRow)
     private var liveStepRowShown: Bool {
@@ -246,14 +261,6 @@ struct ChatView: View {
         guard let s = chat.streaming else { return true }
         if let last = AnswerPiece.layout(text: NextStep.split(s.text).text, steps: s.steps).last, case .steps = last { return true }
         return false
-    }
-
-    private func chatPet(_ mood: PetMood) -> some View {
-        let pet = app.prefs.pet
-        let side: CGFloat = pet.kind.isPixel ? 32 : 44
-        return PetView(pet: pet, mood: mood, size: side, followsCursor: true)
-            .offset(x: -side - (pet.kind.isPixel ? 6 : 0), y: pet.kind.isPixel ? -6 : -12)
-            .allowsHitTesting(false)
     }
 
     private var transcript: some View {
@@ -269,17 +276,9 @@ struct ChatView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 14) {
                     ForEach(chat.messages) { m in
+                        // между сообщениями 32 (макет 21.10); строки состояния под ответом — ближе, через 14
                         MessageRow(message: m, chat: chat, isLast: m.id == chat.messages.last?.id).id(m.id)
-                            // новый вопрос отделён от прошлого ответа, а ответ стоит близко к вопросу
-                            .padding(.top, m.role == .user && m.id != chat.messages.first?.id ? 18 : 0)
-                            // питомец живёт в переписке: слева от последнего ответа, в пустом поле — и когда ничего
-                            // не происходит (Рома, 18.10)
-                            .overlay(alignment: .topLeading) {
-                                if restingPet, chat.streaming == nil, m.role == .assistant,
-                                   m.id == chat.messages.last(where: { $0.role == .assistant })?.id {
-                                    chatPet(chat.busy ? .thinking : app.petMood)
-                                }
-                            }
+                            .padding(.top, m.id != chat.messages.first?.id ? 18 : 0)
                     }
                     if !chat.busy, let last = chat.messages.last, let next = last.next {
                         NextStepCard(next: next) { chat.answer($0, on: last) } close: { chat.dismissNext(last) }
@@ -295,8 +294,7 @@ struct ChatView: View {
                             PlanCard(items: c.plan)
                         }
                         if let s = chat.streaming {
-                            MessageRow(message: s, chat: chat, streaming: true)
-                                .overlay(alignment: .topLeading) { if restingPet { chatPet(.writing) } }
+                            MessageRow(message: s, chat: chat, streaming: true).padding(.top, chat.messages.isEmpty ? 0 : 18)
                         }
                     }
                     // позванный бот работает: что делает и что пишет — прямо в чате, пока не закончит
@@ -386,23 +384,25 @@ struct ChatView: View {
                                 DotsSpinner(color: BotColor.accent(b.hue), bot: b)
                                 Text("\(b.name) работает…").tw(14, lh: 20).foregroundStyle(p.mutedFg).shimmer(BotColor.accent(b.hue))
                             } else {
-                                DotsSpinner(color: p.glow)
-                                Text("Думает…").tw(14, lh: 20).foregroundStyle(p.mutedFg).shimmer(p.foreground)
+                                // шар у ответа дышит, пока нет первого слова
+                                Orb(state: .thinking, size: 26).padding(.trailing, 6)
+                                Text("Думаю…").tw(16, lh: 26).foregroundStyle(p.mutedFg)
                             }
                             if let start = chat.turnStart {
                                 TimelineView(.periodic(from: .now, by: 1)) { ctx in
                                     Text(LiveStepLine.elapsed(ctx.date.timeIntervalSince(start))).tw(13, lh: 20)
-                                        .foregroundStyle(p.mutedFg.opacity(0.8)).monospacedDigit()
+                                        .foregroundStyle(p.faint).monospacedDigit()
                                 }
                             }
                         }
+                        .padding(.top, chat.streaming == nil && !chat.messages.isEmpty ? 18 : 0)
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
                 // без «резинки» сверху и снизу
                 .background(NoBounce())
                 // поля по бокам: на узком окне переписка не упирается в края
-                .padding(.horizontal, 44).padding(.vertical, 32)
+                .padding(.horizontal, 28).padding(.top, 18).padding(.bottom, 48)
                 .frame(maxWidth: columnWidth)
                 .animation(.easeInOut(duration: 0.3), value: app.prefs.chatWidth)
                 .frame(maxWidth: .infinity)
@@ -590,13 +590,17 @@ struct MessageRow: View {
             HStack(spacing: 0) {
                 Spacer(minLength: 0)
                 // приписка агенту с путями вложений — не для человека
+                // пузырь 20/20/6/20: мягкий градиент и тонкое кольцо внутри, без тени (макет 21.10)
+                let bubble = UnevenRoundedRectangle(topLeadingRadius: 20, bottomLeadingRadius: 20, bottomTrailingRadius: 6, topTrailingRadius: 20,
+                                                    style: .continuous)
                 Text(Attachment.splitSavedNote(message.text).text)
-                    .chatTw(14, lh: 22.75)
+                    .chatTw(15.5, lh: 24)
                     .textSelection(.enabled)
-                    .padding(.horizontal, 16).padding(.vertical, 10)
-                    .background(p.secondary, in: UnevenRoundedRectangle(topLeadingRadius: R.xxl, bottomLeadingRadius: R.xxl,
-                                                                        bottomTrailingRadius: R.md, topTrailingRadius: R.xxl))
-                    // 80% колонки переписки, а не окна: иначе на широком окне пузырь вылезает к правому краю
+                    .padding(.horizontal, 17).padding(.vertical, 11)
+                    .background(bubble.fill(LinearGradient(colors: [p.borderBase.opacity(0.075), p.borderBase.opacity(0.05)],
+                                                           startPoint: .top, endPoint: .bottom)))
+                    .overlay(bubble.strokeBorder(p.borderBase.opacity(0.07)))
+                    // 74% колонки переписки, а не окна: иначе на широком окне пузырь вылезает к правому краю
                     .frame(maxWidth: bubbleMax, alignment: .trailing)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -611,8 +615,16 @@ struct MessageRow: View {
             // выбран прежний вариант ответа (‹ 1/3 ›) — показываем его
             let original = message
             let message = shownMessage
-            HStack(alignment: .top, spacing: 14) {
-                // без значка слева, как в Claude: ответ — просто текст; бот подписан своим именем и цветом
+            HStack(alignment: .top, spacing: 16) {
+                // шар 26 слева от ответа (макет 21.10); у бота — его знак
+                Group {
+                    if let b = chat?.app.bot(message.botID) {
+                        BotAvatar(bot: b, size: 26)
+                    } else {
+                        Orb(size: 26, animated: false)
+                    }
+                }
+                .padding(.top, 1)
                 VStack(alignment: .leading, spacing: 12) {
                     // ответ бота в чужом чате — подписан, чтобы было видно, кто отвечал
                     if let b = chat?.app.bot(message.botID), chat?.conversation?.kind != .bot {
@@ -680,8 +692,8 @@ struct MessageRow: View {
 }
 
 extension MessageRow {
-    /// Самый широкий пузырь человека — 80% колонки переписки
-    var bubbleMax: CGFloat { (chat.map { ChatView.columnWidth(app: $0.app, conversation: $0.conversation) } ?? 704) * 0.8 }
+    /// Самый широкий пузырь человека — 74% колонки переписки
+    var bubbleMax: CGFloat { (chat.map { ChatView.columnWidth(app: $0.app, conversation: $0.conversation) } ?? 720) * 0.74 }
 
     var editor: some View {
         VStack(alignment: .trailing, spacing: 10) {
@@ -831,10 +843,10 @@ private struct ActionIcon: View {
 
     var body: some View {
         Button(action: action) {
-            Icon(icon, 15)
+            Icon(icon, 16)
                 .foregroundStyle(on ? p.glow : hover && enabled ? p.foreground : p.mutedFg)
-                .frame(width: 28, height: 28)
-                .background(hover && enabled ? p.foreground.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: R.md))
+                .frame(width: 32, height: 32)
+                .background(hover && enabled ? p.hover : .clear, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -927,16 +939,16 @@ struct RichText: View {
             ForEach(Array(parts.enumerated()), id: \.offset) { i, part in
                 switch part {
                 case .prose(let s) where caret && i == parts.count - 1:
-                    // мигает раз в полсекунды, как steps(2) за 1 с
+                    // курсор — синяя черта 2 × 1.1em, мигает 1 с steps(1)
                     TimelineView(.periodic(from: .now, by: 0.5)) { tl in
                         let on = Int(tl.date.timeIntervalSinceReferenceDate * 2) % 2 == 0
-                        (Text(Self.markdown(s)) + Text(" ▍").foregroundColor(on ? p.glow : .clear))
-                            .chatTw(15, lh: 24.75)
+                        (Text(Self.markdown(s)).foregroundColor(p.textBody) + Text(" ") + Text(Image(nsImage: Self.caretBar)).foregroundColor(on ? p.glow : .clear))
+                            .chatTw(16, lh: 26.9)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 case .prose(let s):
                     // ссылки кликаются без ⌘ и подчёркиваются под курсором (LinkText.swift)
-                    LinkText(text: Self.markdown(s))
+                    LinkText(text: Self.markdown(s), size: 16, lineHeight: 26.9)
                         .fixedSize(horizontal: false, vertical: true)
                 case .code(let s, let lang):
                     CodeBlock(code: s, lang: lang)
@@ -950,6 +962,17 @@ struct RichText: View {
     }
 
     enum Part: Equatable { case prose(String), code(String, lang: String?), table([[String]]), visual(String, done: Bool) }
+
+    /// Черта курсора 2 × 17.6 (1.1em при 16): шаблон, красится цветом текста
+    @MainActor static let caretBar: NSImage = {
+        let img = NSImage(size: NSSize(width: 2, height: 17.6), flipped: false) { r in
+            NSColor.black.setFill()
+            NSBezierPath(roundedRect: r, xRadius: 1, yRadius: 1).fill()
+            return true
+        }
+        img.isTemplate = true
+        return img
+    }()
 
     /// Таблица markdown: строки «| a | b |», вторая — «|---|---|». Не таблица — nil
     static func table(_ para: String) -> [[String]]? {
@@ -1068,6 +1091,10 @@ struct Composer: View {
     var big = false
     /// Поле разговора рядом (разделённый экран)
     var controller: ChatController?
+    /// Сообщить наружу, что поле в фокусе (шар приветствия «горячий»)
+    var focusedOut: Binding<Bool>?
+    /// Под полем — «Ответы могут быть неточными» (в переписке, не на пустом экране)
+    var disclaimer = false
 
     @Environment(\.palette) private var p
     @FocusState private var focused: Bool
@@ -1075,7 +1102,6 @@ struct Composer: View {
     @State private var effortOpen = false
     @State private var folderOpen = false
     @State private var modeOpen = false
-    @State private var nightOpen = false
 
     private var chat: ChatController { controller ?? app.chat }
     private var model: ChatModel { chat.conversation?.model ?? (agent ? app.defaultAgentModel : app.prefs.model) }
@@ -1114,8 +1140,11 @@ struct Composer: View {
         let note: String
     }
 
+    /// Набирают команду: «/» в начале и ещё без пробела — меню видно, даже если ничего не подходит
+    private var slashOpen: Bool { draft.hasPrefix("/") && !draft.contains(" ") && !draft.contains("\n") }
+
     private var slashItems: [SlashItem] {
-        guard draft.hasPrefix("/"), !draft.contains(" "), !draft.contains("\n") else { return [] }
+        guard slashOpen else { return [] }
         let q = draft.dropFirst().lowercased()
         var all: [SlashItem] = []
         if !inGroup {
@@ -1207,7 +1236,7 @@ struct Composer: View {
         let current = b.folder.map { URL(fileURLWithPath: $0) }
         return PickerButton(open: $botFolderOpen) {
             Icon("folder", 14).foregroundStyle(BotColor.accent(b.hue))
-            Text(current.map(AppModel.folderName) ?? "Своя папка").font(.geist(12))
+            Text(current.map(AppModel.folderName) ?? "Своя папка").font(.geist(14))
         } panel: {
             PopoverPanel(title: "Где работает бот", width: 256) {
                 PopoverOption(name: "Своя папка", note: "пустая, чужих файлов не видит", active: current == nil) {
@@ -1242,7 +1271,7 @@ struct Composer: View {
 
     private func botEffortPicker(_ b: Bot) -> some View {
         PickerButton(open: $botEffortOpen) {
-            Text(b.effort.name).font(.geist(12)).foregroundStyle(p.mutedFg)
+            Text(b.effort.name).font(.geist(14))
         } panel: {
             PopoverPanel(title: "Сколько думать") {
                 ForEach(Effort.allCases) { e in
@@ -1300,13 +1329,16 @@ struct Composer: View {
                 fieldChip("/" + sk.name, color: p.glow) { Icon("book-open", 12).foregroundStyle(p.glow) } remove: { pickedSkill = nil }
                     .padding(.top, big ? 0 : -2)
             }
-            TextField(mentioned.map { "Задача для «\($0.name)»" } ?? (big ? "Опиши задачу: что сделать, починить или проверить" : (agent ? "Что сделать в проекте? / — команды и навыки" : (currentBot.map { "Задача для «\($0.name)»" } ?? (chat.conversation?.kind == .group ? "Написать группе · @id — ответит один" : "Просто напиши · / — команды и навыки")))),
+            TextField(mentioned.map { "Задача для «\($0.name)»" } ?? (agent ? "Опиши задачу · / — навыки агента" : (currentBot.map { "Напиши боту «\($0.name)»" } ?? (chat.conversation?.kind == .group ? "Написать группе · @id — ответит один" : "Просто напиши · / — команды и навыки"))),
                       text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.geist(big ? 15 : 14))
-                .lineSpacing(big ? 6 : 3)
-                .lineLimit(big ? 4...14 : 1...12)
+                .font(.geist(16.5))
+                // 16.5 / 1.5; растёт до 240 pt (9 строк), дальше листается
+                .lineSpacing(4.5)
+                .lineLimit(big ? 4...9 : 1...9)
+                .padding(.horizontal, 2)
                 .focused($focused)
+                .accessibilityLabel("Сообщение")
                 .onSubmit(send)
                 .onChange(of: draft) { old, new in
                     absorbDroppedFiles(old: old, new: new)
@@ -1347,47 +1379,59 @@ struct Composer: View {
                     return .handled
                 }
                 .onKeyPress(.escape) {
-                    guard !slashItems.isEmpty else { return .ignored }
-                    draft = ""
+                    if slashOpen {
+                        draft = ""
+                        return .handled
+                    }
+                    // Esc — остановить ответ
+                    guard chat.busy else { return .ignored }
+                    chat.stop()
                     return .handled
                 }
             }
-                .frame(minHeight: big ? 96 : 24, alignment: .topLeading) // одна строка, растёт с текстом (минимализм, 19.10)
+                .frame(minHeight: big ? 96 : 25, alignment: .topLeading) // одна строка, растёт с текстом (минимализм, 19.10)
+                .padding(.bottom, 6)
             // один ряд: слева «+», папка и режим, справа модель, «сколько думать» и отправить
-            HStack(spacing: 2) {
+            HStack(spacing: 4) {
                 leftControls
                 Spacer(minLength: 8)
                 rightControls
             }
-            .frame(height: big ? 32 : 28)
+            .frame(height: 38)
         }
-        .padding(big ? 16 : 12)
-        .background(p.card.opacity(0.6), in: RoundedRectangle(cornerRadius: R.xxl))
-        // без свечения в фокусе (Рома, 16.10): ровная рамка
-        .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(
-            tintBot.map { focused ? BotColor.accent($0.hue).opacity(0.45) : BotColor.soft($0.hue) } ?? (focused ? p.foreground.opacity(0.14) : p.border)))
-        .background {
-            // у бота — его цвет: лёгкое свечение за полем (и когда бота позвали чипом)
-            if let b = tintBot {
-                RoundedRectangle(cornerRadius: R.xxl).fill(BotColor.faint(b.hue)).blur(radius: 18).padding(-6).allowsHitTesting(false)
-            }
-        }
+        .padding(.top, 18).padding(.leading, 20).padding(.trailing, 12).padding(.bottom, 12)
+        .background { glass }
+        .animation(.easeOut(duration: 0.2), value: focused)
         // меню «/» — плавающим окном: над полем, а у большого поля новой задачи — под ним (сверху заголовок)
         .overlay(alignment: big ? .bottom : .top) {
-            if !slashItems.isEmpty {
-                slashMenu
-                    .alignmentGuide(big ? .bottom : .top) { d in big ? d[.top] - 8 : d[.bottom] + 8 }
+            if slashOpen {
+                // якорь нулевой высоты на краю поля: меню растёт от него наружу
+                Color.clear.frame(height: 0)
+                    .overlay(alignment: big ? .top : .bottom) {
+                        slashMenu.padding(big ? .top : .bottom, 8)
+                    }
                     .transition(.opacity)
             }
         }
         .zIndex(1)
         .onPasteCommand(of: [.fileURL, .png, .tiff, .jpeg]) { providers in app.attach(providers) { attachments.append($0) } }
-        // ширина — как у колонки переписки (Рома, 17.10): поле стоит ровно под текстом, с теми же полями по бокам.
+        // ширина — как у колонки переписки (Рома, 17.10), не шире 700 (макет 21.10).
         // Без белой полосы-градиента над полем: она закрывала последние строки ответа
-        .frame(maxWidth: big ? .infinity : ChatView.columnWidth(app: app, conversation: chat.conversation, agent: agent) - 88)
-        .padding(.horizontal, big ? 0 : 44).padding(.bottom, big ? 0 : 20).padding(.top, big ? 0 : 8)
+        .frame(maxWidth: big ? .infinity : min(700, ChatView.columnWidth(app: app, conversation: chat.conversation, agent: agent) - 56))
+        .overlay(alignment: .bottom) {
+            if disclaimer {
+                Color.clear.frame(height: 0).overlay(alignment: .top) {
+                    Text("Ответы могут быть неточными. Важное проверяй.").font(.geist(12.5)).foregroundStyle(p.faint)
+                        .fixedSize().padding(.top, 10)
+                }
+            }
+        }
+        .padding(.horizontal, big ? 0 : 28).padding(.bottom, big ? 0 : (disclaimer ? 40 : 16)).padding(.top, big ? 0 : 8)
         .frame(maxWidth: .infinity)
         .onAppear { focused = true }
+        .onChange(of: focused) { _, f in focusedOut?.wrappedValue = f }
+        // щелчок по имени папки в заголовке новой задачи — тот же выбор папки
+        .onChange(of: app.folderPickerRequest) { if agent && chat.conversation == nil { folderOpen = true } }
         // щелчок по участнику группы справа — «@id » в начало поля
         .onChange(of: chat.mentionRequest) { _, m in
             guard let m else { return }
@@ -1399,11 +1443,30 @@ struct Composer: View {
 
     private var inGroup: Bool { chat.conversation?.kind == .group }
 
+    /// Стекло поля (макет 21.10): градиент .05 → .025, кольцо 1px внутри, светлая кромка сверху, глубокая тень.
+    /// В фокусе кольцо синее; край один — без второго кольца снаружи (Рома, 21.10). У бота — его цвет вместо синего
+    @ViewBuilder private var glass: some View {
+        let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
+        let ring: Color = tintBot.map { focused ? BotColor.accent($0.hue).opacity(0.45) : BotColor.soft($0.hue) }
+            ?? (focused ? p.glow.opacity(0.42) : p.borderBase.opacity(0.09))
+        ZStack {
+            shape.fill(p.isLight ? AnyShapeStyle(p.card)
+                       : AnyShapeStyle(LinearGradient(colors: [p.borderBase.opacity(0.05), p.borderBase.opacity(0.025)], startPoint: .top, endPoint: .bottom)))
+                .shadow(color: .black.opacity(p.isLight ? 0.07 : (focused ? 0.45 : 0.38)), radius: 35, y: 24)
+            shape.strokeBorder(ring)
+            // inset 0 1px 0 rgba(255,255,255,.05): светлая кромка по верху
+            shape.inset(by: 1).strokeBorder(LinearGradient(colors: [.white.opacity(p.isLight ? 0 : (focused ? 0.06 : 0.05)), .clear],
+                                                          startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.08)))
+        }
+        .allowsHitTesting(false)
+    }
+
     /// Слева: «+», папка и режим агента, бот — каждая кнопка во всю подпись
     @ViewBuilder private var leftControls: some View {
         // как в Claude: «+» в левом нижнем углу — картинки и файлы
         PlusMenu(app: app, agent: agent, canPickFolder: agent && chat.conversation == nil, draft: $draft, attachments: $attachments).fixedSize()
-        if agent { folderPicker.fixedSize(); modePicker.fixedSize(); nightToggle.fixedSize() }
+        // агент: папка (единственная кнопка с рамкой) и «Режим» — в нём и режим, и «Ночь» (Рома, 21.10)
+        if agent { folderPicker.fixedSize(); modeMenu.fixedSize(); modePills }
         if let b = currentBot { botChip(b).fixedSize(); botFolderPicker(b).fixedSize(); botEffortPicker(b).fixedSize() }
         ElsewherePill(app: app)
     }
@@ -1415,7 +1478,7 @@ struct Composer: View {
             modelPicker.fixedSize()
             effortPicker.fixedSize()
         }
-        sendButton.padding(.leading, 4)
+        sendButton.padding(.leading, 6)
     }
 
     /// Очередь: что уйдёт после ответа — «Сейчас» (остановить ответ и отправить это) или убрать
@@ -1463,44 +1526,51 @@ struct Composer: View {
 
     /// Меню «/»: «Команды» и «Навыки» разделами, значок в квадратике, выбранная строка подсвечена; ↑↓ Tab Enter.
     /// Плавает над полем, не выше 320 и листается — выбранная строка всегда видна
-    private var slashMenu: some View {
+    /// Меню во всю ширину поля, как остальные всплывающие (макет 21.10): «/команда» синим, пояснение тихим.
+    /// Ничего не подошло — сказать, как увидеть все
+    @ViewBuilder private var slashMenu: some View {
         let items = slashItems
-        return ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 1) {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { i, it in
-                        if i == 0 || items[i - 1].kind != it.kind {
-                            Text(it.kind == .action ? "Команды" : "Навыки").tw(11, .medium, lh: 14).foregroundStyle(p.mutedFg)
-                                .padding(.horizontal, 10).padding(.top, i == 0 ? 4 : 10).padding(.bottom, 4)
-                        }
-                        Button { pickSlash(it) } label: {
-                            HStack(spacing: 10) {
-                                Icon(it.icon, 14).foregroundStyle(i == slashIndex ? p.glow : p.mutedFg)
-                                    .frame(width: 26, height: 26)
-                                    .background(p.foreground.opacity(i == slashIndex ? 0.08 : 0.04), in: RoundedRectangle(cornerRadius: R.md))
-                                Text("/" + it.id).font(.geist(13, .medium)).foregroundStyle(p.foreground).lineLimit(1).layoutPriority(1)
-                                Text(it.note).font(.geist(12)).foregroundStyle(p.mutedFg).lineLimit(1)
-                                Spacer(minLength: 0)
-                                if i == slashIndex { Text("↵").font(.geist(12)).foregroundStyle(p.mutedFg) }
+        Group {
+            if items.isEmpty {
+                Text("Такой команды нет. Сотри символы после /, чтобы увидеть все.")
+                    .font(.geist(13)).foregroundStyle(p.mutedFg)
+                    .padding(.horizontal, 17).padding(.vertical, 14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(items.enumerated()), id: \.element.id) { i, it in
+                                if Set(items.map(\.kind)).count > 1, i == 0 || items[i - 1].kind != it.kind {
+                                    Text(it.kind == .action ? "Команды" : "Навыки").font(.geist(12, .medium)).foregroundStyle(p.faint)
+                                        .padding(.horizontal, 11).padding(.top, i == 0 ? 4 : 10).padding(.bottom, 4)
+                                }
+                                Button { pickSlash(it) } label: {
+                                    HStack(spacing: 12) {
+                                        Text("/" + it.id).font(.geist(14, .medium)).foregroundStyle(p.accentSoft).lineLimit(1)
+                                            .frame(minWidth: 88, alignment: .leading).layoutPriority(1)
+                                        Text(it.note).font(.geist(13)).foregroundStyle(p.mutedFg).lineLimit(1)
+                                        Spacer(minLength: 0)
+                                    }
+                                    .padding(.horizontal, 11).padding(.vertical, 8)
+                                    .background(i == slashIndex ? p.borderBase.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .id(it.id)
+                                .onHover { if $0 { slashIndex = i } }
+                                .accessibilityAddTraits(i == slashIndex ? [.isSelected] : [])
                             }
-                            .padding(.horizontal, 6).padding(.vertical, 3)
-                            .background(i == slashIndex ? p.foreground.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: R.lg))
-                            .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
-                        .id(it.id)
-                        .onHover { if $0 { slashIndex = i } }
+                        .padding(6)
                     }
+                    .scrollIndicators(.automatic)
+                    .frame(height: min(320, CGFloat(items.count) * 34 + (Set(items.map(\.kind)).count > 1 ? 52 : 0) + 12))
+                    .onChange(of: slashIndex) { _, i in if items.indices.contains(i) { proxy.scrollTo(items[i].id) } }
                 }
-                .padding(6)
             }
-            .scrollIndicators(.automatic)
-            .frame(height: min(320, CGFloat(items.count) * 33 + CGFloat(Set(items.map(\.kind)).count) * 26 + 12))
-            .onChange(of: slashIndex) { _, i in if items.indices.contains(i) { proxy.scrollTo(items[i].id) } }
         }
-        .background(p.popover, in: RoundedRectangle(cornerRadius: R.xl))
-        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.foreground.opacity(0.1)))
-        .shadow(color: .black.opacity(0.25), radius: 18, y: 6)
+        .popoverChrome()
     }
 
     /// `FolderPicker`: папка проекта; у начатой сессии папка уже не меняется
@@ -1508,9 +1578,9 @@ struct Composer: View {
         let started = chat.conversation != nil
         let current = chat.conversation?.folder.map { URL(fileURLWithPath: $0) } ?? app.agentFolder
         let extra = started ? (chat.conversation?.extraPaths ?? []).map { URL(fileURLWithPath: $0) } : app.agentExtraDirs
-        return PickerButton(open: $folderOpen, bordered: big) {
-            Icon(big ? "folder-open" : "folder", big ? 16 : 14).foregroundStyle(p.glow)
-            Text((current.map(AppModel.folderName) ?? "Мои файлы") + (extra.isEmpty ? "" : " +\(extra.count)")).font(.geist(big ? 14 : 12))
+        return PickerButton(open: $folderOpen, bordered: true) {
+            Icon("folder", 16).foregroundStyle(p.glow)
+            Text((current.map(AppModel.folderName) ?? "Мои файлы") + (extra.isEmpty ? "" : " +\(extra.count)")).font(.geist(14))
         } panel: {
             PopoverPanel(title: started ? "Где работает задача" : "Где работать", width: 280) {
                 if started {
@@ -1585,43 +1655,32 @@ struct Composer: View {
 
     /// `ModelPicker`: Sparkles text-glow + название text-xs medium + стрелка
     private var modelPicker: some View {
-        PickerButton(open: $modelOpen) {
-            Text(model.name).font(.geist(12))
+        PickerButton(open: $modelOpen, edge: .trailing) {
+            Text(model.name).font(.geist(14))
         } panel: {
-            PopoverPanel(title: "Модель") {
-                ForEach(models) { m in
-                    if m == ChatModel.gpt.first, models.contains(where: { !$0.isGPT }) {
-                        p.border.frame(height: 1).padding(.vertical, 5).padding(.horizontal, 2)
-                    }
-                    PopoverOption(name: m.name, note: m.note, active: m == model) {
-                        Icon(m.isGPT ? "message-circle" : "sparkles", 16).foregroundStyle(p.mutedFg)
-                    } action: {
-                        chat.set(model: m)
-                        modelOpen = false
-                    }
-                }
+            ListboxPanel(items: models.map { m in
+                ListboxPanel.Item(id: m, name: m.name, note: m.note, gap: m == ChatModel.gpt.first && models.contains(where: { !$0.isGPT }))
+            }, selected: model, width: 260) { m in
+                chat.set(model: m)
+                modelOpen = false
             }
         }
         .disabled(chat.busy)
+        .help("Модель")
     }
 
     /// Режим агента: как в Claude Code, Shift+Tab — следующий
     private var mode: AgentMode { chat.conversation?.mode ?? app.prefs.agentMode }
 
-    private var modePicker: some View {
+    /// «Режим ▾» (Рома, 21.10): как работает агент (План, Спрашивать, Принимать правки, Авто, Обход) и «Ночь» — в одном меню.
+    /// Shift+Tab — следующий режим, как раньше
+    private var modeMenu: some View {
         PickerButton(open: $modeOpen) {
-            Icon(mode.icon, 14).foregroundStyle(mode == .bypassPermissions ? Palette.destructive : p.mutedFg)
-            Text(mode.name).font(.geist(12))
+            Icon("sliders-horizontal", 16).foregroundStyle(p.mutedFg)
+            Text("Режим").font(.geist(14))
         } panel: {
-            PopoverPanel(title: "Режим · Shift+Tab — следующий", width: 300) {
-                ForEach(app.prefs.visibleModes) { m in
-                    PopoverOption(name: m.name, note: m.note, active: m == mode) {
-                        Icon(m.icon, 16).foregroundStyle(m == .bypassPermissions ? Palette.destructive : p.mutedFg)
-                    } action: {
-                        chat.set(mode: m)
-                        modeOpen = false
-                    }
-                }
+            AgentModePanel(app: app, mode: mode, modes: app.prefs.visibleModes) { m in
+                chat.set(mode: m)
             }
         }
         .background {
@@ -1631,69 +1690,28 @@ struct Composer: View {
             }
             .keyboardShortcut(.tab, modifiers: .shift).opacity(0)
         }
-        .help("Режим: \(mode.note)")
+        .help("Режим: \(mode.name.lowercased()) — \(mode.note)")
     }
 
-    /// «Ночь» (Рома, 19.10): оставить агента работать до утра — без вопросов и разрешений, Мак не спит, утром отчёт
-    private var nightToggle: some View {
+    /// Что включено сейчас — плашками рядом с «Режимом»: режим, если он не обычный «Авто», и «Ночь до …»
+    @ViewBuilder private var modePills: some View {
+        if mode != .auto { ModePill(text: mode.name, icon: mode.icon).fixedSize() }
         let night = app.prefs.night
-        let on = night.active()
-        let until = night.until.map { Night.clock($0) } ?? night.wake
-        return PickerButton(open: $nightOpen) {
-            Icon("moon", 14).foregroundStyle(on ? p.glow : p.mutedFg)
-            Text(on ? "Ночь до \(until)" : "Ночь").font(.geist(12))
-        } panel: {
-            PopoverPanel(title: on ? "Ночь до \(until)" : "Ночь — агент работает сам до утра", width: 320) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Ничего не спрашивает и не ждёт разрешений, Мак не засыпает, кончится лимит — дождётся сброса и продолжит. Утром Lumen сам попросит у агента отчёт за ночь. Push и публикации — по-прежнему только с твоего OK.")
-                        .tw(12, lh: 17).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
-                    if !on {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Утро в").tw(13, lh: 18)
-                            // время целиком, без обрезки: короткие кнопки в ряд (Рома, 19.10: «0…», «06…»)
-                            HStack(spacing: 4) {
-                                ForEach(["05:00", "06:00", "07:00", "08:00", "09:00"], id: \.self) { t in
-                                    Button { app.update { $0.night.wake = t } } label: {
-                                        Text(t).font(.geist(12)).monospacedDigit().fixedSize()
-                                            .foregroundStyle(night.wake == t ? p.foreground : p.mutedFg)
-                                            .padding(.horizontal, 7).frame(height: 26)
-                                            .background(night.wake == t ? p.foreground.opacity(0.1) : .clear, in: Capsule())
-                                            .contentShape(Capsule())
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
-                    }
-                    LButton(title: on ? "Выключить ночь" : "Включить до \(night.wake)", icon: on ? "sun" : "moon",
-                            kind: on ? .outline : .primary, small: true) {
-                        if on { app.endNight(morning: false) } else { app.startNight() }
-                        nightOpen = false
-                    }
-                }
-                .padding(12)
-            }
-        }
-        .help(on ? "Ночь: агент работает сам до \(until)" : "Ночь: оставить агента работать до утра")
+        if night.active() { ModePill(text: "Ночь до " + (night.until.map { Night.clock($0) } ?? night.wake), icon: "moon").fixedSize() }
     }
 
     /// `EffortPicker`: столбики уровня + название text-xs
     private var effortPicker: some View {
-        PickerButton(open: $effortOpen) {
-            Text(effort.name).font(.geist(12)).foregroundStyle(p.mutedFg)
+        PickerButton(open: $effortOpen, edge: .trailing) {
+            Text(effort.name).font(.geist(14))
         } panel: {
-            PopoverPanel(title: "Сколько думать") {
-                ForEach(Effort.allCases) { e in
-                    PopoverOption(name: e.name, note: e.note, active: e == effort) {
-                        EmptyView()
-                    } action: {
-                        chat.set(effort: e)
-                        effortOpen = false
-                    }
-                }
+            ListboxPanel(items: Effort.allCases.map { ListboxPanel.Item(id: $0, name: $0.name, note: $0.note) }, selected: effort, width: 260) { e in
+                chat.set(effort: e)
+                effortOpen = false
             }
         }
         .disabled(chat.busy)
+        .help("Сколько думать")
     }
 
     @ViewBuilder private var sendButton: some View {
@@ -1704,9 +1722,9 @@ struct Composer: View {
                     Icon("clock", 12)
                     Text("В очередь").font(.geist(13, .medium))
                 }
-                .foregroundStyle(p.onGlow)
-                .padding(.horizontal, 12).frame(height: 32)
-                .background(p.glow, in: RoundedRectangle(cornerRadius: R.lg))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14).frame(height: 38)
+                .background(p.accent, in: Capsule())
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -1714,69 +1732,105 @@ struct Composer: View {
             .padding(.trailing, 4)
         }
         if chat.busy && !(inGroup && canSend) {
+            // идёт ответ — круг цвета текста с тёмным квадратиком
             Button { chat.stop() } label: {
-                HStack(spacing: 6) {
-                    Icon("square", 12)
-                    Text("Стоп").font(.geist(13, .medium))
-                }
-                .foregroundStyle(p.foreground)
-                .padding(.horizontal, 12).frame(height: 32)
-                .background(p.secondary, in: RoundedRectangle(cornerRadius: R.lg))
-                .contentShape(Rectangle())
+                RoundedRectangle(cornerRadius: 3, style: .continuous).fill(p.background)
+                    .frame(width: 12, height: 12)
+                    .frame(width: 38, height: 38)
+                    .background(p.foreground, in: Circle())
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
             .keyboardShortcut(".", modifiers: .command)
-            .help("Остановить · ⌘.")
+            .help("Остановить · Esc или ⌘.")
+            .accessibilityLabel("Остановить ответ")
         } else if !(app.claudeBusy(chat.conversation?.id) && canSend) {
+            let on = canSend && ready
             Button(action: send) {
-                Icon("arrow-up", 16)
-                    .foregroundStyle(p.onGlow)
-                    .frame(width: big ? 32 : 28, height: big ? 32 : 28)
-                    // как в макете: кнопка всегда светится (bg-glow, тень 16px glow-soft)
-                    .background(currentBot.map { BotColor.accent($0.hue) } ?? p.glow, in: Circle())
-                    .shadow(color: currentBot.map { BotColor.soft($0.hue) } ?? p.glowSoft, radius: 8)
+                Icon("arrow-up", 18)
+                    .foregroundStyle(on ? .white : p.faint)
+                    .frame(width: 38, height: 38)
+                    .background {
+                        if on {
+                            // есть что отправить — маленький шар (у бота — его цвет)
+                            if let b = currentBot {
+                                Circle().fill(BotColor.accent(b.hue))
+                            } else {
+                                MiniOrbFill()
+                            }
+                        } else {
+                            Circle().fill(p.borderBase.opacity(0.06)).overlay(Circle().strokeBorder(p.borderBase.opacity(0.07)))
+                        }
+                    }
+                    .shadow(color: on ? (currentBot.map { BotColor.accent($0.hue) } ?? p.accent).opacity(0.38) : .clear, radius: 9, y: 6)
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            // пустое поле — нечего отправлять: кнопка тусклая и не нажимается
-            .disabled(!ready || !canSend)
-            .opacity(canSend ? 1 : 0.35)
+            // пустое поле — нечего отправлять: кнопка тихая и не нажимается
+            .disabled(!on)
+            .animation(.easeOut(duration: 0.14), value: on)
             .help(!ready ? "Сначала выбери папку проекта" : (canSend ? "Отправить · ↩" : "Напиши сообщение"))
+            .accessibilityLabel("Отправить")
         }
     }
 }
 
-/// Кнопка-открывашка поповера: h-7 rounded-lg px-2 text-xs, стрелка вниз на 50%
+/// Кнопка под полем ввода, открывает меню над собой (макет 21.10): высота 34, скругление 10, подпись 14,
+/// стрелка 13 тихим цветом. Меню — плавающее, прижато к краю кнопки; Esc или щелчок мимо закрывают его
 struct PickerButton<Label: View, Panel: View>: View {
     @Binding var open: Bool
     /// Кнопка с рамкой (папка в большом поле новой задачи)
     var bordered = false
+    /// К какому краю кнопки прижато меню: у кнопок справа — к правому
+    var edge: HorizontalAlignment = .leading
     @ViewBuilder let label: Label
     @ViewBuilder let panel: Panel
 
     @Environment(\.palette) private var p
     @Environment(\.isEnabled) private var enabled
     @State private var hover = false
+    /// Меню только что закрыл щелчок мимо — тот же щелчок по кнопке не должен открыть его снова
+    @State private var closedAt = Date.distantPast
 
     var body: some View {
-        Button { open.toggle() } label: {
+        Button {
+            if Date().timeIntervalSince(closedAt) > 0.35 { open.toggle() }
+        } label: {
             HStack(spacing: 6) {
                 label
-                Icon("chevron-down", 12).opacity(0.5)
+                Icon("chevron-down", 13).foregroundStyle(p.faint)
             }
             // все подписи под полем одного цвета и веса; ярче — под курсором и пока открыто (минимализм, 19.10)
-            .foregroundStyle(hover || open ? p.foreground : p.mutedFg)
-            .padding(.horizontal, bordered ? 10 : 8).frame(height: bordered ? 32 : 28)
-            .background(bordered ? p.background.opacity(hover ? 0.6 : 0.4) : (hover ? p.foreground.opacity(0.05) : .clear),
-                        in: RoundedRectangle(cornerRadius: bordered ? R.md : R.lg))
-            .overlay(RoundedRectangle(cornerRadius: R.md).strokeBorder(bordered ? p.input : .clear))
+            .foregroundStyle(hover || open ? p.foreground : p.textControl)
+            .padding(.horizontal, 10).frame(height: 34)
+            .background(hover || open ? p.hover : .clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(bordered ? p.borderBase.opacity(0.10) : .clear))
             .contentShape(Rectangle())
             .opacity(enabled ? 1 : 0.5)
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
-        .popover(isPresented: $open, arrowEdge: .top) {
-            panel.environment(\.palette, p)
+        .accessibilityValue(open ? "открыто" : "закрыто")
+        .overlay(alignment: Alignment(horizontal: edge, vertical: .top)) {
+            if open {
+                // над кнопкой, с зазором 8: якорь нулевой высоты по верху кнопки, меню растёт от него вверх
+                Color.clear.frame(width: 0, height: 0)
+                    .overlay(alignment: Alignment(horizontal: edge, vertical: .bottom)) {
+                        panel
+                            .environment(\.palette, p)
+                            .popoverChrome()
+                            .background(DismissMonitor {
+                                open = false
+                                closedAt = Date()
+                            })
+                            .fixedSize()
+                            .padding(.bottom, 8)
+                    }
+                    .transition(.opacity.combined(with: .offset(y: 4)))
+            }
         }
+        .animation(.easeOut(duration: 0.14), value: open)
+        .zIndex(open ? 10 : 0)
     }
 }
 
@@ -1809,7 +1863,7 @@ struct RenamableTitle: View {
     var body: some View {
         if editing {
             TextField("", text: $text)
-                .textFieldStyle(.plain).tw(14, .medium, lh: 20)
+                .textFieldStyle(.plain).tw(15, .semibold, lh: 20)
                 .focused($focused)
                 .onSubmit {
                     app.renameChat(conversation, text)
@@ -1818,7 +1872,7 @@ struct RenamableTitle: View {
                 .onExitCommand { editing = false }
                 .onChange(of: focused) { _, f in if !f { editing = false } }
         } else {
-            Text(conversation.title).tw(14, .medium, lh: 20).lineLimit(1)
+            Text(conversation.title).tw(15, .semibold, lh: 20).lineLimit(1).truncationMode(.tail)
                 .onTapGesture(count: 2) {
                     text = conversation.title
                     editing = true
@@ -2182,4 +2236,156 @@ struct LiveBotWork: View {
 extension String {
     /// «Запускает swift test» → «запускает swift test»
     var lowercasedFirst: String { prefix(1).lowercased() + dropFirst() }
+}
+
+/// Плашка включённого режима у «Режима»: синий текст на синей подложке, не красная
+private struct ModePill: View {
+    let text: String
+    let icon: String
+
+    @Environment(\.palette) private var p
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Icon(icon, 12)
+            Text(text).font(.geist(12.5, .medium))
+        }
+        .foregroundStyle(p.accentSoft)
+        .padding(.horizontal, 10).frame(height: 28)
+        .background(p.accentTint, in: Capsule())
+    }
+}
+
+/// Меню «Режим»: режимы агента строками с пояснением (выбранный — с галочкой) и «Ночь» — с переключателем.
+/// Рискованное («Обход», «Ночь» — без вопросов и разрешений) сначала переспрашивает прямо здесь
+struct AgentModePanel: View {
+    @Bindable var app: AppModel
+    let mode: AgentMode
+    let modes: [AgentMode]
+    let set: (AgentMode) -> Void
+
+    @Environment(\.palette) private var p
+    /// Что ждёт подтверждения: режим «Обход» или включение «Ночи»
+    @State private var confirm: Confirm?
+
+    enum Confirm: Equatable { case bypass, night }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Как работает агент · Shift+Tab — следующий").font(.geist(12.5)).foregroundStyle(p.mutedFg)
+                .padding(.horizontal, 11).padding(.top, 6).padding(.bottom, 6)
+            ForEach(modes) { m in
+                row(icon: m.icon, name: m.name, note: Self.sentence(m.note), selected: m == mode) {
+                    if m == .bypassPermissions && mode != .bypassPermissions { confirm = .bypass } else { set(m); confirm = nil }
+                }
+                if confirm == .bypass && m == .bypassPermissions {
+                    confirmBox("Агент будет менять файлы и запускать команды без вопросов. Включить?") { set(.bypassPermissions) }
+                }
+            }
+            p.line.frame(height: 1).padding(.vertical, 6).padding(.horizontal, 4)
+            nightRow
+        }
+        .padding(6)
+        .frame(width: 360)
+        .animation(.easeOut(duration: 0.15), value: confirm)
+    }
+
+    /// «спрашивает каждую правку» → «Спрашивает каждую правку.»
+    static func sentence(_ s: String) -> String { s.prefix(1).uppercased() + s.dropFirst() }
+
+    private func row(icon: String, name: String, note: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        ModeRow(icon: icon, name: name, note: note, selected: selected, action: action)
+    }
+
+    /// «Ночь»: до утра без вопросов и разрешений; утро — время, к которому агент отчитается
+    @ViewBuilder private var nightRow: some View {
+        let night = app.prefs.night
+        let on = night.active()
+        HStack(alignment: .top, spacing: 12) {
+            Icon("moon", 16).foregroundStyle(on ? p.glow : p.mutedFg).frame(width: 18).padding(.top, 2)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(on ? "Ночь до " + (night.until.map { Night.clock($0) } ?? night.wake) : "Ночь").font(.geist(14, .medium))
+                Text("До утра без вопросов и разрешений. Мак не засыпает, кончится лимит — ждёт и продолжает, утром — отчёт.")
+                    .font(.geist(12.5)).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            LSwitch(isOn: Binding(get: { on }, set: { want in
+                if want { confirm = .night } else { app.endNight(morning: false); confirm = nil }
+            }))
+            .padding(.top, 2)
+            .accessibilityLabel("Ночь")
+        }
+        .padding(.horizontal, 11).padding(.vertical, 9)
+        if !on {
+            HStack(spacing: 4) {
+                Text("Утро в").font(.geist(12.5)).foregroundStyle(p.mutedFg).fixedSize().padding(.trailing, 2)
+                // время целиком, без обрезки: короткие кнопки в ряд (Рома, 19.10)
+                ForEach(["05:00", "06:00", "07:00", "08:00", "09:00"], id: \.self) { t in
+                    Button { app.update { $0.night.wake = t } } label: {
+                        Text(t).font(.geist(12.5)).monospacedDigit().fixedSize()
+                            .foregroundStyle(night.wake == t ? p.foreground : p.mutedFg)
+                            .padding(.horizontal, 6).frame(height: 26)
+                            .background(night.wake == t ? p.hover : .clear, in: Capsule())
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.leading, 41).padding(.bottom, 6)
+        }
+        if confirm == .night {
+            confirmBox("До \(night.wake) агент работает без вопросов и разрешений. Включить?") { app.startNight() }
+        }
+    }
+
+    /// Переспросить прямо в меню: значок предупреждения, вопрос, «Отмена» и «Включить»
+    private func confirmBox(_ text: String, ok: @escaping () -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 8) {
+                Icon("triangle-alert", 14).foregroundStyle(Color(hex: 0xF2766B)).padding(.top, 1)
+                Text(text).font(.geist(13)).foregroundStyle(p.foreground).fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 6) {
+                Spacer()
+                LButton(title: "Отмена", kind: .ghost, small: true) { confirm = nil }.fixedSize()
+                LButton(title: "Включить", kind: .glow, small: true) { ok(); confirm = nil }.fixedSize()
+            }
+        }
+        .padding(12)
+        .background(p.hover, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 4).padding(.vertical, 4)
+        .transition(.opacity)
+    }
+}
+
+/// Строка режима: значок, название, пояснение, галочка у выбранного
+private struct ModeRow: View {
+    let icon: String
+    let name: String
+    let note: String
+    let selected: Bool
+    let action: () -> Void
+
+    @Environment(\.palette) private var p
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 12) {
+                Icon(icon, 16).foregroundStyle(selected ? p.glow : p.mutedFg).frame(width: 18).padding(.top, 2)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(name).font(.geist(14, .medium)).foregroundStyle(p.foreground)
+                    Text(note).font(.geist(12.5)).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                if selected { Icon("check", 16).foregroundStyle(p.glow).padding(.top, 2) }
+            }
+            .padding(.horizontal, 11).padding(.vertical, 9)
+            .background(hover ? p.borderBase.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
 }

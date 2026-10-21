@@ -24,14 +24,16 @@ struct PlusMenu: View {
 
     var body: some View {
         Button { page = .main; open.toggle() } label: {
-            Icon("plus", 14).foregroundStyle(hover || open ? p.foreground : p.mutedFg)
-                .frame(width: 26, height: 26)
-                .background(hover || open ? p.foreground.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: R.lg))
+            // «+» 36, скругление 11; цвет чуть светлее подписей (#A3A9B8 у «Люмена»)
+            Icon("plus", 18).foregroundStyle(hover || open ? p.foreground : p.mutedFg.mixed(with: p.foreground, 0.2))
+                .frame(width: 36, height: 36)
+                .background(hover || open ? p.hover : .clear, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
         .help("Добавить")
+        .accessibilityLabel("Добавить файлы, навыки, коннекторы")
         .background {
             // ⌘U — сразу файлы, без меню
             Button("") { addFiles() }.keyboardShortcut("u", modifiers: .command).opacity(0).allowsHitTesting(false)

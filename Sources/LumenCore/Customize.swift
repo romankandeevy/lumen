@@ -516,6 +516,59 @@ public struct ConnectorPreset: Sendable, Identifiable {
     ]
 }
 
+extension ConnectorPreset {
+    /// Официальный готовый коннектор вместо того же сервиса через посредника (Smithery и т. п.): то же имя,
+    /// другой адрес или команда. GitHub через server.smithery.ai отвечал 404 — у GitHub есть свой (Рома, 21.10)
+    public static func official(for name: String, server: MCPServer) -> ConnectorPreset? {
+        let key = name.lowercased()
+        let host = URL(string: server.url)?.host?.lowercased() ?? ""
+        guard let preset = popular.first(where: { $0.name == key || (host.contains("smithery") && server.summary.lowercased().contains($0.name)) }),
+              preset.server.summary != server.summary else { return nil }
+        return preset
+    }
+}
+
+/// Где взять ключ для коннектора: страница, где его выдают, и что там сделать.
+/// Кнопка «Получить ключ» открывает её в браузере; ключ копируют и вставляют в поле (Рома, 21.10)
+public enum KeyHelp {
+    public struct Page: Sendable, Equatable {
+        public let url: URL
+        public let how: String
+    }
+
+    public static func page(for key: String, server: MCPServer, hint: String = "") -> Page? {
+        let k = key.uppercased()
+        let host = URL(string: server.url)?.host?.lowercased() ?? ""
+        func page(_ u: String, _ how: String) -> Page? { URL(string: u).map { Page(url: $0, how: how) } }
+        if host.contains("smithery") || k.hasPrefix("SMITHERY") {
+            return page("https://smithery.ai/account/api-keys", "Создай ключ API на Smithery и вставь его сюда.")
+        }
+        if k.contains("GITHUB") || host.contains("github") {
+            // классический токен: описание и права уже заполнены — остаётся нажать «Generate token»
+            return page("https://github.com/settings/tokens/new?description=Lumen&scopes=repo,read:org,read:user,workflow",
+                        "Внизу страницы нажми «Generate token» и скопируй токен (начинается с ghp_).")
+        }
+        if k.contains("NOTION") || host.contains("notion") {
+            return page("https://www.notion.so/profile/integrations", "Создай внутреннюю интеграцию и скопируй Internal Integration Secret.")
+        }
+        if k.contains("OPENAI") { return page("https://platform.openai.com/api-keys", "Нажми «Create new secret key» и скопируй ключ.") }
+        if k.contains("ANTHROPIC") { return page("https://console.anthropic.com/settings/keys", "Нажми «Create Key» и скопируй ключ.") }
+        if k.contains("LINEAR") || host.contains("linear") {
+            return page("https://linear.app/settings/account/security", "В «Personal API keys» создай ключ и скопируй его.")
+        }
+        if k.contains("FIGMA") { return page("https://www.figma.com/settings", "Вкладка Security → Personal access tokens → создай токен.") }
+        if k.contains("SLACK") { return page("https://api.slack.com/apps", "Создай приложение, в OAuth & Permissions скопируй токен бота (xoxb-…).") }
+        if k.contains("BRAVE") { return page("https://api-dashboard.search.brave.com/app/keys", "Создай ключ API и скопируй его.") }
+        if k.contains("TAVILY") { return page("https://app.tavily.com/home", "Скопируй ключ API с главной страницы.") }
+        if k.contains("CONTEXT7") || host.contains("context7") { return page("https://context7.com/dashboard", "Создай ключ API и скопируй его.") }
+        // в подсказке из реестра бывает адрес — туда
+        if let r = hint.range(of: #"https?://[^\s)»"]+"#, options: .regularExpression), let u = URL(string: String(hint[r])) {
+            return Page(url: u, how: "Возьми ключ на этой странице и вставь сюда.")
+        }
+        return nil
+    }
+}
+
 // MARK: предложения Lumen из разговора
 
 /// Хук в виде, который можно сохранить и передать (HookRule — для окна)

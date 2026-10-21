@@ -50,6 +50,8 @@ public struct RootView: View {
             // перекладывается и прокрутка уезжает вверх. Анимируется только выезжающая панель
             .transaction { $0.animation = nil }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            // синяя дымка основной области (макет 21.10): эллипс 1100×620 на 50%/40%
+            .background(LumenLight(level: app.orb == .thinking ? 1.9 : 1).ignoresSafeArea())
             if app.browserOpen { BrowserPane(app: app, browser: app.browser).transition(.move(edge: .trailing)) }
         }
         .environment(\.windowWidth, g.size.width)
@@ -92,8 +94,6 @@ public struct RootView: View {
             }
             .opacity(0)
         }
-        // `.lumen-light` на всём окне: панель полупрозрачная, свет проходит сквозь неё
-        .background(LumenLight(level: app.orb == .thinking ? 1.9 : 1).ignoresSafeArea())
         .overlay {
             if !app.prefs.onboarded {
                 OnboardingView(app: app).transition(.opacity)
@@ -117,8 +117,7 @@ public struct RootView: View {
         .environment(\.palette, p)
         .environment(\.chatText, ChatText(font: app.prefs.chatFont, scale: app.prefs.textScale, code: app.prefs.codeFontSize))
         .environment(\.lessMotion, app.lessMotion)
-        // питомец (1.5): вместо точек «работает» и поверх окон
-        .environment(\.petMark, app.prefs.pet.enabled && app.prefs.pet.inChat ? app.prefs.pet : nil)
+        // питомец живёт поверх окон; в переписке вместо него — шар (макет 21.10, Рома)
         .onAppear { PetPanel.shared.sync(app) }
         .onChange(of: app.prefs.pet) { PetPanel.shared.sync(app) }
         // размер шрифта интерфейса поменяли — всё окно перерисовывается с новым размером
@@ -153,15 +152,17 @@ struct Sidebar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // как в Claude: в одной строке с кнопками окна — «спрятать панель» и поиск
+            // строка заголовка: кнопки на одной линии с кнопками окна; ниже — сразу вкладки (Рома, 21.10: «слишком жирно»)
             WindowControls(app: app)
-                .padding(.leading, 76)
+                .padding(.leading, 84).padding(.top, -2)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: 36, alignment: .top)
 
-            TabSwitch(app: app).padding(.horizontal, 12).padding(.top, 12)
+            TabSwitch(app: app).padding(.horizontal, 14).padding(.top, 2)
 
             if app.tab == .bots {
                 ScrollView {
-                    BotsSidebar(app: app).padding(.horizontal, 12).padding(.vertical, 12)
+                    BotsSidebar(app: app).padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 14)
                 }
                 .scrollIndicators(.never)
             } else {
@@ -169,15 +170,19 @@ struct Sidebar: View {
                 VStack(spacing: 2) {
                     // открыт пустой новый чат (или новая задача) — пункт горит, как открытый разговор
                     NavRow(title: app.tab == .agent ? "Новая задача" : "Новый чат", icon: "square-pen",
-                           active: app.page == .chat && app.chat.conversation == nil) {
+                           active: app.page == .chat && app.chat.conversation == nil, hint: "⌘N", lead: true) {
                         app.tab == .agent ? app.newAgentTask() : app.newChat()
                     }
                     NavRow(title: "Кастомизация", icon: "wrench", active: skillsActive,
                            trailing: customizeCount == 0 ? nil : "\(customizeCount)") { app.page = .skills }
                     NavRow(title: "Память", icon: "brain", active: app.page == .memory, trailing: "\(app.memoryCount)") { app.page = .memory }
                     NavRow(title: "Артефакты", icon: "layout-grid", active: app.page == .artifacts) { app.page = .artifacts }
+                    p.line.frame(height: 1).padding(.vertical, 8).padding(.horizontal, 11)
+                    NavRow(title: "Новый проект", icon: "folder-plus", active: false) {
+                        app.createProject(folder: app.tab == .agent ? app.agentFolder : nil, kind: app.tab == .agent ? .agent : .chat)
+                    }
                 }
-                .padding(.horizontal, 12).padding(.top, 12)
+                .padding(.horizontal, 14).padding(.top, 10)
 
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -198,18 +203,10 @@ struct Sidebar: View {
                             section("p:" + pr.id, pr.name, items, project: pr)
                         }
                         if !projects.isEmpty { Color.clear.frame(height: 8) }
-                        // проектов нет — «Новый проект» там, где был бы их раздел: над разговорами
-                        if projects.isEmpty {
-                            // такая же строка, как «Новый чат» и «Память»: один размер, один отступ (минимализм, 19.10)
-                            NavRow(title: "Новый проект", icon: "folder-plus", active: false) {
-                                app.createProject(folder: app.tab == .agent ? app.agentFolder : nil, kind: kind)
-                            }
-                            .padding(.bottom, 10)
-                        }
                         let recent = mine.filter { $0.projectID == nil && !$0.pinned }
                         section("recent", app.tab == .agent ? "Сессии" : "Недавние", recent, plus: { app.tab == .agent ? app.newAgentTask() : app.newChat() }, drop: .loose)
                     }
-                    .padding(.horizontal, 12).padding(.top, 16).padding(.bottom, 12)
+                    .padding(.horizontal, 14).padding(.top, 18).padding(.bottom, 12)
                 }
                 .scrollIndicators(.never)
             }
@@ -217,8 +214,9 @@ struct Sidebar: View {
             Button { app.page = .settings(.general) } label: { profile }
                 .buttonStyle(.plain)
                 .help("Настройки")
-                .padding(.horizontal, 10).padding(.vertical, 6)
-                .overlay(alignment: .top) { p.border.frame(height: 1) }
+                .accessibilityLabel("Настройки и профиль")
+                .padding(.horizontal, 14).padding(.top, 8).padding(.bottom, 12)
+                .overlay(alignment: .top) { p.line.frame(height: 1) }
         }
         .foregroundStyle(p.foreground)
         .frame(width: CGFloat(ResizeHandle.clamp(app.sidebarWidth, min: 220, window: Double(windowWidth))))
@@ -227,9 +225,10 @@ struct Sidebar: View {
             ResizeHandle(side: .trailing, width: $app.sidebarWidth, minWidth: 220) { app.update { $0.sidebarWidth = app.sidebarWidth } }
                 .offset(x: 4).ignoresSafeArea()
         }
-        // того же цвета, что основная область; отделяет тонкая линия справа (Рома, 19.10)
-        .background(p.background.ignoresSafeArea())
-        .overlay(alignment: .trailing) { p.border.frame(width: 1).ignoresSafeArea() }
+        // чуть светлее основной области, сверху вниз (макет 21.10: #101116 → #0C0D11); справа — тонкая линия
+        .background(LinearGradient(colors: [p.background.mixed(with: p.foreground, 0.03), p.background.mixed(with: p.foreground, 0.01)],
+                                   startPoint: .top, endPoint: .bottom).ignoresSafeArea())
+        .overlay(alignment: .trailing) { p.line.frame(width: 1).ignoresSafeArea() }
         .onChange(of: app.chat.conversation?.projectID) { _, id in if let id { collapsed.remove("p:" + id) } }
     }
 
@@ -328,7 +327,7 @@ struct SidebarSectionHeader: View {
         HStack(spacing: 4) {
             Button(action: toggle) {
                 HStack(spacing: 4) {
-                    Text(title).tw(12, lh: 16).lineLimit(1)
+                    Text(title).tw(12, .medium, lh: 16).lineLimit(1)
                     if collapsed == true || (collapsed == false && hover) {
                         Icon(collapsed == true ? "chevron-right" : "chevron-down", 12)
                     }
@@ -348,10 +347,10 @@ struct SidebarSectionHeader: View {
                 .frame(width: 20, height: 20)
                 .onHover { dotsHover = $0 }
             }
-            if let plus { SmallPlus(help: project == nil ? "Новый разговор" : "Новый разговор в «\(title)»", action: plus) }
+            if let plus { SmallPlus(help: project == nil ? "Новый разговор" : "Новый разговор в «\(title)»", side: 28, action: plus) }
         }
-        .padding(.leading, 10).padding(.trailing, 4).frame(height: 24)
-        .padding(.bottom, 2)
+        .padding(.leading, 11).padding(.trailing, 0).frame(height: 26)
+        .padding(.bottom, 4)
         .contentShape(Rectangle())
         .onHover { hover = $0 }
     }
@@ -367,19 +366,22 @@ struct ProfileCard: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            // кружок 30: тёмный градиент и тонкое кольцо внутри
             Text(String(name.prefix(1)).uppercased())
-                .font(.geist(12, .medium))
-                .frame(width: 24, height: 24)
-                .background(p.foreground.opacity(0.08), in: Circle())
-            HStack(spacing: 6) {
-                Text(name.isEmpty ? "Без имени" : name).tw(14, lh: 20).lineLimit(1)
-                Text("· " + plan).tw(14, lh: 20).foregroundStyle(p.mutedFg).lineLimit(1)
+                .font(.geist(12, .semibold))
+                .frame(width: 26, height: 26)
+                .background(LinearGradient(colors: [p.background.mixed(with: p.foreground, 0.1), p.background.mixed(with: p.foreground, 0.06)],
+                                           startPoint: .top, endPoint: .bottom), in: Circle())
+                .overlay(Circle().strokeBorder(p.borderBase.opacity(0.08)))
+            HStack(spacing: 0) {
+                Text(name.isEmpty ? "Без имени" : name).tw(13.5, .medium, lh: 18).lineLimit(1)
+                Text(" · " + plan).tw(13.5, lh: 18).foregroundStyle(p.mutedFg).lineLimit(1)
             }
             Spacer(minLength: 0)
-            Icon("chevron-down", 12).foregroundStyle(p.mutedFg)
+            Icon("chevron-down", 14).foregroundStyle(p.faint)
         }
         .padding(.horizontal, 8).padding(.vertical, 6)
-        .background(hover ? p.foreground.opacity(0.05) : .clear, in: RoundedRectangle(cornerRadius: R.xl))
+        .rowBackground(active: false, hover: hover, radius: 11)
         .contentShape(Rectangle())
         .onHover { hover = $0 }
     }
@@ -398,26 +400,36 @@ struct TabSwitch: View {
             tab(.agent, "Агент", "square-terminal")
             tab(.bots, "Боты", "bot")
         }
-        .padding(2)
-        .background(p.foreground.opacity(0.05), in: RoundedRectangle(cornerRadius: R.xl))
+        .padding(3)
+        .background(p.borderBase.opacity(0.035), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(p.borderBase.opacity(0.055)))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Режим")
     }
 
     private func tab(_ t: AppModel.Tab, _ name: String, _ icon: String) -> some View {
         let active = app.tab == t
+        let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
         return Button {
             app.switchTab(t)
         } label: {
             HStack(spacing: 6) {
                 Icon(icon, 14).foregroundStyle(active ? p.glow : p.mutedFg)
-                Text(name).font(.geist(13))
+                Text(name).font(.geist(12.5, active ? .medium : .regular))
             }
             .foregroundStyle(active ? p.foreground : p.mutedFg)
-            .frame(maxWidth: .infinity).frame(height: 32)
-            .background(active ? p.background : .clear, in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(active ? p.border : .clear))
+            .frame(maxWidth: .infinity).frame(height: 28)
+            .background {
+                if active {
+                    shape.fill(LinearGradient(colors: [p.borderBase.opacity(0.09), p.borderBase.opacity(0.055)], startPoint: .top, endPoint: .bottom))
+                        .overlay(shape.strokeBorder(p.borderBase.opacity(0.07)))
+                        .shadow(color: .black.opacity(p.isLight ? 0.12 : 0.4), radius: 1, y: 1)
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(active ? [.isSelected] : [])
     }
 }
 
@@ -477,39 +489,37 @@ struct ChatRow: View {
                         if renaming {
                             renameField
                         } else {
-                            Text(c.title).font(.geist(14)).lineLimit(1)
-                                .foregroundStyle(active || hover ? p.foreground : p.foreground.opacity(0.8))
+                            Text(c.title).font(.geist(13.5)).lineLimit(1)
+                                .foregroundStyle(active || hover ? p.foreground : p.textSoft)
                         }
                         Text(AppModel.folderName(URL(fileURLWithPath: c.folder ?? ""))).font(.geist(11)).foregroundStyle(p.mutedFg).lineLimit(1)
                     }
                     Spacer(minLength: 4)
-                    Text(when).font(.geist(11)).foregroundStyle(p.mutedFg).opacity(hover || dotsHover ? 0 : 1)
+                    Text(when).font(.geist(12)).monospacedDigit().foregroundStyle(p.faint).opacity(hover || dotsHover ? 0 : 1)
                 } else {
                     if renaming {
                         renameField
                     } else {
-                        Text(c.title).font(.geist(14)).lineLimit(1)
-                            .foregroundStyle(active || hover ? p.foreground : p.foreground.opacity(0.8))
+                        Text(c.title).font(.geist(13.5)).lineLimit(1).truncationMode(.tail)
+                            .foregroundStyle(active || hover ? p.foreground : p.textSoft)
                     }
                     Spacer(minLength: 4)
                     if running {
                         LiveDot(color: p.glow).opacity(hover || dotsHover ? 0 : 1)
                     } else {
-                        Text(when).font(.geist(11)).foregroundStyle(p.mutedFg).opacity(hover || dotsHover ? 0 : 1)
+                        Text(when).font(.geist(12)).monospacedDigit().foregroundStyle(p.faint).opacity(hover || dotsHover ? 0 : 1)
                     }
                 }
             }
-            .padding(.horizontal, 10).padding(.vertical, 6)
+            .padding(.horizontal, 11).padding(.vertical, c.kind == .agent ? 5 : 0)
             .frame(minHeight: 32)
-            .background(active ? p.foreground.opacity(0.07) : (hover ? p.foreground.opacity(0.05) : .clear),
-                        in: RoundedRectangle(cornerRadius: R.lg))
-            .overlay(alignment: .leading) {
-                if active { GlowBar() }
-            }
+            .rowBackground(active: active, hover: hover, radius: 10)
             .contentShape(Rectangle())
         }
         .onHover { hover = $0 }
         .onTapGesture { if !renaming { app.openChat(c) } }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
         .simultaneousGesture(TapGesture(count: 2).onEnded { app.renamingID = c.id })
         // «…» при наведении, как в Claude — меню без двойного щелчка
         .overlay(alignment: .trailing) {
@@ -573,21 +583,16 @@ enum RelativeWhen {
     }
 }
 
-/// Световая черта слева у активного пункта: top-1.5 bottom-1.5 w-[2px] bg-glow, свечение 10px
-struct GlowBar: View {
-    @Environment(\.palette) private var p
-
-    var body: some View {
-        Capsule().fill(p.glow).frame(width: 2).padding(.vertical, 6).shadow(color: p.glow, radius: 5)
-    }
-}
-
-/// Пункт нижнего меню (`NavItem`): h-8 gap-2.5 px-2.5 text-sm text-foreground/75
+/// Пункт панели (макет 21.10, мельче по просьбе Ромы): строка 33, значок 16, текст 13.5; выбранный — мягкая подложка без черты
 struct NavRow: View {
     let title: String
     let icon: String
     let active: Bool
     var trailing: String?
+    /// Подсказка клавиш справа («⌘N»)
+    var hint: String?
+    /// Главный пункт («Новый чат»): значок синий, подпись плотнее
+    var lead = false
     let action: () -> Void
 
     @Environment(\.palette) private var p
@@ -596,28 +601,31 @@ struct NavRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                Icon(icon, 16).foregroundStyle(active ? p.glow : p.mutedFg).frame(width: 16)
-                Text(title).font(.geist(14))
+                Icon(icon, 16).foregroundStyle(active || lead ? p.glow : p.mutedFg).frame(width: 16)
+                Text(title).font(.geist(13.5, lead ? .medium : .regular)).lineLimit(1)
                 Spacer(minLength: 0)
                 if let trailing { Text(trailing).font(.geist(12)).foregroundStyle(p.mutedFg).monospacedDigit() }
+                if let hint { Text(hint).font(.geist(12)).foregroundStyle(p.faint) }
             }
-            .foregroundStyle(active || hover ? p.foreground : p.foreground.opacity(0.75))
-            .padding(.horizontal, 10).frame(height: 32)
-            .background(active ? p.foreground.opacity(0.07) : (hover ? p.foreground.opacity(0.05) : .clear),
-                        in: RoundedRectangle(cornerRadius: R.lg))
-            .overlay(alignment: .leading) { if active { GlowBar() } }
+            .foregroundStyle(active || hover || lead ? p.foreground : p.textSoft)
+            .padding(.horizontal, 11).frame(height: 33)
+            .rowBackground(active: active, hover: hover, radius: 10)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
+        .accessibilityAddTraits(active ? [.isSelected] : [])
     }
 }
 
-/// Кнопка-иконка 28×28 rounded-lg, иконка 16, приглушённая
+/// Кнопка-иконка: 28 (32 в строке заголовка, 36 в шапке), скругление 8–10, иконка приглушённая.
+/// Включённая — синяя на синей подложке
 struct IconButton: View {
     let icon: String
     let help: String
     var active = false
+    var side: CGFloat = 28
+    var iconSize: CGFloat = 16
     let action: () -> Void
 
     @Environment(\.palette) private var p
@@ -625,15 +633,18 @@ struct IconButton: View {
 
     var body: some View {
         Button(action: action) {
-            Icon(icon, 16)
-                .foregroundStyle(hover || active ? p.foreground : p.mutedFg)
-                .frame(width: 28, height: 28)
-                .background(active ? p.secondary : (hover ? p.foreground.opacity(0.05) : .clear), in: RoundedRectangle(cornerRadius: R.lg))
+            Icon(icon, iconSize)
+                .foregroundStyle(active ? p.accentSoft : (hover ? p.foreground : p.mutedFg))
+                .frame(width: side, height: side)
+                .background(active ? p.accentTint : (hover ? p.hover : .clear),
+                            in: RoundedRectangle(cornerRadius: side >= 36 ? 10 : 8, style: .continuous))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
         .help(help)
+        .accessibilityLabel(help)
+        .accessibilityAddTraits(active ? [.isSelected] : [])
     }
 }
 
@@ -643,12 +654,12 @@ struct WindowControls: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            IconButton(icon: "panel-left", help: app.prefs.sidebarHidden ? "Показать панель · ⌘\\" : "Спрятать панель · ⌘\\") {
+            IconButton(icon: "panel-left", help: app.prefs.sidebarHidden ? "Показать панель · ⌘\\" : "Спрятать панель · ⌘\\", side: 32, iconSize: 17) {
                 app.update { $0.sidebarHidden.toggle() }
             }
-            IconButton(icon: "search", help: "Найти в разговорах · ⌘K") { app.searchOpen = true }
+            IconButton(icon: "search", help: "Найти в разговорах · ⌘K", side: 32, iconSize: 17) { app.searchOpen = true }
         }
-        .frame(height: 28)
+        .frame(height: 32)
         .padding(.top, 0)
     }
 }
@@ -743,11 +754,8 @@ private struct BotRow: View {
                 if working { LiveDot(color: BotColor.accent(bot.hue)) }
             }
             .foregroundStyle(active ? p.foreground : p.foreground.opacity(0.8))
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(active ? p.foreground.opacity(0.07) : (hover ? p.foreground.opacity(0.04) : .clear), in: RoundedRectangle(cornerRadius: R.lg))
-            .overlay(alignment: .leading) {
-                if active { GlowBar() }
-            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .rowBackground(active: active, hover: hover, radius: 10)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -806,8 +814,8 @@ private struct ChatDropTarget: ViewModifier {
     func body(content: Content) -> some View {
         if enabled {
             content
-                .background(over ? p.glow.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: R.lg))
-                .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(over ? p.glow.opacity(0.6) : .clear))
+                .background(over ? p.accentTint : .clear, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(over ? p.activeRing : .clear))
                 .dropDestination(for: String.self) { items, _ in
                     guard let c = app.dropped(items) else { return false }
                     action(c)

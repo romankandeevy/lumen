@@ -20,6 +20,7 @@ enum Snap {
         for f in ["Regular", "Medium", "SemiBold", "Bold"] {
             CTFontManagerRegisterFontsForURL(dir.appendingPathComponent("Geist-\(f).ttf") as CFURL, .process, nil)
         }
+        CTFontManagerRegisterFontsForURL(dir.appendingPathComponent("Literata.ttf") as CFURL, .process, nil)
     }
 
     static func save<V: View>(_ view: V, _ name: String, size: CGSize = CGSize(width: 1180, height: 760)) async throws {
@@ -186,7 +187,10 @@ enum Snap {
     }
     try await Snap.save(RootView(app: app), "44-make-file")
     app.page = .artifacts
+    // один снимок уже прикреплён к чату — внизу полоска «ждёт в поле ввода»
+    app.attachInbox = Array(shots.prefix(1))
     try await Snap.save(RootView(app: app), "45-artifacts")
+    app.attachInbox = []
     app.page = .chat
 
     // два разговора рядом (бросили разговор в правую половину окна)

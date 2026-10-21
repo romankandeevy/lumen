@@ -2,9 +2,9 @@ import LumenCore
 import LumenProviders
 import SwiftUI
 
-/// Новая задача агента — вариант A «как Claude Code» (mockups/19-agent-new-A…, выбран Ромой 16.10):
-/// «Что сделаем в {папка}?», большое поле по центру с папкой внутри, под ним ветка git и незакоммиченное,
-/// ниже недавние задачи этой папки.
+/// Новая задача агента — вариант A «как Claude Code» (mockups/19-agent-new-A…, выбран Ромой 16.10), отполирован 21.10:
+/// шар и «Что сделаем в {папка}?» — тем же шрифтом, что «Привет, имя»; имя папки подчёркнуто и открывает выбор папки.
+/// Под полем — ветка git (или «Включить git») и «Push — только с твоего OK», ниже недавние задачи этой папки
 struct AgentHome: View {
     @Bindable var app: AppModel
     @Binding var draft: String
@@ -13,68 +13,34 @@ struct AgentHome: View {
 
     @Environment(\.palette) private var p
     @State private var git: Git.Info?
+    @State private var gitChecked = false
+    @State private var gitInitError: String?
+    @State private var composerFocused = false
+    @State private var showAll = false
 
     private var folder: URL? { app.agentFolder }
 
-    /// Последние задачи агента в выбранной папке
-    private var recent: [Conversation] {
+    /// Задачи агента в выбранной папке, новые сверху
+    private var tasks: [Conversation] {
         guard let path = folder?.standardizedFileURL.path else { return [] }
         return app.conversations.filter { $0.kind == .agent && $0.folder.map { URL(fileURLWithPath: $0).standardizedFileURL.path } == path }
-            .prefix(3).map { $0 }
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 10) {
-                    Orb(state: app.orb, size: 28)
-                    if let folder {
-                        (AppModel.isHome(folder) ? Text("Что сделаем на Маке?")
-                            : Text("Что сделаем в ") + Text(folder.lastPathComponent).foregroundColor(p.glow) + Text("?"))
-                            .tw(24, .semibold, lh: 32).tracking(-0.48)
-                    } else {
-                        Text("Выбери папку проекта").tw(24, .semibold, lh: 32).tracking(-0.48)
-                    }
-                }
-                .padding(.bottom, 24)
+                headline
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, 46)
 
-                Composer(app: app, draft: $draft, attachments: $attachments, backend: backend, agent: true, big: true)
+                Composer(app: app, draft: $draft, attachments: $attachments, backend: backend, agent: true, big: true,
+                         focusedOut: $composerFocused)
 
-                // ветка и незакоммиченное — настоящее, из git
-                HStack(spacing: 12) {
-                    if let git {
-                        HStack(spacing: 4) { Icon("git-branch", 14); Text(git.branch) }
-                        if git.changed > 0 {
-                            Text("\(git.changed) " + Plural.form(git.changed, "изменённый файл", "изменённых файла", "изменённых файлов") + " не закоммичены")
-                                .foregroundStyle(p.glow)
-                        } else {
-                            Text("всё закоммичено")
-                        }
-                    } else if folder != nil {
-                        Text("папка без git — «Изменения» после хода не покажутся")
-                    }
-                    Spacer(minLength: 8)
-                    HStack(spacing: 4) { Icon("lock", 12); Text("push — только с твоего OK") }
-                }
-                .tw(11, lh: 14).foregroundStyle(p.mutedFg.opacity(0.8))
-                .padding(.horizontal, 4).padding(.top, 12)
+                hints.padding(.horizontal, 6).padding(.top, 12)
 
-                if !recent.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Недавно в этой папке").tw(12, lh: 16).foregroundStyle(p.mutedFg).padding(.horizontal, 4)
-                        VStack(spacing: 0) {
-                            ForEach(Array(recent.enumerated()), id: \.element.id) { i, c in
-                                if i > 0 { p.border.frame(height: 1) }
-                                RecentTaskRow(c: c) { app.openChat(c) }
-                            }
-                        }
-                        .background(p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xl))
-                        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
-                    }
-                    .padding(.top, 40)
-                }
+                if !tasks.isEmpty { recentList.padding(.top, 40) }
             }
-            .frame(maxWidth: Composer.width)
+            .frame(maxWidth: 700)
             .padding(.horizontal, 24)
             .padding(.vertical, 40)
             .frame(maxWidth: .infinity)
@@ -82,14 +48,134 @@ struct AgentHome: View {
         }
         .scrollIndicators(.never)
         .foregroundStyle(p.foreground)
-        .task(id: folder) {
-            git = nil
-            if let folder { git = await Git(folder: folder).info() }
+        .task(id: folder) { await refreshGit() }
+        // имя папки в заголовке — ссылка: открывает выбор папки в поле ввода
+        .environment(\.openURL, OpenURLAction { url in
+            if url.scheme == "lumen-folder" { app.folderPickerRequest += 1; return .handled }
+            return .systemAction
+        })
+    }
+
+    private func refreshGit() async {
+        git = nil
+        gitChecked = false
+        if let folder { git = await Git(folder: folder).info() }
+        gitChecked = true
+    }
+
+    /// Шар и вопрос — как приветствие чата: Literata 60, без свечения сзади. Длинное имя папки — 48, потом 40 в одну строку,
+    /// и только потом перенос: две строки по 60 стоят слишком широко
+    private var headline: some View {
+        let hot = composerFocused || !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let orb = Orb(state: app.orb, size: 78, hot: hot, glow: false)
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 26) { orb; text(60).fixedSize() }
+            HStack(spacing: 26) { orb; text(48).fixedSize() }
+            HStack(spacing: 22) { orb; text(40).fixedSize() }
+            HStack(alignment: .top, spacing: 22) { orb; text(40).fixedSize(horizontal: false, vertical: true) }
+        }
+    }
+
+    private func text(_ size: CGFloat) -> some View {
+        Text(question)
+            .font(.greeting(size)).tracking(-0.02 * size).foregroundStyle(p.textStrong)
+            .tint(p.textStrong)
+            .lineLimit(size >= 48 ? 1 : 3)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    /// «Что сделаем в lumen?»: имя папки тем же цветом, с тонким синим подчёркиванием; щелчок — выбрать папку
+    private var question: AttributedString {
+        guard let folder else { return AttributedString("Выбери папку проекта") }
+        if AppModel.isHome(folder) { return AttributedString("Что сделаем на Маке?") }
+        var name = AttributedString(folder.lastPathComponent)
+        name.link = URL(string: "lumen-folder://pick")
+        name.underlineStyle = Text.LineStyle(pattern: .solid, color: Color(.sRGB, red: 127 / 255, green: 160 / 255, blue: 1, opacity: 0.55))
+        name.foregroundColor = p.textStrong
+        return AttributedString("Что сделаем в ") + name + AttributedString("?")
+    }
+
+    /// Слева — git: ветка и незакоммиченное, или «Папка без git» и «Включить git»; справа — про push
+    private var hints: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            if let git {
+                HStack(spacing: 6) {
+                    Icon("git-branch", 13)
+                    Text(git.branch)
+                    Text("·")
+                    Text(git.changed > 0 ? "\(git.changed) " + Plural.form(git.changed, "изменённый файл", "изменённых файла", "изменённых файлов") + " не закоммичены"
+                         : "Всё закоммичено")
+                }
+            } else if folder != nil, gitChecked, !(folder.map(AppModel.isHome) ?? false) {
+                HStack(spacing: 8) {
+                    Text(gitInitError ?? "Папка без git — «Изменения» после хода не покажутся")
+                    if gitInitError == nil { InlineTextButton(title: "Включить git") { initGit() } }
+                }
+            }
+            Spacer(minLength: 8)
+            HStack(spacing: 5) { Icon("lock", 13); Text("Push — только с твоего OK") }
+        }
+        .font(.geist(12.5)).foregroundStyle(p.faint)
+    }
+
+    private func initGit() {
+        guard let folder else { return }
+        Task {
+            do {
+                try await Git(folder: folder).initRepo()
+                await refreshGit()
+            } catch {
+                gitInitError = "Не вышло включить git: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// «Недавно в этой папке»: три задачи, остальные — по «Все задачи в папке»
+    private var recentList: some View {
+        let shown = showAll ? tasks : Array(tasks.prefix(3))
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        return VStack(alignment: .leading, spacing: 0) {
+            Text("Недавно в этой папке").font(.geist(12.5, .medium)).foregroundStyle(p.mutedFg)
+                .padding(.leading, 4).padding(.bottom, 8)
+            VStack(spacing: 0) {
+                ForEach(Array(shown.enumerated()), id: \.element.id) { i, c in
+                    if i > 0 { p.borderBase.opacity(0.055).frame(height: 1) }
+                    RecentTaskRow(c: c) { app.openChat(c) }
+                }
+            }
+            .background(p.borderBase.opacity(0.02), in: shape)
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(p.borderBase.opacity(0.07)))
+            if tasks.count > 3 {
+                InlineTextButton(title: showAll ? "Свернуть" : "Все задачи в папке · \(tasks.count)", color: p.mutedFg) {
+                    withAnimation(.easeOut(duration: 0.18)) { showAll.toggle() }
+                }
+                .font(.geist(13))
+                .padding(.leading, 4).padding(.top, 10)
+            }
         }
     }
 }
 
-/// Строка «Недавно в этой папке»: часы, название, когда
+/// Текстовая кнопка внутри строки: синяя (или своего цвета), под курсором — цвета текста
+struct InlineTextButton: View {
+    let title: String
+    var color: Color?
+    let action: () -> Void
+
+    @Environment(\.palette) private var p
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(title).foregroundStyle(hover ? p.foreground : (color ?? p.accentSoft))
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+    }
+}
+
+/// Строка «Недавно в этой папке»: название и когда; вся строка — кнопка
 struct RecentTaskRow: View {
     let c: Conversation
     let action: () -> Void
@@ -100,18 +186,17 @@ struct RecentTaskRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 12) {
-                Icon("clock", 14).foregroundStyle(p.mutedFg)
-                Text(c.title).tw(14, lh: 20).lineLimit(1)
+                Text(c.title).font(.geist(15)).foregroundStyle(p.textSoft).lineLimit(1).truncationMode(.tail)
                 Spacer(minLength: 8)
-                Text(RelativeWhen.string(c.updatedAt)).tw(12, lh: 16).foregroundStyle(p.mutedFg)
+                Text(RelativeWhen.string(c.updatedAt)).font(.geist(12)).foregroundStyle(p.faint).monospacedDigit()
             }
-            .foregroundStyle(p.foreground)
-            .padding(.horizontal, 16).padding(.vertical, 10)
-            .background(hover ? p.foreground.opacity(0.03) : .clear)
+            .padding(.horizontal, 16).frame(height: 48)
+            .background(hover ? p.hover : .clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
+        .accessibilityLabel(c.title)
     }
 }
 
