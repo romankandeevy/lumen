@@ -81,10 +81,19 @@ enum Snap {
 }
 
 @MainActor @Test(.enabled(if: snapDir != nil)) func snapshotOrb() async throws {
-    try await Snap.save(HStack(spacing: 60) {
-        Orb(state: .idle, size: 96, animated: false)
-        Orb(state: .idle, size: 22, animated: false).scaleEffect(4)
-    }.frame(width: 400, height: 240).background(Palette.lumen.card).environment(\.palette, .lumen), "orb", size: CGSize(width: 400, height: 240))
+    // знак-затмение: покой, «горячий» (поле в фокусе), малый и малый «думает» — в тёмной и светлой темах
+    func row(_ p: Palette) -> some View {
+        HStack(spacing: 70) {
+            LumenMark(state: .idle, size: 78, animated: false)
+            LumenMark(state: .idle, size: 78, animated: false, hot: true)
+            LumenMark(state: .idle, size: 24, animated: false).scaleEffect(3)
+            LumenMark(state: .thinking, size: 24).scaleEffect(3)
+        }
+        .frame(width: 640, height: 200).background(p.background).environment(\.palette, p)
+    }
+    let fams = Palette.Family.builtIn
+    try await Snap.save(VStack(spacing: 0) { row(.lumen); row(.light); row(fams[1].dark); row(fams[2].dark); row(fams[3].dark); row(fams[4].dark) },
+                        "orb", size: CGSize(width: 640, height: 1200))
 }
 
 @MainActor @Test(.enabled(if: snapDir != nil)) func snapshotAgent() async throws {
@@ -697,4 +706,106 @@ enum Snap {
     let img = try await web.takeSnapshot(configuration: nil)
     let rep = try #require(img.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)))
     try #require(rep.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: snapDir!).appendingPathComponent("86-model-visual.png"))
+}
+
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotThemes() async throws {
+    // стартовый экран во всех встроенных темах, тёмных и светлых — как они выглядят рядом
+    Snap.registerFonts()
+    let app = try Snap.app()
+    app.finishOnboarding(name: "Роман", address: .ty, backend: .subscription, theme: .lumen)
+    app.newChat()
+    for f in Palette.Family.builtIn {
+        for dark in [true, false] {
+            app.update { $0.themeID = f.id; $0.appearance = dark ? .dark : .light; $0.separateModes = false }
+            try await Snap.save(RootView(app: app), "theme-\(f.id)-\(dark ? "dark" : "light")", size: CGSize(width: 1000, height: 640))
+        }
+    }
+}
+
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotPetInChat() async throws {
+    // питомец «всегда в переписке»: сидит слева от последнего ответа вместо знака-затмения
+    Snap.registerFonts()
+    let app = try Snap.app()
+    app.finishOnboarding(name: "Роман", address: .ty, backend: .subscription, theme: .lumen)
+    app.update { $0.pet.enabled = true; $0.pet.floating = false; $0.pet.alwaysInChat = true; $0.pet.inChat = true }
+    let c = Conversation(title: "Питомец", backend: .subscription, model: .sonnet, effort: .medium)
+    try app.store.save(c)
+    try app.store.save(ChatMessage(conversationID: c.id, role: .user, text: "Привет"))
+    try app.store.save(ChatMessage(conversationID: c.id, role: .assistant, text: "Привет, Роман! Что делаем сегодня?"))
+    app.reloadConversations()
+    app.openChat(c)
+    try await Snap.save(RootView(app: app), "pet-in-chat", size: CGSize(width: 1000, height: 560))
+}
+
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotMarkdown() async throws {
+    Snap.registerFonts()
+    let text = """
+    # Большой заголовок
+
+    Обычный абзац с **жирным**, *курсивом*, `кодом` и ссылкой https://kandeev.com — всё в одном выделяемом тексте.
+
+    ---
+
+    ## Что сделано
+    - Первый пункт списка
+    - Второй пункт, длинный: он переносится на вторую строку и держится под текстом, а не под маркером, чтобы читалось ровно
+      - Вложенный пункт
+      - Ещё один вложенный
+    - Третий
+
+    ### По порядку
+    1. Собрать приложение
+    2. Прогнать тесты
+    3. Перезапустить
+
+    > Цитата: одна строка с чертой слева, цвет приглушённый.
+
+    ```swift
+    let x = 1
+    ```
+
+    Последний абзац после кода и конец.
+    """
+    try await Snap.save(RichText(text: text).padding(24).frame(width: 640, alignment: .leading).environment(\.palette, Palette.lumen).background(Palette.lumen.background),
+                        "markdown", size: CGSize(width: 700, height: 820))
+}
+
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotRememberedGroup() async throws {
+    // загрузили о себе много — тридцать фактов: одна плашка вместо ленты карточек, свёрнутая и раскрытая
+    Snap.registerFonts()
+    let app = try Snap.app()
+    app.finishOnboarding(name: "Роман", address: .ty, backend: .subscription, theme: .lumen)
+    var ids: [Int64] = []
+    for i in 1...30 {
+        let f = try app.store.save(MemoryFact(kind: .you, text: "Факт номер \(i): Роман делает приложения на Swift и любит, когда всё работает ровно", source: "Знакомство"))
+        if let id = f.id { ids.append(id) }
+    }
+    app.reloadMemories()
+    try await Snap.save(VStack(alignment: .leading, spacing: 16) {
+        RememberedGroup(app: app, ids: ids)
+        RememberedGroup(app: app, ids: ids, initiallyOpen: true)
+    }.padding(24).frame(width: 640, alignment: .leading).environment(\.palette, Palette.lumen).background(Palette.lumen.background),
+                        "remembered-group", size: CGSize(width: 700, height: 560))
+}
+
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotGraphClusters() async throws {
+    // граф памяти: ты в центре (маленькое затмение), узлы-темы, люди и проекты со своими созвездиями фактов
+    Snap.registerFonts()
+    let app = try Snap.app()
+    app.finishOnboarding(name: "Роман", address: .ty, backend: .subscription, theme: .lumen)
+    var facts: [MemoryFact] = []
+    var id: Int64 = 1
+    func add(_ kind: MemoryKind, _ text: String) { facts.append(MemoryFact(id: id, kind: kind, text: text, source: "Знакомство")); id += 1 }
+    for i in 1...18 { add(.you, "Роман: факт о себе номер \(i)") }
+    for i in 1...10 { add(.pref, "Привычка или предпочтение \(i)") }
+    for i in 1...9 { add(.decision, "Решение \(i), принятое по ходу работы") }
+    for i in 1...8 { add(.project, "Заметка \(i) про lumen и shelf") }
+    for name in ["Вика", "Отец", "Младшая", "Кот Бакс", "Помогал"] { add(.people, "\(name) — близкий человек"); add(.people, "\(name) любит разговоры по вечерам") }
+    for i in 1...6 { add(.project, "Идея \(i) про prog") }
+    let g = MemoryGraph(facts: facts, me: "Роман", projects: ["lumen", "shelf", "prog", "Изучение английского"])
+    let model = GraphModel(graph: g)
+    model.lessMotion = true
+    model.run()
+    model.selected = nil
+    try await Snap.save(GraphView(app: app, model: model).environment(\.palette, Palette.lumen), "graph", size: CGSize(width: 1100, height: 760))
 }

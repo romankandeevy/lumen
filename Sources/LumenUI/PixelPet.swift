@@ -16,7 +16,7 @@ enum PetMood: String, CaseIterable, Hashable {
         }
     }
 
-    init(_ orb: Orb.State) {
+    init(_ orb: LumenMark.State) {
         switch orb {
         case .idle: self = .idle
         case .thinking: self = .thinking

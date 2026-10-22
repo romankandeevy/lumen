@@ -494,6 +494,8 @@ extension URL: @retroactive Identifiable {
 struct RememberedCard: View {
     @Bindable var app: AppModel
     let id: Int64
+    /// Строка в общем списке «Запомнил N»: без рамки и подписи, действия — значками
+    var compact = false
 
     @Environment(\.palette) private var p
     @Environment(\.lessMotion) private var lessMotion
@@ -503,7 +505,9 @@ struct RememberedCard: View {
     @State private var shine: CGFloat = -0.4
 
     var body: some View {
-        if let f = app.memory(id) {
+        if compact, let f = app.memory(id) {
+            compactRow(f)
+        } else if let f = app.memory(id) {
             HStack(alignment: .top, spacing: 12) {
                 Icon("brain", 16).foregroundStyle(p.glow).padding(.top, 2)
                 VStack(alignment: .leading, spacing: 2) {
@@ -575,6 +579,33 @@ struct RememberedCard: View {
         }
     }
 
+    /// Строка списка: текст факта, справа — «изменить» и «забыть» значками; забытое — зачёркнуто, с «Вернуть»
+    @ViewBuilder private func compactRow(_ f: MemoryFact) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            if editing {
+                TextField("", text: $text).textFieldStyle(.plain).font(.geist(13))
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(p.background.opacity(0.6), in: RoundedRectangle(cornerRadius: R.md))
+                    .overlay(RoundedRectangle(cornerRadius: R.md).strokeBorder(p.glow.opacity(0.5)))
+                    .onSubmit { save(f) }
+                    .onExitCommand { editing = false }
+                IconButton(icon: "check", help: "Сохранить", side: 26, iconSize: 14) { save(f) }
+            } else {
+                Text(f.text).font(.geist(13)).foregroundStyle(p.textSoft).fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 0) {
+                    IconButton(icon: "pencil", help: "Изменить", side: 26, iconSize: 14) { text = f.text; editing = true }
+                    IconButton(icon: "x", help: "Забыть", side: 26, iconSize: 14) {
+                        forgotten = f
+                        app.forget(f)
+                        app.lastForgotten = nil
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 6)
+    }
+
     private func save(_ f: MemoryFact) {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if !t.isEmpty { app.updateMemory(f) { $0.text = t } }
@@ -588,6 +619,70 @@ struct RememberedCard: View {
         m.remembered = m.remembered.map { $0 == id ? newID : $0 }
         _ = try? app.store.save(m)
         app.chat.reloadMessages()
+    }
+}
+
+/// Запомнил много сразу (загрузил всё о себе — и тридцать фактов): одна плашка «Запомнил 30 фактов» вместо тридцати карточек.
+/// По нажатию — список в своей области прокрутки (не длиннее 320), у каждого факта «изменить» и «забыть»
+struct RememberedGroup: View {
+    @Bindable var app: AppModel
+    let ids: [Int64]
+    /// Для снимков: показать раскрытым
+    var initiallyOpen = false
+
+    @Environment(\.palette) private var p
+    @Environment(\.stepsOpened) private var stepsOpened
+    @State private var open = false
+    @State private var hover = false
+    @State private var listHeight: CGFloat = 0
+
+    private var count: Int { ids.filter { app.memory($0) != nil }.count }
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: R.xl)
+        VStack(alignment: .leading, spacing: 0) {
+            Button { withAnimation(.easeOut(duration: 0.2)) { open.toggle() } } label: {
+                HStack(spacing: 12) {
+                    Icon("brain", 16).foregroundStyle(p.glow)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Запомнил").font(.geist(12)).foregroundStyle(p.mutedFg)
+                        Text("\(count) " + Plural.form(count, "факт", "факта", "фактов")).font(.geist(14))
+                    }
+                    Spacer(minLength: 8)
+                    Text(open ? "Свернуть" : "Показать").font(.geist(12)).foregroundStyle(hover ? p.foreground : p.mutedFg)
+                    Icon(open ? "chevron-up" : "chevron-down", 12).foregroundStyle(p.mutedFg)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 10)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { hover = $0 }
+            if open {
+                p.glow.opacity(0.18).frame(height: 1)
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(Array(ids.enumerated()), id: \.element) { i, id in
+                            if i > 0 { p.border.opacity(0.6).frame(height: 1).padding(.horizontal, 12) }
+                            RememberedCard(app: app, id: id, compact: true)
+                        }
+                    }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listHeight = $0 }
+                }
+                .frame(height: min(max(listHeight, 1), 320))
+                .scrollBounceBehavior(.always)
+                HStack {
+                    Spacer()
+                    Button("Открыть память") { app.page = .memory }.buttonStyle(.plain).font(.geist(12)).foregroundStyle(p.glow)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .overlay(alignment: .top) { p.glow.opacity(0.18).frame(height: 1) }
+            }
+        }
+        .background(p.glow.opacity(0.04), in: shape)
+        .overlay(shape.strokeBorder(p.glow.opacity(0.25)))
+        .onAppear { if initiallyOpen { open = true } }
+        .onChange(of: open) { _, now in stepsOpened(now) }
+        .onDisappear { if open { stepsOpened(false) } }
     }
 }
 

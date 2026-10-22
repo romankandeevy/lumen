@@ -39,7 +39,8 @@ public struct Palette: Sendable {
     /// Акцент заливкой; `glow` — акцент значков, курсора и рамки фокуса
     var accent: Color { glowSoftBase }
     /// Текст на акцентной подложке
-    var accentSoft: Color { glow.mixed(with: isLight ? .black : .white, 0.25) }
+    /// У светлой — сам акцент (#2F5BEA): светлый синий на белом не читается, а тёмный из CSS уже подобран
+    var accentSoft: Color { isLight ? glow : glow.mixed(with: .white, 0.25) }
     var accentTint: Color { glowSoftBase.opacity(0.12) }
     /// Подложка под курсором у всех «призрачных» кнопок
     var hover: Color { borderBase.opacity(0.045) }
@@ -47,16 +48,40 @@ public struct Palette: Sendable {
     var line: Color { borderBase.opacity(0.06 * borderScale) }
     /// Выбранная строка: мягкая подложка сверху вниз и тонкое кольцо внутри — без цветной черты
     var activeFill: LinearGradient {
-        LinearGradient(colors: [borderBase.opacity(0.075), borderBase.opacity(0.045)], startPoint: .top, endPoint: .bottom)
+        // светлый «Люмен»: белая «карточка» (--active-bg)
+        if isLight && orbSpec { return LinearGradient(colors: [.white, .white], startPoint: .top, endPoint: .bottom) }
+        return LinearGradient(colors: [borderBase.opacity(0.075), borderBase.opacity(0.045)], startPoint: .top, endPoint: .bottom)
     }
     var activeRing: Color { borderBase.opacity(0.06) }
-    /// Шар «Люмена» — точно как в макете; у других тем — из их света (Orb.swift)
+    /// Цвета «Люмена» из lumen-theme.css (отправка, поле ввода, пузырь); у других тем — выводятся из их света
     var orbSpec = false
+
+    /// Цвет, которым корона, лучи и звёзды окрашены у других тем (RGB); у «Люмена» — nil: цвета ровно из CSS.
+    /// Монохром — нейтральный серый, остальные — свет самой темы
+    var markTint: UInt32? {
+        if orbSpec { return nil }
+        if isMono { return 0xDCDCDC }
+        let c = NSColor(glowSoftBase).usingColorSpace(.sRGB) ?? .white
+        return UInt32(c.redComponent * 255) << 16 | UInt32(c.greenComponent * 255) << 8 | UInt32(c.blueComponent * 255)
+    }
+
+    /// Поле ввода: сплошное, фон сквозь него не просвечивает (`--composer-bg`): почти чёрное / белое
+    var composerFill: Color {
+        if isLight { return orbSpec ? .white : card }
+        return orbSpec ? Color(hex: 0x050608) : background.mixed(with: .black, 0.5)
+    }
+
+    /// Пузырь пользователя: тёмный — стекло с кольцом, светлый «Люмен» — #E9E9E4 без рамки (`--bubble-bg`)
+    var bubbleFill: LinearGradient {
+        if isLight && orbSpec { return LinearGradient(colors: [Color(hex: 0xE9E9E4), Color(hex: 0xE9E9E4)], startPoint: .top, endPoint: .bottom) }
+        return LinearGradient(colors: [borderBase.opacity(0.075), borderBase.opacity(0.05)], startPoint: .top, endPoint: .bottom)
+    }
+    var bubbleRing: Color { isLight && orbSpec ? .clear : borderBase.opacity(0.07) }
 
     static let destructive = Color(hex: 0xFF6467)
     static let ok = Color(hex: 0x34D399)
 
-    /// «Люмен» (21.10): почти чёрный с синей дымкой, стеклянный синий шар; синий — единственный акцент
+    /// «Люмен»: почти чёрный, звёзды и лучи короны, знак-затмение; синий — единственный акцент
     static let lumen: Palette = {
         var p = Palette(
             background: Color(hex: 0x0A0B0F), foreground: Color(hex: 0xF1F3F8), card: Color(hex: 0x121318),
@@ -77,15 +102,16 @@ public struct Palette: Sendable {
         glow: Color(hex: 0xE4E4E4), glowCore: Color(hex: 0xFFFFFF), glowSoftBase: Color(hex: 0xFFFFFF),
         borderBase: Color(hex: 0xFFFFFF), isMono: true)
 
-    /// Светлая: холодная бумага, тёмные чернила, синий темнее — чтобы читался на белом. Шар тот же, что у тёмной
+    /// Светлая (lumen-theme.css): тёплая бумага, тёмные чернила, акцент #2F5BEA — светлый синий из тёмной на белом не читается.
+    /// Луна в знаке чёрная и тут; корона нарисована тушью
     static let light: Palette = {
         var p = Palette(
-            background: Color(hex: 0xF6F7FA), foreground: Color(hex: 0x14161C), card: Color(hex: 0xFFFFFF),
-            secondary: Color(hex: 0xE9ECF2), muted: Color(hex: 0xEEF0F5), mutedFg: Color(hex: 0x5E6575),
-            sidebar: Color(hex: 0xEFF1F5), sidebarAccent: Color(hex: 0xE3E6EE),
-            primary: Color(hex: 0x14161C), primaryFg: Color(hex: 0xFFFFFF), popover: Color(hex: 0xFFFFFF),
-            glow: Color(hex: 0x3B63E6), glowCore: Color(hex: 0xE4EBFF), glowSoftBase: Color(hex: 0x4A72F5),
-            borderBase: Color(hex: 0x0E1220), isMono: false, isLight: true)
+            background: Color(hex: 0xF7F7F4), foreground: Color(hex: 0x15171C), card: Color(hex: 0xFFFFFF),
+            secondary: Color(hex: 0xE9E9E4), muted: Color(hex: 0xEFEFEB), mutedFg: Color(hex: 0x686D7A),
+            sidebar: Color(hex: 0xEFEFEB), sidebarAccent: Color(hex: 0xFFFFFF),
+            primary: Color(hex: 0x15171C), primaryFg: Color(hex: 0xFFFFFF), popover: Color(hex: 0xFFFFFF),
+            glow: Color(hex: 0x2F5BEA), glowCore: Color(hex: 0xE4EBFF), glowSoftBase: Color(hex: 0x2F5BEA),
+            borderBase: Color(hex: 0x141826), isMono: false, isLight: true)
         p.orbSpec = true
         return p
     }()
@@ -96,11 +122,13 @@ public struct Palette: Sendable {
         let s = 0.04 + 0.22 * c.tint
         func hsb(_ sat: Double, _ b: Double) -> Color { Color(hue: h, saturation: min(1, sat), brightness: min(1, b)) }
         if c.dark {
+            // тёмная: цвет темы виден в фоне, панелях и поле — не просто «чуть теплее чёрного»
+            let d = 0.12 + 0.55 * c.tint
             return Palette(
-                background: hsb(s * 0.6, 0.045), foreground: hsb(0.04, 0.95), card: hsb(s * 0.6, 0.075),
-                secondary: hsb(s * 0.5, 0.13), muted: hsb(s * 0.5, 0.115), mutedFg: hsb(0.08, 0.63),
-                sidebar: hsb(s * 0.6, 0.03), sidebarAccent: hsb(s * 0.55, 0.1),
-                primary: hsb(0.22, 0.98), primaryFg: hsb(0.6, 0.1), popover: hsb(s * 0.55, 0.1),
+                background: hsb(d, 0.075), foreground: hsb(0.04, 0.95), card: hsb(d * 0.9, 0.105),
+                secondary: hsb(d * 0.8, 0.17), muted: hsb(d * 0.8, 0.145), mutedFg: hsb(0.1, 0.63),
+                sidebar: hsb(d, 0.05), sidebarAccent: hsb(d * 0.8, 0.14),
+                primary: hsb(0.22, 0.98), primaryFg: hsb(0.6, 0.1), popover: hsb(d * 0.8, 0.13),
                 glow: hsb(0.62, 1), glowCore: hsb(0.14, 1), glowSoftBase: hsb(0.68, 0.96),
                 borderBase: hsb(0.18, 0.97), isMono: false)
         }
@@ -135,7 +163,7 @@ public struct Palette: Sendable {
 
         /// Встроенные: у каждой — своя идея света (лампа, полдень и полночь, закат, северное сияние, луна)
         static let builtIn: [Family] = [
-            Family(id: "lumen", name: "Люмен", note: "Стеклянный синий шар", dark: .lumen, light: .light),
+            Family(id: "lumen", name: "Люмен", note: "Затмение: корона и звёзды", dark: .lumen, light: .light),
             Family(id: "mono", name: "Монохром", note: "Чёрное и белое, как Пульт", dark: .mono, light: .monoLight),
             hue("sunset", "Закат", "Медь и угли вечернего неба", 16, 0.45),
             hue("aurora", "Сияние", "Зелёный свет северной ночи", 162, 0.4),

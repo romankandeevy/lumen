@@ -51,6 +51,7 @@ extension AppModel {
         // темы: свет и своя тема — чат и «Тема»; в конце вернуть как было
         let was = (prefs.themeID, prefs.appearance, prefs.userThemes)
         let firstChat = conversations.first(where: { $0.kind == .chat })
+        shots.append(("theme-light-new", { [self] in update { $0.themeID = "lumen"; $0.appearance = .light }; tab = .chat; newChat() }))
         shots.append(("theme-light-chat", { [self] in update { $0.themeID = "lumen"; $0.appearance = .light }; tab = .chat; if let firstChat { openChat(firstChat) } }))
         shots.append(("theme-light-settings", { [self] in page = .settings(.theme) }))
         shots.append(("theme-custom-chat", { [self] in
@@ -70,6 +71,14 @@ extension AppModel {
                 chat.mentionRequest = "@designer привет, как дела? Это длинный текст, чтобы проверить перенос строки под чипом и поведение поля ввода при росте текста вниз, а потом стереть всё ⌫"
             }
         }), at: 0)
+        // стартовый экран с текстом в поле: знак «горячий»
+        shots.append(("chat-new-hot", { [self] in
+            tab = .chat; newChat()
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(0.6))
+                chat.mentionRequest = "привет"
+            }
+        }))
         // LUMEN_SELFSHOT_ONLY=имя,имя — только эти снимки
         if let only = ProcessInfo.processInfo.environment["LUMEN_SELFSHOT_ONLY"] {
             let names = Set(only.split(separator: ",").map(String.init))

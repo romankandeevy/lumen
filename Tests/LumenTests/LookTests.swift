@@ -139,3 +139,13 @@ import Testing
     cfg.addDirs = ["/tmp/a"]
     #expect(cfg.arguments.contains("--add-dir"))
 }
+
+@Test func markdownBlocksAreParsed() {
+    let b = MarkdownBlocks.parse("# Заголовок\n\nАбзац\nвторая строка\n\n---\n\n- один\n  - вложенный\n- два\n1. раз\n2) два\n> цитата\n\n**не пункт**")
+    #expect(b == [
+        .heading(1, "Заголовок"), .paragraph("Абзац\nвторая строка"), .rule,
+        .bullet(0, "один"), .bullet(1, "вложенный"), .bullet(0, "два"),
+        .ordered(0, "1", "раз"), .ordered(0, "2", "два"), .quote("цитата"), .paragraph("**не пункт**"),
+    ])
+    #expect(MarkdownBlocks.isRule("- - -") && MarkdownBlocks.isRule("***") && !MarkdownBlocks.isRule("--"))
+}

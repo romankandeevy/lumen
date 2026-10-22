@@ -378,7 +378,7 @@ struct PersonaPreview: View {
                                                                             bottomTrailingRadius: R.md, topTrailingRadius: R.xxl))
                 }
                 HStack(alignment: .top, spacing: 12) {
-                    Orb(state: loading ? .thinking : .idle, size: 20, animated: loading).padding(.top, 2)
+                    LumenMark(state: loading ? .thinking : .idle, size: 20, animated: loading).padding(.top, 2)
                     VStack(alignment: .leading, spacing: 8) {
                         if loading {
                             Text("Пишет…").tw(14, lh: 20).foregroundStyle(p.mutedFg).shimmer(p.foreground)

@@ -446,7 +446,6 @@ struct ProjectTalkCard: View {
                 Icon(c.kind == .agent ? "square-terminal" : "message-square", 15).foregroundStyle(p.mutedFg)
                 Text(c.title).tw(15, lh: 22).lineLimit(1)
                 Spacer()
-                Text(RelativeWhen.string(c.updatedAt)).tw(13, lh: 18).foregroundStyle(p.mutedFg)
             }
             .foregroundStyle(hover ? p.foreground : p.foreground.opacity(0.9))
             .padding(.horizontal, 8).padding(.vertical, 14)

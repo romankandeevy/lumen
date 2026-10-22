@@ -4,10 +4,15 @@ import SwiftUI
 /// Окно Lumen: боковая панель и содержимое. Знакомство — поверх, при первом запуске.
 public struct RootView: View {
     @Bindable var app: AppModel
+    /// Где знак на стартовом экране: оттуда расходятся лучи
+    @State private var skyCenter: CGPoint?
 
     public init(app: AppModel) {
         self.app = app
     }
+
+    /// Стартовый экран: пустой чат или новая задача — фон в полную силу; в открытом чате и на других страницах он приглушён
+    private var skyStart: Bool { app.page == .chat && app.chat.messages.isEmpty && !app.chat.busy }
 
     public var body: some View {
         let p = app.palette
@@ -50,8 +55,10 @@ public struct RootView: View {
             // перекладывается и прокрутка уезжает вверх. Анимируется только выезжающая панель
             .transaction { $0.animation = nil }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            // синяя дымка основной области (макет 21.10): эллипс 1100×620 на 50%/40%
-            .background(LumenLight(level: app.orb == .thinking ? 1.9 : 1).ignoresSafeArea())
+            // зерно, звёзды и лучи короны из центра знака (lumen-theme.css); сайдбар их не получает
+            .coordinateSpace(name: "main")
+            .onPreferenceChange(SkyAnchorKey.self) { if let c = $0 { skyCenter = c } }
+            .background(Sky(start: skyStart, center: skyCenter).ignoresSafeArea())
             if app.browserOpen { BrowserPane(app: app, browser: app.browser).transition(.move(edge: .trailing)) }
         }
         .environment(\.windowWidth, g.size.width)
@@ -117,7 +124,8 @@ public struct RootView: View {
         .environment(\.palette, p)
         .environment(\.chatText, ChatText(font: app.prefs.chatFont, scale: app.prefs.textScale, code: app.prefs.codeFontSize))
         .environment(\.lessMotion, app.lessMotion)
-        // питомец живёт поверх окон; в переписке вместо него — шар (макет 21.10, Рома)
+        // питомец: вместо знака «думаю» в переписке, рядом с ответом и поверх окон
+        .environment(\.petMark, app.prefs.pet.enabled && app.prefs.pet.inChat ? app.prefs.pet : nil)
         .onAppear { PetPanel.shared.sync(app) }
         .onChange(of: app.prefs.pet) { PetPanel.shared.sync(app) }
         // размер шрифта интерфейса поменяли — всё окно перерисовывается с новым размером
@@ -495,7 +503,6 @@ struct ChatRow: View {
                         Text(AppModel.folderName(URL(fileURLWithPath: c.folder ?? ""))).font(.geist(11)).foregroundStyle(p.mutedFg).lineLimit(1)
                     }
                     Spacer(minLength: 4)
-                    Text(when).font(.geist(12)).monospacedDigit().foregroundStyle(p.faint).opacity(hover || dotsHover ? 0 : 1)
                 } else {
                     if renaming {
                         renameField
@@ -504,11 +511,8 @@ struct ChatRow: View {
                             .foregroundStyle(active || hover ? p.foreground : p.textSoft)
                     }
                     Spacer(minLength: 4)
-                    if running {
-                        LiveDot(color: p.glow).opacity(hover || dotsHover ? 0 : 1)
-                    } else {
-                        Text(when).font(.geist(12)).monospacedDigit().foregroundStyle(p.faint).opacity(hover || dotsHover ? 0 : 1)
-                    }
+                    // даты у разговоров не пишем (Рома, 22.10); только живая точка, пока идёт ход
+                    if running { LiveDot(color: p.glow).opacity(hover || dotsHover ? 0 : 1) }
                 }
             }
             .padding(.horizontal, 11).padding(.vertical, c.kind == .agent ? 5 : 0)
@@ -561,7 +565,6 @@ struct ChatRow: View {
     }
 
     /// «сейчас», «2 ч», «12 окт» — как в макете
-    private var when: String { RelativeWhen.string(c.updatedAt) }
 }
 
 enum RelativeWhen {

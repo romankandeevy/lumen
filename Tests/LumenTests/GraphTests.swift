@@ -32,8 +32,11 @@ private func fact(_ id: Int64, _ kind: MemoryKind, _ text: String) -> MemoryFact
     #expect(n[node("kandeev.com")].contains(factNode(2)))
     // факт о человеке — прежде всего у человека
     #expect(g.links.contains { $0.kind == .own && $0.a == node("Папа") && $0.b == factNode(2) })
-    // ни к чему не привязанное и «о тебе» — у тебя
-    #expect(n[0].contains(factNode(7)) && n[0].contains(factNode(1)))
+    // ни к чему не привязанное и «о тебе» — в теме своего вида, а тема — у тебя (не сотня лучей из одной точки)
+    func topicOf(_ id: Int64) -> Int? { n[factNode(id)].first { g.nodes[$0].group == .topic } }
+    #expect(topicOf(7) != nil && topicOf(1) != nil && topicOf(1) != topicOf(7))
+    #expect(n[0].contains(topicOf(7)!) && n[0].contains(topicOf(1)!))
+    #expect(!n[0].contains(factNode(7)) && !n[0].contains(factNode(1)))
     #expect(g.nodes[factNode(4)].group == .decision)
     // окрестность Лёши — он, его факты и через них Shelf
     #expect(g.around(node("Лёша")).contains(node("Shelf")))

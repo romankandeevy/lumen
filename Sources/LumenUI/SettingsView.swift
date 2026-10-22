@@ -213,7 +213,7 @@ struct SettingsView: View {
                 row("Свет", "У каждой темы есть светлые и тёмные цвета", icon: "sun-moon") {
                     LightSwitch(value: lightBinding).fixedSize()
                 }
-                row("Тема", "Сейчас — «\(Palette.Family.find(app.prefs.themeID, app.prefs).name)»", icon: "palette") {
+                row("Тема", "Сейчас — «\(Palette.Family.find(Palette.themeID(app.prefs, dark: !app.palette.isLight), app.prefs).name)»", icon: "palette") {
                     LButton(title: "Выбрать", kind: .outline, small: true) { go(.theme) }
                 }
                 row("Меньше движения", "Сфера не дышит, свет не мерцает, значки не крутятся", icon: "zap") {
@@ -558,9 +558,9 @@ struct ThemeSettings: View {
             card {
                 line("Режим") {
                     HStack(spacing: 10) {
-                        ModeCard(app: app, mode: .system)
-                        ModeCard(app: app, mode: .light)
                         ModeCard(app: app, mode: .dark)
+                        ModeCard(app: app, mode: .light)
+                        ModeCard(app: app, mode: .system)
                     }
                 }
             }
@@ -804,16 +804,17 @@ private struct ModeCard: View {
     var body: some View {
         let on = app.prefs.appearance == mode
         let fam = Palette.Family.find(app.prefs.themeID, app.prefs)
+        let famDark = Palette.Family.find(Palette.themeID(app.prefs, dark: true), app.prefs)
         Button { app.update { $0.appearance = mode } } label: {
             VStack(spacing: 6) {
                 HStack(spacing: 0) {
                     if mode != .dark { mini(fam.light) }
-                    if mode != .light { mini(fam.dark) }
+                    if mode != .light { mini(famDark.dark) }
                 }
                 .frame(width: 112, height: 64)
                 .clipShape(RoundedRectangle(cornerRadius: R.md))
                 .overlay(RoundedRectangle(cornerRadius: R.md).strokeBorder(on ? p.glow : p.border, lineWidth: on ? 2 : 1))
-                Text(["system": "Системный", "light": "Светлый", "dark": "Тёмный"][mode.rawValue]!)
+                Text(["system": "Как в системе", "light": "Светлая", "dark": "Тёмная"][mode.rawValue]!)
                     .tw(12, lh: 16).foregroundStyle(on ? p.foreground : p.mutedFg).lineLimit(1).fixedSize()
             }
             .contentShape(Rectangle())

@@ -5,7 +5,9 @@ import Foundation
 /// люди — из фактов о людях («Папа — …», «Лёша …»), связи — по упоминанию имени в тексте факта
 /// с русскими окончаниями («Shelf» ↔ «в Shelf», «Лёша» ↔ «Лёше»).
 public struct MemoryGraph: Sendable, Equatable {
-    public enum Group: String, Sendable, CaseIterable { case me, project, person, fact, decision }
+    /// topic — узел-тема («О тебе», «Решения»…): к нему стягиваются факты, не привязанные ни к человеку, ни к проекту,
+    /// чтобы не было сотни лучей из одной точки
+    public enum Group: String, Sendable, CaseIterable { case me, project, person, topic, fact, decision }
 
     public struct Node: Sendable, Equatable, Identifiable {
         public let id: String
@@ -51,15 +53,25 @@ public struct MemoryGraph: Sendable, Equatable {
 
         var links: [Link] = []
         for e in entities { links.append(Link(a: 0, b: e.index, kind: .core)) }
+        // темы создаются по мере надобности: по одной на вид факта
+        var topics: [MemoryKind: Int] = [:]
+        func topic(_ kind: MemoryKind) -> Int {
+            if let i = topics[kind] { return i }
+            nodes.append(Node(id: "topic:\(kind.rawValue)", name: kind.name, group: .topic, fact: nil))
+            let i = nodes.count - 1
+            topics[kind] = i
+            links.append(Link(a: 0, b: i, kind: .core))
+            return i
+        }
         let meKeys = Self.keys(me)
         for f in facts {
             let words = Self.words(f.text)
             var about = entities.filter { e in e.keys.allSatisfy { k in words.contains { $0.hasPrefix(k) } } }.map(\.index)
-            // о тебе, твои привычки, упоминание твоего имени и всё, что ни к чему не привязалось, — у тебя
+            // о тебе, твои привычки, упоминание твоего имени и всё, что ни к чему не привязалось, — в теме своего вида
             let mentionsMe = !meKeys.isEmpty && meKeys.allSatisfy { k in words.contains { $0.hasPrefix(k) } }
-            if about.isEmpty || f.kind == .you || f.kind == .pref || mentionsMe { about.insert(0, at: 0) }
             // факт о человеке — прежде всего у этого человека
             if f.kind == .people, let i = about.firstIndex(where: { nodes[$0].group == .person }) { about.swapAt(0, i) }
+            else if about.isEmpty || f.kind == .you || f.kind == .pref || mentionsMe { about.insert(topic(f.kind), at: 0) }
             nodes.append(Node(id: "fact:\(f.id ?? Int64(nodes.count))", name: f.text,
                               group: f.kind == .decision || f.kind == .pref ? .decision : .fact, fact: f))
             let fi = nodes.count - 1

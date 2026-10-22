@@ -67,7 +67,7 @@ struct AgentHome: View {
     /// и только потом перенос: две строки по 60 стоят слишком широко
     private var headline: some View {
         let hot = composerFocused || !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let orb = Orb(state: app.orb, size: 78, hot: hot, glow: false)
+        let orb = LumenMark(state: app.orb, size: 78, hot: hot).skyAnchor()
         return ViewThatFits(in: .horizontal) {
             HStack(spacing: 26) { orb; text(60).fixedSize() }
             HStack(spacing: 26) { orb; text(48).fixedSize() }
@@ -181,7 +181,6 @@ struct RecentTaskRow: View {
             HStack(spacing: 12) {
                 Text(c.title).font(.geist(15)).foregroundStyle(p.textSoft).lineLimit(1).truncationMode(.tail)
                 Spacer(minLength: 8)
-                Text(RelativeWhen.string(c.updatedAt)).font(.geist(12)).foregroundStyle(p.faint).monospacedDigit()
             }
             .padding(.horizontal, 16).frame(height: 48)
             .background(hover ? p.hover : .clear)

@@ -31,7 +31,7 @@ struct OnboardingView: View {
             }
             .padding(40)
             .frame(width: step >= 0 && current == "Что знают" ? 600 : 512)
-            .background(LumenLight())
+            .background(Sky(start: true, centeredAt: CGPoint(x: 0.5, y: 0.4)))
             .background(p.card.opacity(0.8), in: RoundedRectangle(cornerRadius: R.xxxl))
             .clipShape(RoundedRectangle(cornerRadius: R.xxxl))
             .overlay(RoundedRectangle(cornerRadius: R.xxxl).strokeBorder(p.border))
@@ -50,7 +50,7 @@ struct OnboardingView: View {
 
     private var hello: some View {
         VStack(spacing: 0) {
-            Orb(state: .thinking, size: 96, halo: 0.7)
+            LumenMark(state: .thinking, size: 96)
             Text("Привет. Я Lumen.")
                 .font(.geist(30, .semibold)).tracking(-0.9)
                 .padding(.top, 40)
@@ -71,7 +71,7 @@ struct OnboardingView: View {
     private var wizard: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 12) {
-                Orb(size: 22)
+                LumenMark(size: 22)
                 HStack(spacing: 6) {
                     ForEach(steps.indices, id: \.self) { i in
                         Capsule().fill(i <= step ? p.glow : p.foreground.opacity(0.1))
@@ -226,34 +226,6 @@ extension AppModel {
     }
 }
 
-/// Свет Люмена падает на окно сверху слева — от сферы (`.lumen-light::before`):
-/// эллипс 900×520 в 6%/−8% и 600×300 в 50%/120%, оба glow-faint → прозрачно на 70%.
-/// Когда Lumen думает, свет сильнее (`--light-level` 1.9).
-struct LumenLight: View {
-    var level: Double = 1
-
-    @Environment(\.palette) private var p
-
-    var body: some View {
-        // макет 21.10: radial-gradient(1100px 620px at 50% 40%, rgba(58,92,220,.075), прозрачно на 70%)
-        GeometryReader { g in
-            spot(rx: 1100, ry: 620).position(x: g.size.width * 0.5, y: g.size.height * 0.4)
-        }
-        .opacity(level)
-        .animation(.easeInOut(duration: 1.2), value: level)
-        .allowsHitTesting(false)
-        .clipped()
-    }
-
-    private func spot(rx: CGFloat, ry: CGFloat) -> some View {
-        let c = p.orbSpec ? Color(.sRGB, red: 58 / 255, green: 92 / 255, blue: 220 / 255) : p.glowSoftBase
-        return Rectangle()
-            .fill(EllipticalGradient(stops: [.init(color: c.opacity(p.isLight ? 0.05 : 0.075), location: 0), .init(color: .clear, location: 0.7)],
-                                     center: .center, startRadiusFraction: 0, endRadiusFraction: 0.5))
-            .frame(width: rx * 2, height: ry * 2)
-    }
-}
-
 /// Карточка темы. В настройках (`ThemeCard`): p-2 rounded-2xl, миниатюра окна h-24 в цветах темы.
 /// В знакомстве: rounded-2xl border p-4 на фоне самой темы, сфера 28 и подпись.
 struct ThemeCard: View {
@@ -268,13 +240,17 @@ struct ThemeCard: View {
     var body: some View {
         // миниатюра — при том свете, что сейчас у окна
         let t = family.palette(dark: !current.isLight)
-        let active = app.prefs.themeID == family.id
+        // выбор относится к тому свету, что сейчас: при раздельных режимах в темноте своя тема (раньше клик менял только светлую)
+        let dark = !current.isLight
+        let active = Palette.themeID(app.prefs, dark: dark) == family.id
         let name = family.name, note = note ?? family.note
-        Button { app.update { $0.themeID = family.id } } label: {
+        Button {
+            app.update { if dark && $0.separateModes { $0.darkThemeID = family.id } else { $0.themeID = family.id } }
+        } label: {
             Group {
                 if compact {
                     VStack(alignment: .leading, spacing: 0) {
-                        Orb(size: 28).environment(\.palette, t)
+                        LumenMark(size: 28).environment(\.palette, t)
                         Text(name).font(.geist(14, .medium)).foregroundStyle(t.foreground).padding(.top, 24)
                         Text(note).font(.geist(12)).foregroundStyle(t.mutedFg)
                     }
@@ -312,7 +288,7 @@ struct ThemeCard: View {
             ZStack(alignment: .topLeading) {
                 t.background
                 t.sidebar.frame(width: g.size.width / 4)
-                    .overlay(alignment: .topLeading) { Orb(size: 10, animated: false).environment(\.palette, t).padding(8) }
+                    .overlay(alignment: .topLeading) { LumenMark(size: 10, animated: false).environment(\.palette, t).padding(8) }
                     .overlay(alignment: .trailing) { t.border.frame(width: 1) }
                 let left = g.size.width * 0.32, right: CGFloat = 16
                 let w = g.size.width - left - right

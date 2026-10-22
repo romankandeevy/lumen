@@ -259,6 +259,12 @@ struct PetSettingsContent: View {
                 row("Поверх всех окон", "Маленькое окно без рамки: тянется мышью, щелчок открывает Lumen", icon: "app-window") {
                     LSwitch(isOn: bind(\.floating)).disabled(!pet.enabled).opacity(pet.enabled ? 1 : 0.4)
                 }
+                row("Всегда в переписке", "Слева от последнего ответа — сидит и тогда, когда ничего не происходит. Если он поверх окон, в переписке его нет", icon: "message-square") {
+                    LSwitch(isOn: bind(\.alwaysInChat)).disabled(!pet.enabled || pet.floating).opacity(pet.enabled && !pet.floating ? 1 : 0.4)
+                }
+                row("Вместо знака «думаю»", "В переписке, пока ответа ещё нет, вместо знака-затмения — питомец, у ботов — их капля", icon: "message-circle") {
+                    LSwitch(isOn: bind(\.inChat)).disabled(!pet.enabled).opacity(pet.enabled ? 1 : 0.4)
+                }
                 row("Размер поверх окон", "Ещё — тянуть за уголок у самого питомца или щипком на трекпаде", icon: "layers") {
                     HStack(spacing: 10) {
                         Slider(value: bind(\.side), in: PetPrefs.sideRange, step: 4).frame(width: 180)

@@ -11,6 +11,7 @@ struct ChatView: View {
     var controller: ChatController?
 
     @Environment(\.palette) private var p
+    @Environment(\.petMark) private var petMark
     @State private var draft = ""
     @State private var attachments: [Attachment] = []
     @State private var dropping = false
@@ -257,7 +258,7 @@ struct ChatView: View {
                 .font(.greeting(60)).tracking(-1.2).foregroundStyle(p.textStrong)
                 .lineLimit(1).fixedSize()
                 .accessibilityAddTraits(.isHeader)
-            let orb = Orb(state: app.orb, size: 78, hot: hot, glow: false)
+            let orb = LumenMark(state: app.orb, size: 78, hot: hot).skyAnchor()
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 26) { orb; text }
                 VStack(spacing: 26) { orb; text.minimumScaleFactor(0.5) }
@@ -280,6 +281,14 @@ struct ChatView: View {
                 .animation(.easeOut(duration: 0.3), value: app.suggestions)
                 .task { app.refreshSuggestionsIfNeeded() }
         }
+    }
+
+    /// Питомец сидит рядом с последним ответом (на месте знака), если он включён «всегда в переписке», не висит поверх окон
+    /// и не стоит сейчас на строке «думаю» вместо знака — тогда двух не бывает, и паузы между ними нет
+    private var restingPet: Bool {
+        let pet = app.prefs.pet
+        guard pet.enabled, pet.alwaysInChat, !pet.floating, !chat.messages.isEmpty || chat.streaming != nil else { return false }
+        return !(pet.inChat && (chat.thinking || liveStepRowShown))
     }
 
     /// Питомец уже стоит на строке идущего шага: отдельной строкой «Запускает…» (ответ ещё не начат)
@@ -305,7 +314,13 @@ struct ChatView: View {
                 LazyVStack(alignment: .leading, spacing: 14) {
                     ForEach(chat.messages) { m in
                         // между сообщениями 32 (макет 21.10); строки состояния под ответом — ближе, через 14
-                        MessageRow(message: m, chat: chat, isLast: m.id == chat.messages.last?.id).id(m.id)
+                        MessageRow(message: m, chat: chat, isLast: m.id == chat.messages.last?.id,
+                                   pet: restingPet && chat.streaming == nil && m.role == .assistant
+                                       && m.id == chat.messages.last(where: { $0.role == .assistant })?.id
+                                       ? (chat.busy ? .thinking : app.petMood) : nil,
+                                   // знак один на весь чат: у последнего ответа, и только когда ход не идёт — иначе он у строки «работает»
+                                   showsMark: !chat.busy && chat.streaming == nil
+                                       && m.id == chat.messages.last(where: { $0.role == .assistant })?.id).id(m.id)
                             .padding(.top, m.id != chat.messages.first?.id ? 18 : 0)
                     }
                     if !chat.busy, let last = chat.messages.last, let next = last.next {
@@ -322,7 +337,7 @@ struct ChatView: View {
                             PlanCard(items: c.plan)
                         }
                         if let s = chat.streaming {
-                            MessageRow(message: s, chat: chat, streaming: true).padding(.top, chat.messages.isEmpty ? 0 : 18)
+                            MessageRow(message: s, chat: chat, streaming: true, pet: restingPet ? .writing : nil).padding(.top, chat.messages.isEmpty ? 0 : 18)
                         }
                     }
                     // позванный бот работает: что делает и что пишет — прямо в чате, пока не закончит
@@ -355,7 +370,8 @@ struct ChatView: View {
                     // фоновые задачи агента: работают — видно всегда; закончились — пока идёт ход и ещё полчаса
                     if let c = chat.conversation, let tasks = chat.backgroundTasks[c.id],
                        tasks.contains(where: { $0.status == .running || chat.busy || ($0.ended ?? .distantFuture) > Date().addingTimeInterval(-1800) }) {
-                        BackgroundTasksBar(tasks: tasks)
+                        // под строкой «что делает сейчас», в одну колонку с ней: знак слева 26 + зазор 16 = 42; ближе, чем остальные строки (Рома, 22.10)
+                        BackgroundTasksBar(tasks: tasks).padding(.leading, 42).padding(.top, -10)
                     }
                     // ответила другая модель (лимит) или ночью ждём сброса лимита — сказать прямо
                     if let c = chat.conversation, let note = chat.modelNote[c.id] {
@@ -412,8 +428,13 @@ struct ChatView: View {
                                 DotsSpinner(color: BotColor.accent(b.hue), bot: b)
                                 Text(chat.launching ? "\(b.name) запускается…" : "\(b.name) работает…").tw(14, lh: 20).foregroundStyle(p.mutedFg).shimmer(BotColor.accent(b.hue))
                             } else {
-                                // шар у ответа дышит, пока нет первого слова
-                                Orb(state: .thinking, size: 26).padding(.trailing, 6)
+                                // знак у ответа — свет бежит по кругу, пока нет первого слова; питомец «вместо точек» — вместо него
+                                if petMark != nil {
+                                    DotsSpinner(color: p.glow).frame(width: 26).padding(.trailing, 6)
+                                } else if !(app.prefs.pet.enabled && !app.prefs.pet.floating) {
+                                    // питомец в переписке включён — затмения нет, даже если «вместо знака» выключено
+                                    LumenMark(state: .thinking, size: 26).padding(.trailing, 6)
+                                }
                                 Text(chat.launching ? "Запускаю…" : "Думаю…").tw(16, lh: 26).foregroundStyle(p.mutedFg)
                             }
                             if let start = chat.turnStart {
@@ -567,6 +588,10 @@ struct MessageRow: View {
     var streaming = false
     /// Последнее сообщение — действия видны всегда, у остальных — при наведении
     var isLast = false
+    /// Питомец на месте знака слева от ответа (в каком он состоянии); nil — обычный знак
+    var pet: PetMood?
+    /// Знак слева (затмение, питомец или бот) — один на весь чат: только у последнего ответа, у остальных пусто (Рома, 22.10)
+    var showsMark = true
 
     @Environment(\.palette) private var p
     @State private var hover = false
@@ -627,9 +652,8 @@ struct MessageRow: View {
                     .chatTw(15.5, lh: 24)
                     .textSelection(.enabled)
                     .padding(.horizontal, 17).padding(.vertical, 11)
-                    .background(bubble.fill(LinearGradient(colors: [p.borderBase.opacity(0.075), p.borderBase.opacity(0.05)],
-                                                           startPoint: .top, endPoint: .bottom)))
-                    .overlay(bubble.strokeBorder(p.borderBase.opacity(0.07)))
+                    .background(bubble.fill(p.bubbleFill))
+                    .overlay(bubble.strokeBorder(p.bubbleRing))
                     // 74% колонки переписки, а не окна: иначе на широком окне пузырь вылезает к правому краю
                     .frame(maxWidth: bubbleMax, alignment: .trailing)
                     .fixedSize(horizontal: false, vertical: true)
@@ -648,10 +672,23 @@ struct MessageRow: View {
             HStack(alignment: .top, spacing: 16) {
                 // шар 26 слева от ответа (макет 21.10); у бота — его знак
                 Group {
-                    if let b = chat?.app.bot(message.botID) {
+                    if !showsMark {
+                        Color.clear.frame(width: 26, height: 26)
+                    } else if let b = chat?.app.bot(message.botID) {
                         BotAvatar(bot: b, size: 26)
+                    } else if let prefs = chat?.app.prefs.pet, prefs.enabled, !prefs.floating {
+                        // питомец включён и живёт в переписке — затмения нет совсем (Рома, 22.10): на месте знака либо он, либо пусто
+                        Color.clear.frame(width: 26, height: 26)
+                            .overlay {
+                                if let mood = pet {
+                                    // питомец крупнее места под знак: сидит на нём и немного выходит за него
+                                    let side: CGFloat = prefs.kind.isPixel ? 32 : 44
+                                    PetView(pet: prefs, mood: mood, size: side, followsCursor: true).frame(width: side, height: side)
+                                }
+                            }
+                            .allowsHitTesting(false)
                     } else {
-                        Orb(size: 26, animated: false)
+                        LumenMark(size: 26, animated: false)
                     }
                 }
                 .padding(.top, 1)
@@ -687,7 +724,12 @@ struct MessageRow: View {
                         ForEach(message.proposals) { pr in ProposalCard(app: chat.app, message: message, proposal: pr) }
                     }
                     if let chat {
-                        ForEach(message.remembered, id: \.self) { id in RememberedCard(app: chat.app, id: id) }
+                        // один-два факта — карточками; больше — одной сворачиваемой плашкой, а не лентой из тридцати
+                        if message.remembered.count > 2 {
+                            RememberedGroup(app: chat.app, ids: message.remembered)
+                        } else {
+                            ForEach(message.remembered, id: \.self) { id in RememberedCard(app: chat.app, id: id) }
+                        }
                         if !message.recalled.isEmpty && !streaming {
                             RecalledLine(app: chat.app, ids: message.recalled)
                         }
@@ -968,17 +1010,10 @@ struct RichText: View {
             let parts = Self.parts(text)
             ForEach(Array(parts.enumerated()), id: \.offset) { i, part in
                 switch part {
-                case .prose(let s) where caret && i == parts.count - 1:
-                    // курсор — синяя черта 2 × 1.1em, мигает 1 с steps(1)
-                    TimelineView(.periodic(from: .now, by: 0.5)) { tl in
-                        let on = Int(tl.date.timeIntervalSinceReferenceDate * 2) % 2 == 0
-                        (Text(Self.markdown(s)).foregroundColor(p.textBody) + Text(" ") + Text(Image(nsImage: Self.caretBar)).foregroundColor(on ? p.glow : .clear))
-                            .chatTw(16, lh: 26.9)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
                 case .prose(let s):
+                    // весь текст между блоками кода — одним выделяемым полем: заголовки, списки, цитаты и линии рисуются в нём же;
                     // ссылки кликаются без ⌘ и подчёркиваются под курсором (LinkText.swift)
-                    LinkText(text: Self.markdown(s), size: 16, lineHeight: 26.9)
+                    LinkText(source: s, size: 16, lineHeight: 26.9, caret: caret && i == parts.count - 1)
                         .fixedSize(horizontal: false, vertical: true)
                 case .code(let s, let lang):
                     CodeBlock(code: s, lang: lang)
@@ -1039,7 +1074,13 @@ struct RichText: View {
                     out.append(.code(code, lang: lang))
                 }
             } else {
-                // абзацы — отдельными блоками, как <p> в макете
+                // абзацы между блоками кода — одним куском: он рисуется и выделяется как один текст
+                var run: [String] = []
+                func flush() {
+                    let s = run.joined(separator: "\n\n")
+                    if !s.isEmpty { out.append(.prose(s)) }
+                    run = []
+                }
                 for para in chunk.components(separatedBy: "\n\n") {
                     let s = para.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !s.isEmpty else { continue }
@@ -1051,16 +1092,18 @@ struct RichText: View {
                         if let rows = table(lines[first..<end].joined(separator: "\n")) {
                             let before = lines[..<first].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
                             let after = lines[end...].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-                            if !before.isEmpty { out.append(.prose(before)) }
+                            if !before.isEmpty { run.append(before) }
+                            flush()
                             out.append(.table(rows))
-                            if !after.isEmpty { out.append(.prose(after)) }
+                            if !after.isEmpty { run.append(after) }
                         } else {
-                            out.append(.prose(s))
+                            run.append(s)
                         }
                     } else {
-                        out.append(.prose(s))
+                        run.append(s)
                     }
                 }
+                flush()
             }
         }
         return out
@@ -1068,6 +1111,18 @@ struct RichText: View {
 
     /// Разобранные куски: во время стрима текст меняется 30 раз в секунду, а готовые абзацы — нет
     @MainActor private static var parsed: [String: AttributedString] = [:]
+
+    /// Строчная разметка куска без заголовков: блоки (заголовки, списки…) уже разобраны MarkdownBlocks
+    @MainActor private static var inlined: [String: AttributedString] = [:]
+
+    @MainActor static func inline(_ s: String) -> AttributedString {
+        if let hit = inlined[s] { return hit }
+        var out = (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
+        detectLinks(&out)
+        if inlined.count > 600 { inlined.removeAll() }
+        inlined[s] = out
+        return out
+    }
 
     @MainActor static func markdown(_ s: String) -> AttributedString {
         if let hit = parsed[s] { return hit }
@@ -1455,20 +1510,27 @@ struct Composer: View {
 
     private var inGroup: Bool { chat.conversation?.kind == .group }
 
-    /// Стекло поля (макет 21.10): градиент .05 → .025, кольцо 1px внутри, светлая кромка сверху, глубокая тень.
-    /// В фокусе кольцо синее; край один — без второго кольца снаружи (Рома, 21.10). У бота — его цвет вместо синего
+    /// Поле ввода (lumen-theme.css): фон сплошной `--composer-bg` — лучи и звёзды сквозь него не просвечивают, без размытия.
+    /// Тёмная: кольцо 1px .09, светлая кромка сверху, тень 0 24 70 .38; в фокусе кольцо синее .42 и ореол 4px .10.
+    /// Светлая: кольцо снаружи .09 и две мягкие тени. У бота — его цвет вместо синего
     @ViewBuilder private var glass: some View {
         let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
+        let tint = tintBot.map { BotColor.accent($0.hue) } ?? p.glow
         let ring: Color = tintBot.map { focused ? BotColor.accent($0.hue).opacity(0.45) : BotColor.soft($0.hue) }
-            ?? (focused ? p.glow.opacity(0.42) : p.borderBase.opacity(0.09))
+            ?? (focused ? tint.opacity(0.42) : p.borderBase.opacity(p.isLight ? 0.09 : 0.09))
         ZStack {
-            shape.fill(p.isLight ? AnyShapeStyle(p.card)
-                       : AnyShapeStyle(LinearGradient(colors: [p.borderBase.opacity(0.05), p.borderBase.opacity(0.025)], startPoint: .top, endPoint: .bottom)))
-                .shadow(color: .black.opacity(p.isLight ? 0.07 : (focused ? 0.45 : 0.38)), radius: 35, y: 24)
+            shape.fill(p.composerFill)
+                .shadow(color: p.isLight ? p.borderBase.opacity(focused ? 0.08 : 0.06) : .black.opacity(focused ? 0.45 : 0.38),
+                        radius: p.isLight ? 15 : 35, y: p.isLight ? 10 : 24)
+            if p.isLight { shape.fill(p.composerFill).shadow(color: p.borderBase.opacity(0.04), radius: 1, y: 1) }
+            // ореол 4px в фокусе (0 0 0 4px)
+            if focused { shape.inset(by: -2).stroke(tint.opacity(0.10), lineWidth: 4) }
             shape.strokeBorder(ring)
-            // inset 0 1px 0 rgba(255,255,255,.05): светлая кромка по верху
-            shape.inset(by: 1).strokeBorder(LinearGradient(colors: [.white.opacity(p.isLight ? 0 : (focused ? 0.06 : 0.05)), .clear],
-                                                          startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.08)))
+            if !p.isLight {
+                // inset 0 1px 0 rgba(255,255,255,.05): светлая кромка по верху
+                shape.inset(by: 1).strokeBorder(LinearGradient(colors: [.white.opacity(focused ? 0.06 : 0.05), .clear],
+                                                              startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.08)))
+            }
         }
         .allowsHitTesting(false)
     }
@@ -1734,7 +1796,7 @@ struct Composer: View {
                     Icon("clock", 12)
                     Text("В очередь").font(.geist(13, .medium))
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(p.orbSpec ? .white : p.onGlow)
                 .padding(.horizontal, 14).frame(height: 38)
                 .background(p.accent, in: Capsule())
                 .contentShape(Rectangle())
@@ -1760,21 +1822,24 @@ struct Composer: View {
             let on = canSend && ready
             Button(action: send) {
                 Icon("arrow-up", 18)
-                    .foregroundStyle(on ? .white : p.faint)
+                    // у «Люмена» — белая стрелка на синем шаре из CSS; у других тем плоский круг цвета света, стрелка контрастная
+                    .foregroundStyle(on ? (currentBot != nil || p.orbSpec ? .white : p.onGlow) : p.faint)
                     .frame(width: 38, height: 38)
                     .background {
                         if on {
                             // есть что отправить — маленький шар (у бота — его цвет)
                             if let b = currentBot {
                                 Circle().fill(BotColor.accent(b.hue))
-                            } else {
+                            } else if p.orbSpec {
                                 MiniOrbFill()
+                            } else {
+                                Circle().fill(p.accent)
                             }
                         } else {
                             Circle().fill(p.borderBase.opacity(0.06)).overlay(Circle().strokeBorder(p.borderBase.opacity(0.07)))
                         }
                     }
-                    .shadow(color: on ? (currentBot.map { BotColor.accent($0.hue) } ?? p.accent).opacity(0.38) : .clear, radius: 9, y: 6)
+                    .shadow(color: on && (currentBot != nil || p.orbSpec) ? (currentBot.map { BotColor.accent($0.hue) } ?? p.accent).opacity(0.38) : .clear, radius: 9, y: 6)
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)

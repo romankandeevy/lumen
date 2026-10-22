@@ -246,7 +246,6 @@ struct SearchLayer: View {
                         if let snippet { Text(snippet).tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(2) }
                     }
                     Spacer(minLength: 8)
-                    Text(RelativeWhen.string(c.updatedAt)).tw(12, lh: 16).foregroundStyle(p.mutedFg)
                 }
                 .foregroundStyle(p.foreground)
                 .padding(.horizontal, 10).padding(.vertical, 8)

@@ -14,11 +14,13 @@ public struct GraphLayout: Sendable {
     private let links: [MemoryGraph.Link]
     private let charge: [Double]
     private let isEntity: [Bool]
+    private let degree: [Int]
     private let entityIndices: [Int]
 
     public init(graph: MemoryGraph) {
         let n = graph.nodes.count
         links = graph.links
+        degree = graph.nodes.map(\.degree)
         radius = graph.nodes.map { node in
             switch node.group {
             case .me: 15
@@ -30,7 +32,7 @@ public struct GraphLayout: Sendable {
             switch node.group {
             case .me: -700
             case .fact, .decision: -90
-            default: -280
+            default: -420
             }
         }
         let ent = graph.nodes.map { $0.group != .fact && $0.group != .decision }
@@ -59,8 +61,10 @@ public struct GraphLayout: Sendable {
         // связи: пружины своей длины и жёсткости
         for l in links {
             let (dist, strength): (Double, Double) = switch l.kind {
-            case .core: (170, 0.35)
-            case .own: (l.a == 0 ? 95 : 52, 0.9)
+            // узел с большим созвездием стоит дальше от «тебя»: ему нужно место для фактов
+            case .core: (160 + 14 * Double(degree[l.b]).squareRoot(), 0.5)
+            // факты вокруг своего узла: чем их больше, тем шире кольцо
+            case .own: (46 + 5 * Double(max(0, degree[l.a] - 1)).squareRoot(), 0.9)
             case .cross: (130, 0.05)
             }
             var d = positions[l.b] + velocity[l.b] - positions[l.a] - velocity[l.a]
@@ -97,7 +101,8 @@ public struct GraphLayout: Sendable {
             var l2 = (d * d).sum()
             if l2 < 1e-6 { d = SIMD2(Double(i - j) * 0.01, 0.01); l2 = 1e-4 }
             velocity[i] += d * (-charge[j] * alpha / l2)
-            let minD = radius[i] + radius[j] + 16
+            // подписи узлов шире самих узлов — зазор побольше, чтобы они не наезжали друг на друга
+            let minD = radius[i] + radius[j] + 70
             let len = l2.squareRoot()
             if len < minD { velocity[i] += d * ((minD - len) / len * 0.5) }
         } }

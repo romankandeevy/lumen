@@ -13,6 +13,8 @@ final class GraphModel {
     private(set) var graph: MemoryGraph
     private(set) var layout: GraphLayout
     private(set) var neighbors: [Set<Int>]
+    /// У каждого факта — его узел (человек, проект или тема): по нему красятся точки и считаются кольца
+    private(set) var parents: [Int]
     /// Меняется на каждом шаге физики — по нему холст перерисовывается
     private(set) var frame = 0
     var hidden: Set<MemoryGraph.Group> = []
@@ -29,6 +31,13 @@ final class GraphModel {
         self.graph = graph
         layout = GraphLayout(graph: graph)
         neighbors = graph.neighbors
+        parents = Self.parents(of: graph)
+    }
+
+    private static func parents(of g: MemoryGraph) -> [Int] {
+        var out = Array(repeating: 0, count: g.nodes.count)
+        for l in g.links where l.kind == .own { out[l.b] = l.a }
+        return out
     }
 
     /// Данные поменялись (новый факт) — новый граф, старые позиции не сохраняем: раскладка быстрая
@@ -37,6 +46,7 @@ final class GraphModel {
         graph = g
         layout = GraphLayout(graph: g)
         neighbors = g.neighbors
+        parents = Self.parents(of: g)
         if let s = selected, s >= g.nodes.count { selected = nil }
         local = nil
         run()
@@ -201,6 +211,16 @@ struct GraphView: View {
 
     // MARK: рисование
 
+    /// Цвет узла: человек — голубой, проект — свет темы, тема — приглушённый белый
+    private func tint(_ g: MemoryGraph.Group) -> Color {
+        switch g {
+        case .person: personColor
+        case .project, .decision: p.glow
+        case .topic: p.foreground.opacity(0.8)
+        default: p.foreground.opacity(0.6)
+        }
+    }
+
     private func canvas(_ size: CGSize) -> some View {
         let _ = model.frame // перерисовка на каждом шаге физики
         let graph = model.graph
@@ -211,26 +231,42 @@ struct GraphView: View {
         let near = focus.map { model.neighbors[$0] } ?? []
         let selected = model.selected
         let k = model.scale
-        let glow = p.glow, fg = p.foreground, bg = p.background, person = personColor
+        let fg = p.foreground, bg = p.background, glow = p.glow, light = p.isLight
         let labels = model.labels
         let offset = model.offset
+        let parents = model.parents
+        let tints = graph.nodes.map { tint($0.group) }
         return Canvas { ctx, sz in
             func pt(_ i: Int) -> CGPoint {
                 CGPoint(x: CGFloat(pos[i].x) * k + sz.width / 2 + offset.width, y: CGFloat(pos[i].y) * k + sz.height / 2 + offset.height)
             }
             func lit(_ i: Int) -> Bool { focus == nil || i == focus || near.contains(i) }
+            // цвет точки-факта — по её узлу
+            func color(_ i: Int) -> Color { graph.nodes[i].fact != nil ? tints[parents[i]] : tints[i] }
 
-            // рёбра
+            // свечение вокруг узлов-тем: чем больше фактов, тем шире — созвездия видно издалека
+            for i in graph.nodes.indices where visible.contains(i) {
+                let n = graph.nodes[i]
+                guard n.group == .person || n.group == .project || n.group == .topic else { continue }
+                let c = pt(i)
+                let halo = (CGFloat(radius[i]) + 34 + 6 * CGFloat(n.degree).squareRoot()) * k
+                ctx.fill(Path(ellipseIn: CGRect(x: c.x - halo, y: c.y - halo, width: halo * 2, height: halo * 2)),
+                         with: .radialGradient(Gradient(colors: [tints[i].opacity(lit(i) ? (light ? 0.16 : 0.13) : 0.02), .clear]),
+                                               center: c, startRadius: 0, endRadius: halo))
+            }
+
+            // рёбра — тонкие, цвета своего узла; «ты → узел» ярче
             for l in graph.links where visible.contains(l.a) && visible.contains(l.b) {
                 var path = Path()
                 path.move(to: pt(l.a))
                 path.addLine(to: pt(l.b))
                 let on = focus.map { l.a == $0 || l.b == $0 } ?? true
-                let base: Double = switch l.kind { case .core: 0.28; case .own: 0.22; case .cross: 0.12 }
-                let alpha = focus == nil ? base : (on ? 0.7 : 0.04)
-                let color = l.kind == .cross ? person : glow
-                ctx.stroke(path, with: .color(color.opacity(alpha)),
-                           style: StrokeStyle(lineWidth: (on && focus != nil ? 1.4 : 1), dash: l.kind == .cross ? [3, 4] : []))
+                let base: Double = switch l.kind { case .core: 0.34; case .own: 0.2; case .cross: 0.12 }
+                let alpha = focus == nil ? base : (on ? 0.75 : 0.04)
+                let tone = l.kind == .core ? fg : tints[l.kind == .cross ? l.b : l.a]
+                ctx.stroke(path, with: .color(tone.opacity(alpha)),
+                           style: StrokeStyle(lineWidth: l.kind == .core ? 1.2 : (on && focus != nil ? 1.3 : 0.8), lineCap: .round,
+                                              dash: l.kind == .cross ? [2, 4] : []))
             }
 
             // узлы
@@ -242,36 +278,55 @@ struct GraphView: View {
                 let rect = CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)
                 switch n.group {
                 case .me:
-                    let halo = r * 3.2
+                    // «ты» — маленькое затмение: тёмный диск с жемчужной каймой и светом вокруг
+                    let halo = r * 3.6
+                    let pearl = light ? Color(.sRGB, red: 28 / 255, green: 38 / 255, blue: 72 / 255) : Color(.sRGB, red: 236 / 255, green: 242 / 255, blue: 1)
                     ctx.fill(Path(ellipseIn: CGRect(x: c.x - halo, y: c.y - halo, width: halo * 2, height: halo * 2)),
-                             with: .radialGradient(Gradient(colors: [glow.opacity(on ? 0.35 : 0.08), .clear]), center: c, startRadius: 0, endRadius: halo))
-                    ctx.fill(Path(ellipseIn: rect), with: .color(glow.opacity(on ? 1 : 0.2)))
+                             with: .radialGradient(Gradient(stops: [.init(color: pearl.opacity(on ? 0.5 : 0.1), location: 0.28),
+                                                                    .init(color: pearl.opacity(on ? 0.12 : 0.02), location: 0.55), .init(color: .clear, location: 1)]),
+                                                   center: c, startRadius: 0, endRadius: halo))
+                    ctx.fill(Path(ellipseIn: rect), with: .color(Color(.sRGB, red: 5 / 255, green: 6 / 255, blue: 8 / 255)))
+                    ctx.stroke(Path(ellipseIn: rect), with: .color(pearl.opacity(on ? 0.9 : 0.2)), lineWidth: 1.4)
                 case .fact, .decision:
-                    let color = n.group == .fact ? fg.opacity(0.55) : glow.opacity(0.85)
-                    ctx.fill(Path(ellipseIn: rect), with: .color(color.opacity(on ? 1 : 0.12)))
-                    if n.fact?.pinned == true {
-                        ctx.stroke(Path(ellipseIn: rect.insetBy(dx: -3, dy: -3)), with: .color(glow.opacity(on ? 0.9 : 0.1)), lineWidth: 1)
+                    let pinned = n.fact?.pinned == true
+                    let rr = pinned ? r * 1.25 : r
+                    let dotRect = CGRect(x: c.x - rr, y: c.y - rr, width: rr * 2, height: rr * 2)
+                    if pinned {
+                        ctx.fill(Path(ellipseIn: dotRect.insetBy(dx: -r * 1.6, dy: -r * 1.6)),
+                                 with: .radialGradient(Gradient(colors: [glow.opacity(on ? 0.45 : 0.05), .clear]), center: c, startRadius: 0, endRadius: rr * 2.6))
                     }
+                    ctx.fill(Path(ellipseIn: dotRect), with: .color(color(i).opacity(on ? (n.group == .decision ? 0.95 : 0.78) : 0.1)))
                 default:
-                    ctx.fill(Path(ellipseIn: rect), with: .color(bg.opacity(on ? 1 : 0.12)))
-                    ctx.stroke(Path(ellipseIn: rect), with: .color((n.group == .person ? person : glow).opacity(on ? 1 : 0.12)), lineWidth: 2)
+                    // человек, проект, тема: сплошной диск цвета узла и светлая кромка; внутри — число фактов
+                    ctx.fill(Path(ellipseIn: rect), with: .color(tints[i].opacity(on ? 0.92 : 0.12)))
+                    ctx.stroke(Path(ellipseIn: rect.insetBy(dx: -2, dy: -2)), with: .color(tints[i].opacity(on ? 0.3 : 0.04)), lineWidth: 1)
                 }
                 if i == selected {
-                    ctx.stroke(Path(ellipseIn: rect.insetBy(dx: -6, dy: -6)), with: .color(fg.opacity(0.9)), lineWidth: 1.2)
+                    ctx.fill(Path(ellipseIn: rect.insetBy(dx: -9, dy: -9)),
+                             with: .radialGradient(Gradient(colors: [fg.opacity(0.18), .clear]), center: c, startRadius: r, endRadius: r + 12 * k))
+                    ctx.stroke(Path(ellipseIn: rect.insetBy(dx: -5, dy: -5)), with: .color(fg.opacity(0.55)), lineWidth: 1)
                 }
             }
 
-            // подписи: у сущностей всегда, у фактов — при приближении или «Подписи»; текст факта — в карточке сбоку, не при наведении
+            // подписи: у узлов всегда (с числом фактов), у фактов — при приближении или «Подписи»; текст факта — в карточке сбоку
             for i in graph.nodes.indices where visible.contains(i) {
                 let n = graph.nodes[i]
                 let isFact = n.group == .fact || n.group == .decision
                 guard !isFact || labels || k > 2.2 else { continue }
                 let on = lit(i)
-                let size: CGFloat = isFact ? 10.5 : (n.group == .me ? 13.5 : 12.5)
+                let size: CGFloat = isFact ? 10.5 : (n.group == .me ? 14 : 12.5)
                 let name = isFact && n.name.count > 34 ? String(n.name.prefix(33)) + "…" : n.name
-                let text = Text(name).font(.geist(size, isFact ? .regular : .medium)).foregroundColor(fg.opacity(on ? (isFact ? 0.75 : 0.95) : 0.1))
+                var label = AttributedString(name)
+                label.font = .geist(size, isFact ? .regular : .semibold)
+                label.foregroundColor = fg.opacity(on ? (isFact ? 0.75 : 0.95) : 0.1)
+                if !isFact, n.group != .me, n.degree > 1 {
+                    var count = AttributedString("  \(n.degree - 1)")
+                    count.font = .geist(size - 1)
+                    count.foregroundColor = fg.opacity(on ? 0.45 : 0.08)
+                    label += count
+                }
                 let c = pt(i)
-                ctx.draw(text, at: CGPoint(x: c.x, y: c.y + CGFloat(radius[i]) * k + 5), anchor: .top)
+                ctx.draw(Text(label), at: CGPoint(x: c.x, y: c.y + CGFloat(radius[i]) * k + 7), anchor: .top)
             }
         }
     }
@@ -341,7 +396,7 @@ struct GraphView: View {
             .padding(.horizontal, 10).frame(height: 32)
             .background(p.input.opacity(0.4), in: RoundedRectangle(cornerRadius: R.lg))
             FlowWrap(spacing: 4) {
-                ForEach([MemoryGraph.Group.project, .person, .fact, .decision], id: \.self) { g in
+                ForEach([MemoryGraph.Group.person, .project, .topic, .fact, .decision], id: \.self) { g in
                     let off = model.hidden.contains(g)
                     Button {
                         if off { model.hidden.remove(g) } else { model.hidden.insert(g) }
@@ -396,7 +451,7 @@ struct GraphView: View {
         let facts = model.facts(of: i)
         return VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
-                Circle().fill(n.group == .person ? personColor : p.glow).frame(width: 12, height: 12)
+                Circle().fill(tint(n.group)).frame(width: 12, height: 12)
                     .shadow(color: p.glowSoft, radius: 5).padding(.top, 4)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(n.fact == nil ? n.name : "Факт").tw(14, .medium, lh: 20).lineLimit(2)
@@ -447,6 +502,7 @@ struct GraphView: View {
         switch g {
         case .person: personColor
         case .fact: p.foreground.opacity(0.55)
+        case .topic: p.foreground.opacity(0.8)
         default: p.glow
         }
     }
@@ -455,6 +511,7 @@ struct GraphView: View {
         switch g {
         case .project: "Проекты"
         case .person: "Люди"
+        case .topic: "Темы"
         case .fact: "Факты"
         case .decision: "Решения"
         case .me: "Ты"
@@ -466,6 +523,7 @@ struct GraphView: View {
         case .me: "это ты"
         case .person: "человек"
         case .project: "проект"
+        case .topic: "тема"
         case .decision: "решение"
         case .fact: "факт"
         }
