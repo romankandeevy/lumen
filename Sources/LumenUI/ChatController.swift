@@ -73,6 +73,11 @@ final class ChatController {
     @ObservationIgnored private var alwaysAllowed: [String: Set<String>] = [:]
     /// Режим, в котором сейчас живёт процесс разговора
     @ObservationIgnored private var sessionModes: [String: AgentMode] = [:]
+    /// С какими выключателями («Поиск в сети», «Память о тебе») поднята сессия: переключили — поднимется заново (--resume)
+    @ObservationIgnored private var sessionFlags: [String: String] = [:]
+    /// «Ресерч» в поле ввода включён на это сообщение: к нему уходит скрытая пометка про глубокое исследование
+    @ObservationIgnored var researchOnce = false
+    private var toolFlags: String { "web:\(app.prefs.webSearch)|mem:\(app.prefs.useMemory)" }
 
     init(app: AppModel) {
         self.app = app
@@ -289,6 +294,12 @@ final class ChatController {
         resend(from: u, text: u.text)
     }
 
+    /// Скрытая пометка к сообщению, когда в поле включён «Ресерч»: глубокое исследование вместо короткого ответа
+    static let researchNote = "\n\n[Режим «Ресерч», пометка Lumen — человеку не показывается. Сделай глубокое исследование: разбей вопрос на подвопросы, "
+        + "поищи в сети несколькими разными запросами, открой и сверь несколько источников (не бери первый попавшийся), отметь, где они "
+        + "расходятся и где ты не уверен. В ответе: короткий итог в начале, затем подробности по подвопросам и в конце список источников "
+        + "со ссылками. Если сеть недоступна — так и скажи.]"
+
     /// Что сейчас делает бот, которого позвали из этого разговора
     var liveWork: [String: LiveWork] = [:]
 
@@ -332,6 +343,11 @@ final class ChatController {
     /// модель тоже забывает, что было после), и вопрос уходит заново — изменённый или тот же
     func resend(from user: ChatMessage, text: String) {
         guard !busy, var c = conversation, let i = messages.firstIndex(where: { $0.id == user.id }) else { return }
+        // изменили вопрос — прежний ответ не пропадает: он остаётся вариантом нового (‹ 1/2 ›), с пометкой, на какой вопрос он был
+        if pendingVariants[c.id] == nil, text != user.text,
+           let old = messages[(i + 1)...].first(where: { $0.role == .assistant && ($0.error == nil || !$0.text.isEmpty) }) {
+            pendingVariants[c.id] = (old.alternates ?? []) + [AnswerVariant(old, prompt: user.text)]
+        }
         let earlier = Array(messages[..<i])
         for m in messages[i...] { if let id = m.id { try? app.store.deleteMessage(id) } }
         messages.removeSubrange(i...)
@@ -453,6 +469,8 @@ final class ChatController {
     /// Начать ход в разговоре — открытом или (из очереди) в том, куда человек уже не смотрит
     func begin(_ conv: Conversation, text: String, attachments: [Attachment], isNew: Bool, via: Via? = nil) {
         var c = conv
+        let research = researchOnce
+        researchOnce = false
         if c.kind == .agent, app.prefs.night.active() { nightConversations.insert(c.id) }
         let open = isNew || conversation?.id == c.id
         if c.usesCLI && c.cliSessionID == nil { c.cliSessionID = UUID().uuidString.lowercased() }
@@ -506,7 +524,7 @@ final class ChatController {
                 // после своего сжатия — свежая сессия claude: первым скрытым сообщением идёт записка-передача
                 let handoff = self.pendingHandoff(c.id)
                 await self.runCLI(c, text: (handoff.map(Handoff.prefix) ?? "") + self.unseenContext(history, c) + text
-                                  + self.styleReminder(c) + self.autonomyNote(c), attachments: attachments,
+                                  + self.styleReminder(c) + self.autonomyNote(c) + (research ? Self.researchNote : ""), attachments: attachments,
                                   hadTurnsBefore: handoff == nil && history.contains { $0.role == .assistant && $0.error == nil && ($0.botID == nil || c.kind == .bot) })
                 if handoff != nil, (try? self.app.store.messages(in: c.id))?.last?.error == nil { self.clearHandoff(c.id) }
             } else {
@@ -1236,7 +1254,8 @@ final class ChatController {
     /// Тёплый процесс на разговор. Если сменились модель или effort — перезапуск с `--resume`.
     private func cliSession(for c: Conversation, cli: ClaudeCLI, resume: Bool) throws -> ClaudeSession {
         let model = effectiveModel(c)
-        if let s = sessions[c.id], s.isRunning, s.config.model == model.rawValue, s.config.effort == c.effort.rawValue {
+        if let s = sessions[c.id], s.isRunning, s.config.model == model.rawValue, s.config.effort == c.effort.rawValue,
+           sessionFlags[c.id] == toolFlags {
             // режим меняется на ходу, без перезапуска (ночью — обход разрешений)
             if c.kind == .agent, let mode = effectiveMode(c), sessionModes[c.id] != mode {
                 s.setMode(mode.rawValue)
@@ -1278,17 +1297,25 @@ final class ChatController {
             if c.backend == .api, let key = app.keychain.read(Keychain.anthropicKey) { config.extraEnv["ANTHROPIC_API_KEY"] = key }
         } else {
             // у чата своя папка для временного (а не «/», откуда запущено приложение)
+            // «Поиск в сети» включён — у чата есть WebSearch и WebFetch (без вопросов); выключен — только свои инструменты Lumen
+            let web = app.prefs.webSearch ? ["WebSearch", "WebFetch"] : []
             config = .init(model: model.rawValue, effort: c.effort.rawValue, systemPrompt: app.systemPrompt(for: c),
-                           tools: [], userSettings: false, sessionID: sid, resume: resume, cwd: app.chatFolder(c))
+                           tools: web, userSettings: false, sessionID: sid, resume: resume, cwd: app.chatFolder(c), allowedTools: web)
         }
+        // агенту при выключенном поиске инструменты сети запрещены (у бота права — из его паспорта)
+        if c.kind == .agent, !app.prefs.webSearch { config.disallowedTools += ["WebSearch", "WebFetch"] }
         // перегрузка или недоступность модели — claude сам ответит запасной (автовыбор модели)
         if bot == nil, app.prefs.autoModel { config.fallbackModels = ModelChoice.chain(after: model).prefix(2).map(\.rawValue) }
         // память: lumen-mcp с инструментами remember и recall
         if let mcp = try? app.writeMCPConfig(for: c, memoryReadOnly: bot.map { !$0.can.contains(.memory) } ?? false) {
             config.mcpConfig = mcp.path
             // у бота разрешённое уже посчитано в BotPermissions
+            if bot == nil, !app.prefs.useMemory {
+                // «Память о тебе» выключена: Lumen не читает и не записывает факты
+                config.disallowedTools += ["mcp__lumen__remember", "mcp__lumen__recall"]
+            }
             if bot == nil {
-                config.allowedTools += ["mcp__lumen__remember", "mcp__lumen__recall", "mcp__lumen__load_skill", "mcp__lumen__read_skill_file", "mcp__lumen__add_to_project",
+                config.allowedTools += (app.prefs.useMemory ? ["mcp__lumen__remember", "mcp__lumen__recall"] : []) + ["mcp__lumen__load_skill", "mcp__lumen__read_skill_file", "mcp__lumen__add_to_project",
                                         "mcp__lumen__list_skills", "mcp__lumen__create_skill", "mcp__lumen__find_skills", "mcp__lumen__install_skill"]
                     + CustomizeAdmin.names.sorted().map { "mcp__lumen__\($0)" }
                     + BrowserTools.names.map { "mcp__lumen__\($0)" }
@@ -1319,6 +1346,7 @@ final class ChatController {
         s.onTask = { [weak self] event in Task { @MainActor in self?.applyTask(event, to: key) } }
         appendLog(key, ClaudeLog.Line(kind: .info, text: (resume ? "Продолжаю сессию " : "Новая сессия ") + String(sid.prefix(8)) + " · " + c.model.name))
         sessions[c.id] = s
+        sessionFlags[c.id] = toolFlags
         return s
     }
 
@@ -1343,7 +1371,9 @@ final class ChatController {
         defer { log() }
         var request = AnthropicChatRequest(model: c.model, effort: c.effort, system: app.systemPrompt(for: c),
                                            messages: AnthropicChatRequest.history(history))
-        request.tools = (MemoryTools.definitions + (tools.availableSkills.isEmpty ? [] : MemoryTools.skillDefinitions)
+        // «Память о тебе» выключена — инструментов remember и recall нет
+        let memoryDefs = MemoryTools.definitions.filter { app.prefs.useMemory || !["remember", "recall"].contains($0.name) }
+        request.tools = (memoryDefs + (tools.availableSkills.isEmpty ? [] : MemoryTools.skillDefinitions)
                          + (tools.project == nil ? [] : MemoryTools.projectDefinitions) + SkillAdmin.definitions + CustomizeAdmin.definitions).map {
             JSONBox(["name": $0.name, "description": $0.description, "input_schema": $0.schema, "strict": true])
         }
@@ -1529,6 +1559,8 @@ final class ChatController {
             tr.message?.botID = tr.bot
         }
         tr.message?.attachments.append(a)
+        // снимок экрана привязан к шагу, на котором сделан: превью встаёт на его строку
+        if a.snapshot == true, let i = tr.message?.steps.indices.last { tr.message?.steps[i].shot = a.id }
         // файл, что сделал агент или бот, — в базу сразу: если ход повиснет или Lumen закроют, вложение не пропадёт
         if var m = tr.message {
             m.text = tr.received
@@ -1686,7 +1718,10 @@ final class ChatController {
 
     /// Заголовок — начало первого сообщения
     static func title(from text: String) -> String {
-        let line = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? text
+        // «[Файл: имя]» — карточка в тексте: в название идёт первая строка правки, а не метка
+        let line = FileMarks.segments(text).compactMap { if case .text(let t) = $0 { return t } else { return nil } }.first?
+            .split(whereSeparator: \.isNewline).first.map(String.init)
+            ?? text.split(whereSeparator: \.isNewline).first.map(String.init) ?? text
         return line.count > 48 ? String(line.prefix(46)).trimmingCharacters(in: .whitespaces) + "…" : line
     }
 
@@ -1725,6 +1760,9 @@ extension Conversation {
 extension AppModel {
     /// Как пользоваться памятью — одинаково в чате и у агента
     var memoryRules: String {
+        guard prefs.useMemory else {
+            return "Память о человеке выключена: инструментов remember и recall у тебя нет. Ничего о нём не вспоминай из прошлых разговоров и не предлагай запомнить."
+        }
         var r = ["У тебя есть долгая память: инструменты remember (сохранить факт) и recall (найти в памяти)."]
         if prefs.autoRemember {
             r.append("Если узнал что-то важное и устойчивое о человеке, его проектах, решениях, людях вокруг или о том, как ему удобно, — сохрани через remember одной короткой фразой. Мелочи и разовое не сохраняй.")
@@ -1801,6 +1839,8 @@ extension AppModel {
     /// Что Lumen знает к этому разговору: закреплённые факты и — в проекте — факты о самом проекте.
     /// Агенту и чату одно и то же: память общая для всех проектов, проект только добавляет своё.
     func knownBlock(for c: Conversation?) -> String? {
+        // «Память о тебе» выключена — закреплённые факты и факты проекта в разговор не попадают
+        guard prefs.useMemory else { return nil }
         let all = (try? store.memories()) ?? []
         let pinned = all.filter(\.pinned)
         var lines: [String] = []

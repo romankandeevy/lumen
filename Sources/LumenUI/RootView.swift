@@ -58,7 +58,7 @@ public struct RootView: View {
             // зерно, звёзды и лучи короны из центра знака (lumen-theme.css); сайдбар их не получает
             .coordinateSpace(name: "main")
             .onPreferenceChange(SkyAnchorKey.self) { if let c = $0 { skyCenter = c } }
-            .background(Sky(start: skyStart, center: skyCenter).ignoresSafeArea())
+            .background { if app.prefs.skyBackground { Sky(start: skyStart, center: skyCenter).ignoresSafeArea() } }
             if app.browserOpen { BrowserPane(app: app, browser: app.browser).transition(.move(edge: .trailing)) }
         }
         .environment(\.windowWidth, g.size.width)
@@ -89,6 +89,7 @@ public struct RootView: View {
             // ⌘K — поиск, ⌘N — новый чат, ⌘\ — панель
             Group {
                 Button("") { app.searchOpen.toggle() }.keyboardShortcut("k", modifiers: .command)
+                Button("") { app.openSettings() }.keyboardShortcut(",", modifiers: .command)
                 Button("") { app.newChat() }.keyboardShortcut("n", modifiers: .command)
                 Button("") { app.update { $0.sidebarHidden.toggle() } }.keyboardShortcut("\\", modifiers: .command)
                 Button("") { app.toggleBrowser() }.keyboardShortcut("b", modifiers: [.command, .shift])
@@ -219,7 +220,7 @@ struct Sidebar: View {
                 .scrollIndicators(.never)
             }
 
-            Button { app.page = .settings(.general) } label: { profile }
+            Button { app.openSettings(.general) } label: { profile }
                 .buttonStyle(.plain)
                 .help("Настройки")
                 .accessibilityLabel("Настройки и профиль")

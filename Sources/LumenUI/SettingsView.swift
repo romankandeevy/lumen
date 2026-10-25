@@ -67,7 +67,7 @@ struct SettingsView: View {
 
     private var current: Section {
         if case .settings(let s) = app.page { return s }
-        return .general
+        return app.settingsSection
     }
 
     private var group: NavGroup { Self.groups.first { $0.items.contains(current) } ?? Self.groups[0] }
@@ -127,7 +127,11 @@ struct SettingsView: View {
     }
 
     private func go(_ s: Section) {
-        withAnimation(.easeOut(duration: 0.15)) { app.page = .settings(s) }
+        withAnimation(.easeOut(duration: 0.15)) {
+            app.settingsSection = s
+            // страница-настройки живёт только в снимках и тестах; в приложении настройки — окно
+            if case .settings = app.page { app.page = .settings(s) }
+        }
     }
 
     /// «Настройки › Внешний вид › Тема»; у раздела без подпунктов — два звена
@@ -582,6 +586,9 @@ struct ThemeSettings: View {
                 line("Акцентный цвет", divider: true) { accentMenu }
                 line("Фон", divider: true) {
                     ColorField(color: p.background) { c in setOverride { $0.background = c?.hexString } }
+                }
+                line("Звёзды и лучи на фоне", divider: true) {
+                    LSwitch(isOn: Binding(get: { app.prefs.skyBackground }, set: { v in app.update { $0.skyBackground = v } }))
                 }
                 line("Цвет текста") {
                     ColorField(color: p.foreground) { c in setOverride { $0.foreground = c?.hexString } }

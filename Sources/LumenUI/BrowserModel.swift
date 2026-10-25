@@ -17,6 +17,8 @@ final class BrowserModel: NSObject {
         @ObservationIgnored let webView: WKWebView
         var title = ""
         var url = ""
+        /// Не страница, а файл: у него своё превью без адресной строки (FileViewers.swift)
+        var file: FileTab?
         @ObservationIgnored var observers: [NSKeyValueObservation] = []
 
         init(id: Int, webView: WKWebView) {
@@ -129,6 +131,22 @@ final class BrowserModel: NSObject {
         ]
     }
 
+    /// Открыть файл в панели: у каждого вида своё превью. Уже открытый — просто выбирается его вкладка
+    func openFile(_ url: URL, name: String? = nil, kind: FileKind? = nil) {
+        if let t = tabs.first(where: { $0.file?.url == url }) { select(t.id); return }
+        let tab: Tab = blankPage && active.file == nil ? active : newTab(configuration: nil)
+        let n = name ?? url.lastPathComponent
+        tab.file = FileTab(url: url, name: n, kind: kind ?? FileKind.of(url))
+        tab.title = n
+        select(tab.id)
+    }
+
+    /// Вкладка-файл не страница: действия агента и ссылки идут во вкладку-страницу (своя или новая)
+    func ensureWebTab() {
+        guard active.file != nil else { return }
+        if let t = tabs.first(where: { $0.file == nil }) { select(t.id) } else { newTab(configuration: nil) }
+    }
+
     func close(_ id: Int) {
         guard let i = tabs.firstIndex(where: { $0.id == id }) else { return }
         tabs[i].webView.stopLoading()
@@ -175,6 +193,7 @@ final class BrowserModel: NSObject {
     }
 
     func open(_ u: URL) {
+        ensureWebTab()
         if u.isFileURL {
             // макету рядом нужны его картинки и стили — даём читать всю его папку
             webView.loadFileURL(u, allowingReadAccessTo: u.hasDirectoryPath ? u : u.deletingLastPathComponent())
@@ -190,6 +209,8 @@ final class BrowserModel: NSObject {
         nonisolated(unsafe) let a = args
         let task = Task<BrowserTools.Reply, Never> { @MainActor in
             await previous?.value
+            // открыт файл (не страница) — агент работает в странице, а не в превью файла
+            self.ensureWebTab()
             self.acting += 1
             defer { self.acting -= 1 }
             var r = await self.perform(tool: tool, args: a, who: who)

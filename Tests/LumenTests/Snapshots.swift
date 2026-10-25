@@ -809,3 +809,124 @@ enum Snap {
     model.selected = nil
     try await Snap.save(GraphView(app: app, model: model).environment(\.palette, Palette.lumen), "graph", size: CGSize(width: 1100, height: 760))
 }
+
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotComposerPills() async throws {
+    // таблетки у «+»: поиск в сети и память включены по умолчанию, ресерч — нет; у агента — тот же ряд
+    Snap.registerFonts()
+    let app = try Snap.app()
+    app.finishOnboarding(name: "Роман", address: .ty, backend: .subscription, theme: .lumen)
+    app.newChat()
+    try await Snap.save(RootView(app: app), "composer-pills-chat", size: CGSize(width: 1100, height: 640))
+    app.switchTab(.agent)
+    app.newAgentTask()
+    try await Snap.save(RootView(app: app), "composer-pills-agent", size: CGSize(width: 1100, height: 700))
+}
+
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotFilePane() async throws {
+    // панель сбоку с файлами: Markdown, картинка и PDF — своё превью, без адресной строки; сверху «В чат», копировать, скачать
+    Snap.registerFonts()
+    let app = try Snap.app()
+    app.finishOnboarding(name: "Роман", address: .ty, backend: .subscription, theme: .lumen)
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-file-pane-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let md = dir.appendingPathComponent("план-игры.md")
+    try "# План игры\n\nКоротко: **одна механика**, мгновенный отклик.\n\n- Идея\n- Прототип\n- Звук и «сок»\n\n> Играть должно быть приятно с первой секунды.\n".write(to: md, atomically: true, encoding: .utf8)
+    let png = dir.appendingPathComponent("эскиз.png")
+    let img = NSImage(size: NSSize(width: 600, height: 400), flipped: false) { r in
+        NSGradient(colors: [NSColor(red: 0.2, green: 0.3, blue: 0.9, alpha: 1), NSColor(red: 0.6, green: 0.2, blue: 0.7, alpha: 1)])?.draw(in: r, angle: 35)
+        return true
+    }
+    if let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff), let data = rep.representation(using: .png, properties: [:]) { try data.write(to: png) }
+    app.openFile(md)
+    app.openFile(png)
+    app.browser.select(app.browser.tabs.first { $0.file?.url == md }!.id)
+    try await Snap.save(BrowserPane(app: app, browser: app.browser).environment(\.palette, Palette.lumen).background(Palette.lumen.background),
+                        "file-pane-md", size: CGSize(width: 520, height: 640))
+    app.browser.select(app.browser.tabs.first { $0.file?.url == png }!.id)
+    try await Snap.save(BrowserPane(app: app, browser: app.browser).environment(\.palette, Palette.lumen).background(Palette.lumen.background),
+                        "file-pane-image", size: CGSize(width: 520, height: 640))
+}
+
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotSourceChips() async throws {
+    // источники ответа (вариант A): чипы под текстом, номера у ссылок
+    Snap.registerFonts()
+    let app = try Snap.app()
+    app.finishOnboarding(name: "Роман", address: .ty, backend: .subscription, theme: .lumen)
+    let c = Conversation(title: "Игры", backend: .subscription, model: .sonnet, effort: .medium)
+    try app.store.save(c)
+    try app.store.save(ChatMessage(conversationID: c.id, role: .user, text: "посмотри в интернете, как делают топовые браузерные игры"))
+    var a = ChatMessage(conversationID: c.id, role: .assistant, text: """
+        Победители джемов держатся на трёх вещах: понятно за десять секунд, мгновенный отклик, короткая сессия ([Vibe Jam](https://vibej.am/2026), \
+        [Game Developer](https://www.gamedeveloper.com/design/loop)).
+
+        ## Что повторяется у лучших
+        - Одна механика, доведённая до блеска — разбор на [itch.io](https://itch.io/games)
+        - Звук и «сок» делают половину впечатления: https://www.youtube.com/watch?v=juice
+        - Запуск без регистрации, меньше 5 МБ ([MDN](https://developer.mozilla.org/docs/Games))
+        """)
+    var s = AgentStep(kind: .web, text: "Ищет в интернете «Vibe Jam 2026 winners»")
+    s.detail = "Vibe Jam 2026 winners"
+    a.steps = [s]
+    try app.store.save(a)
+    app.reloadConversations()
+    app.openChat(c)
+    try await Snap.save(RootView(app: app), "source-chips", size: CGSize(width: 1100, height: 700))
+}
+
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotFileCardsInComposer() async throws {
+    // файл из панели сбоку — карточкой в тексте поля; после неё правка, потом следующий файл и его правка; и как это уходит в переписку
+    Snap.registerFonts()
+    let app = try Snap.app()
+    app.finishOnboarding(name: "Роман", address: .ty, backend: .subscription, theme: .lumen)
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-cards-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let md = dir.appendingPathComponent("план-игры.md")
+    try "# План\n".write(to: md, atomically: true, encoding: .utf8)
+    let txt = dir.appendingPathComponent("заметки.txt")
+    try "Заметки\n".write(to: txt, atomically: true, encoding: .utf8)
+    let a = try #require(app.importAttachment(md)), b = try #require(app.importAttachment(txt))
+    let draft = FileMarks.marker(a.id) + "Сделай заголовок короче\n" + FileMarks.marker(b.id) + "А здесь убери повторы"
+    let sent = FileMarks.readable(draft, names: [a.id: a.name, b.id: b.name])
+    var message = ChatMessage(conversationID: "snap", role: .user, text: sent)
+    message.attachments = [a, b]
+    try await Snap.save(MessageRow(message: message, chat: nil).environment(\.palette, Palette.lumen).padding(24).frame(width: 640).background(Palette.lumen.background),
+                        "file-cards-sent", size: CGSize(width: 640, height: 360))
+}
+
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotBrowserActivityPill() async throws {
+    // «Lumen · Смотрит» — таблеткой внизу панели, а не полосой под вкладками
+    Snap.registerFonts()
+    let app = try Snap.app()
+    app.finishOnboarding(name: "Роман", address: .ty, backend: .subscription, theme: .lumen)
+    app.browser.activity = "Lumen · Смотрит"
+    try await Snap.save(BrowserPane(app: app, browser: app.browser).environment(\.palette, Palette.lumen).background(Palette.lumen.background),
+                        "browser-activity-pill", size: CGSize(width: 640, height: 520))
+}
+
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotStepShots() async throws {
+    // как в Claude Code: снимки шагов — превью справа на строке («+N» после трёх), а то, что агент показал сам, — одним крупным кадром под ответом
+    Snap.registerFonts()
+    let app = try Snap.app()
+    app.finishOnboarding(name: "Роман", address: .ty, backend: .subscription, theme: .lumen)
+    func shot(_ name: String, _ hue: CGFloat) throws -> LumenCore.Attachment {
+        let img = NSImage(size: NSSize(width: 960, height: 600), flipped: false) { r in
+            NSGradient(colors: [NSColor(hue: hue, saturation: 0.5, brightness: 0.9, alpha: 1), NSColor(hue: hue + 0.12, saturation: 0.7, brightness: 0.5, alpha: 1)])?.draw(in: r, angle: 35)
+            return true
+        }
+        return try #require(app.importImage(img, name: name))
+    }
+    var shots = [try shot("Снимок 1.png", 0.55), try shot("Снимок 2.png", 0.05), try shot("Снимок 3.png", 0.3), try shot("Снимок 4.png", 0.8)]
+    for i in shots.indices { shots[i].snapshot = true }
+    let shown = try shot("Вёрстка.png", 0.12)
+    var steps = [AgentStep(kind: .web, text: "Открывает вкладку", at: 0)]
+    for s in shots {
+        var step = AgentStep(kind: .read, text: "Смотрит на страницу", at: 0)
+        step.shot = s.id
+        steps.append(step)
+    }
+    var message = ChatMessage(conversationID: "snap", role: .assistant, text: "Готово: вот страница после правки.")
+    message.steps = steps
+    message.attachments = shots + [shown]
+    try await Snap.save(MessageRow(message: message, chat: nil).environment(\.palette, Palette.lumen).padding(24).frame(width: 760).background(Palette.lumen.background),
+                        "step-shots", size: CGSize(width: 760, height: 560))
+}

@@ -37,6 +37,9 @@ private struct FieldChipView: View {
 final class FieldChipAttachment: NSTextAttachment {
     static let gap: CGFloat = 6
     var chipID = ""
+    /// Файл-карточка посреди текста: в черновике ей соответствует метка FileMarks с этим id
+    var inline = false
+    var markID = ""
     /// Ширина самого чипа без зазора — по ней ловим щелчок по крестику
     var chipWidth: CGFloat = 0
 }
@@ -45,6 +48,8 @@ final class FieldChipAttachment: NSTextAttachment {
 struct ComposerTextView: NSViewRepresentable {
     @Binding var text: String
     let chips: [FieldChip]
+    /// Карточки файлов внутри текста — по id вложения; метки лежат в `text`
+    var inline: [String: FieldChip] = [:]
     let palette: Palette
     let placeholder: String
     @Binding var focused: Bool
@@ -157,7 +162,7 @@ struct ComposerTextView: NSViewRepresentable {
             let external = plain != parent.text
             syncing = true
             tv.textStorage?.setAttributedString(canonical(chips: parent.chips, text: parent.text))
-            let caret = external ? tv.textStorage?.length ?? 0 : parent.chips.count + min(before, (parent.text as NSString).length)
+            let caret = external ? tv.textStorage?.length ?? 0 : Self.location(forPlain: before, in: tv.textStorage)
             tv.setSelectedRange(NSRange(location: caret, length: 0))
             syncing = false
             tv.needsDisplay = true
@@ -165,22 +170,31 @@ struct ComposerTextView: NSViewRepresentable {
 
         private func canonical(chips: [FieldChip], text: String) -> NSAttributedString {
             let out = NSMutableAttributedString()
-            for chip in chips {
-                let att = FieldChipAttachment()
-                att.chipID = chip.id
-                let renderer = ImageRenderer(content: FieldChipView(chip: chip).environment(\.palette, parent.palette))
-                renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
-                if let image = renderer.nsImage {
-                    att.image = image
-                    att.chipWidth = image.size.width - FieldChipAttachment.gap
-                    att.bounds = CGRect(x: 0, y: -6, width: image.size.width, height: image.size.height)
+            for chip in chips { out.append(chipPiece(chip, inline: nil)) }
+            for piece in FileMarks.pieces(text) {
+                switch piece {
+                case .text(let t): out.append(NSAttributedString(string: t, attributes: attributes))
+                case .mark(let id): if let chip = parent.inline[id] { out.append(chipPiece(chip, inline: id)) }
                 }
-                let piece = NSMutableAttributedString(attachment: att)
-                piece.addAttributes(attributes, range: NSRange(location: 0, length: piece.length))
-                out.append(piece)
             }
-            out.append(NSAttributedString(string: text, attributes: attributes))
             return out
+        }
+
+        private func chipPiece(_ chip: FieldChip, inline id: String?) -> NSAttributedString {
+            let att = FieldChipAttachment()
+            att.chipID = chip.id
+            att.inline = id != nil
+            att.markID = id ?? ""
+            let renderer = ImageRenderer(content: FieldChipView(chip: chip).environment(\.palette, parent.palette))
+            renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
+            if let image = renderer.nsImage {
+                att.image = image
+                att.chipWidth = image.size.width - FieldChipAttachment.gap
+                att.bounds = CGRect(x: 0, y: -6, width: image.size.width, height: image.size.height)
+            }
+            let piece = NSMutableAttributedString(attachment: att)
+            piece.addAttributes(attributes, range: NSRange(location: 0, length: piece.length))
+            return piece
         }
 
         /// Какие чипы в поле (по порядку) и что напечатано
@@ -191,7 +205,7 @@ struct ComposerTextView: NSViewRepresentable {
             let s = storage.string as NSString
             for i in 0..<s.length {
                 if let att = storage.attribute(.attachment, at: i, effectiveRange: nil) as? FieldChipAttachment {
-                    ids.append(att.chipID)
+                    if att.inline { plain += FileMarks.marker(att.markID) } else { ids.append(att.chipID) }
                 } else if s.character(at: i) != 0xFFFC {
                     plain.append(String(utf16CodeUnits: [s.character(at: i)], count: 1))
                 }
@@ -203,8 +217,26 @@ struct ComposerTextView: NSViewRepresentable {
             guard let storage else { return 0 }
             let s = storage.string as NSString
             var n = 0
-            for i in 0..<min(location, s.length) where s.character(at: i) != 0xFFFC { n += 1 }
+            for i in 0..<min(location, s.length) {
+                if let att = storage.attribute(.attachment, at: i, effectiveRange: nil) as? FieldChipAttachment {
+                    if att.inline { n += att.markID.utf16.count + 2 }
+                } else if s.character(at: i) != 0xFFFC { n += 1 }
+            }
             return n
+        }
+
+        /// Где в поле стоит символ с таким номером в «чистом» тексте (карточки файлов в нём — метки)
+        static func location(forPlain n: Int, in storage: NSTextStorage?) -> Int {
+            guard let storage else { return 0 }
+            let s = storage.string as NSString
+            var plain = 0
+            for i in 0..<s.length {
+                let att = storage.attribute(.attachment, at: i, effectiveRange: nil) as? FieldChipAttachment
+                if att?.inline == false { continue }
+                if plain >= n { return i }
+                plain += att.map { $0.markID.utf16.count + 2 } ?? 1
+            }
+            return s.length
         }
 
         // MARK: поле → модель
@@ -224,7 +256,7 @@ struct ComposerTextView: NSViewRepresentable {
                 syncing = true
                 let kept = parent.chips.filter { ids.contains($0.id) }
                 tv.textStorage?.setAttributedString(canonical(chips: kept, text: plain))
-                tv.setSelectedRange(NSRange(location: kept.count + offset, length: 0))
+                tv.setSelectedRange(NSRange(location: Self.location(forPlain: offset, in: tv.textStorage), length: 0))
                 syncing = false
             }
             tv.needsDisplay = true
@@ -233,7 +265,7 @@ struct ComposerTextView: NSViewRepresentable {
         static func leadingChipCount(_ storage: NSTextStorage?) -> Int {
             guard let storage else { return 0 }
             var n = 0
-            while n < storage.length, storage.attribute(.attachment, at: n, effectiveRange: nil) is FieldChipAttachment { n += 1 }
+            while n < storage.length, let att = storage.attribute(.attachment, at: n, effectiveRange: nil) as? FieldChipAttachment, !att.inline { n += 1 }
             return n
         }
 

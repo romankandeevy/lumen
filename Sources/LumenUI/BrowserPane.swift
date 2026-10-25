@@ -59,37 +59,67 @@ extension AppModel {
         let r = await browser.handle(tool: tool, args: args, who: who)
         if let png = r.image, let image = NSImage(data: png) {
             let name = "Снимок — \(browser.title.isEmpty ? (URL(string: browser.url)?.host ?? "страница") : browser.title).png"
-            if let a = importImage(image, name: name) { _ = controllers.contains { $0.addShot(conv, a) } }
+            if var a = importImage(image, name: name) {
+                a.snapshot = true
+                _ = controllers.contains { $0.addShot(conv, a) }
+            }
         }
         return r
     }
 
     /// Открыть вложение для просмотра в браузере сбоку: картинки, PDF, HTML — как есть; Markdown — оформленным; код и текст — моноширинным
     func preview(_ a: Attachment) {
-        let ext = a.url.pathExtension.lowercased()
-        var target = a.url
-        if a.kind != .image && a.kind != .pdf && !a.isVideo && !a.isAudio && !["html", "htm", "svg"].contains(ext) {
-            // не текст (архив, документ Office…) — в программе по умолчанию
-            guard let text = try? String(contentsOf: a.url, encoding: .utf8) else { NSWorkspace.shared.open(a.url); return }
-            let page = paths.attachments.appendingPathComponent("preview-\(a.id).html")
-            try? MarkdownHTML.page(name: a.name, text: text).write(to: page, atomically: true, encoding: .utf8)
-            target = page
+        var kind = FileKind.of(a.url)
+        // вид по типу вложения: расширение у копии может быть любым, а «текст» мы уже определили при добавлении
+        if a.kind == .image { kind = .image } else if a.kind == .pdf { kind = .pdf }
+        if kind == .other {
+            // незнакомое расширение: читается как текст — текстом, иначе в программе по умолчанию
+            if (try? String(contentsOf: a.url, encoding: .utf8)) != nil { kind = .text } else { NSWorkspace.shared.open(a.url); return }
         }
-        browser.open(target)
+        if kind == .web {
+            browser.open(a.url)
+            browserOpen = true
+        } else {
+            openFile(a.url, name: a.name, kind: kind)
+        }
+    }
+
+    /// Файл в панели сбоку со своим превью (FileViewers.swift)
+    func openFile(_ url: URL, name: String? = nil, kind: FileKind? = nil) {
+        browser.openFile(url, name: name, kind: kind)
         browserOpen = true
     }
 
+    /// «В чат» у открытого файла: он прикрепляется к разговору, поле ввода забирает его (как «Прикрепить» в Артефактах)
+    func attachToChat(_ url: URL) {
+        guard let a = importAttachment(url), !attachInbox.contains(where: { $0.path == a.path }) else { return }
+        attachInbox.append(a)
+    }
+
+    /// Фрагмент картинки, показанный курсором, — вложением
+    func attachImage(_ image: NSImage, name: String) {
+        if let a = importImage(image, name: name) { attachInbox.append(a) }
+    }
+
+    /// Выделенный текст — цитатой в поле ввода: «Из «файл»:» и строки с «>»
+    func quoteToChat(_ text: String, from name: String) {
+        let quoted = text.split(separator: "\n", omittingEmptySubsequences: false).map { "> " + $0 }.joined(separator: "\n")
+        draftInbox += "Из «\(name)»:\n\(quoted)\n\n"
+    }
+
     /// «Скачать»: копия в «Загрузки» под своим именем и показать её в Finder
-    func download(_ a: Attachment) {
+    func download(_ a: Attachment) { downloadFile(a.url, name: a.name) }
+
+    func downloadFile(_ source: URL, name: String) {
         let dir = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
-        let base = (a.name as NSString).deletingPathExtension, ext = (a.name as NSString).pathExtension
-        var dest = dir.appendingPathComponent(a.name)
+        let base = (name as NSString).deletingPathExtension, ext = (name as NSString).pathExtension
+        var dest = dir.appendingPathComponent(name)
         var i = 2
         while FileManager.default.fileExists(atPath: dest.path) {
             dest = dir.appendingPathComponent(ext.isEmpty ? "\(base) \(i)" : "\(base) \(i).\(ext)")
             i += 1
         }
-        guard (try? FileManager.default.copyItem(at: a.url, to: dest)) != nil else { return }
+        guard (try? FileManager.default.copyItem(at: source, to: dest)) != nil else { return }
         NSWorkspace.shared.activateFileViewerSelecting([dest])
     }
 
@@ -129,6 +159,12 @@ extension AppModel {
 
     func openInBrowser(_ u: URL) {
         guard ["http", "https", "file"].contains(u.scheme?.lowercased() ?? "") else { NSWorkspace.shared.open(u); return }
+        // файл с локального диска (не страница) — со своим превью, без адресной строки
+        if u.isFileURL, !u.hasDirectoryPath, FileKind.of(u) != .web, FileKind.of(u) != .other {
+            openFile(u)
+            return
+        }
+        browser.ensureWebTab()
         browserOpen = true
         if !browser.blankPage { browser.newTab(configuration: nil) }
         browser.open(u)
@@ -176,21 +212,14 @@ struct BrowserPane: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // сверху адрес на одном уровне с крестиком, под ним вкладки (Рома, 18.10)
-            toolbar
+            // сверху адрес на одном уровне с крестиком, под ним вкладки (Рома, 18.10). У файла адреса нет: вкладки, под ними шапка файла
+            if browser.active.file == nil { toolbar }
             tabBar
             p.border.frame(height: 1)
-            if let a = browser.activity {
-                HStack(spacing: 8) {
-                    LiveDot(color: p.glow, size: 6)
-                    Text(a).tw(12, lh: 16).lineLimit(1)
-                    Spacer(minLength: 0)
-                }
-                .foregroundStyle(p.mutedFg)
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .background(p.glow.opacity(0.08))
-                .transition(.opacity)
-            }
+            if let file = browser.active.file {
+                FileTabView(app: app, file: file)
+                    .id(file.url)
+            } else {
             ZStack {
                 if let size = browser.viewport.size {
                     // телефон или планшет: страница своей ширины по центру
@@ -208,6 +237,24 @@ struct BrowserPane: View {
                 }
                 if blank { empty }
             }
+            // что сейчас делает Lumen — таблеткой над страницей сверху, а не полосой, от которой всё прыгает вниз
+            .overlay(alignment: .top) {
+                if let a = browser.activity {
+                    HStack(spacing: 8) {
+                        LiveDot(color: p.glow, size: 6)
+                        Text(a).tw(12.5, .medium, lh: 16).lineLimit(1)
+                    }
+                    .foregroundStyle(p.foreground)
+                    .padding(.horizontal, 14).frame(height: 30)
+                    .background(p.popover, in: Capsule())
+                    .overlay(Capsule().strokeBorder(p.border))
+                    .shadow(color: .black.opacity(0.18), radius: 8, y: 2)
+                    .padding(.top, 14)
+                    .allowsHitTesting(false)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            }
         }
         .frame(width: CGFloat(max(360, min(app.browserWidth, Double(windowWidth) * 0.6))))
         // отдельный блок, как вкладка в Claude: скруглённая карточка с отступами от краёв окна
@@ -220,7 +267,7 @@ struct BrowserPane: View {
                 .offset(x: -4)
         }
         .padding(.vertical, 8).padding(.trailing, 8)
-        .animation(.easeOut(duration: 0.15), value: browser.activity)
+        .animation(.easeOut(duration: 0.2), value: browser.activity)
         .onChange(of: browser.url) { _, u in if !editing { address = u == "about:blank" ? "" : u } }
         .onChange(of: browser.viewport) { _, v in
             if let w = v.size?.width, app.browserWidth < Double(w) + 40 { app.browserWidth = Double(w) + 40 }
@@ -400,7 +447,7 @@ struct BrowserPane: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 2) {
                 ForEach(browser.tabs) { t in
-                    BrowserTabChip(title: t.title.isEmpty ? (URL(string: t.url)?.host ?? "Новая вкладка") : t.title,
+                    BrowserTabChip(title: t.file?.name ?? (t.title.isEmpty ? (URL(string: t.url)?.host ?? "Новая вкладка") : t.title),
                                    on: t.id == browser.activeID,
                                    select: { browser.select(t.id) },
                                    close: { closeTab(t.id) })

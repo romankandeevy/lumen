@@ -1,0 +1,187 @@
+/* =========================================================
+   Люмен — тема, фон и знак-затмение
+   Тёмная тема по умолчанию. Светлая: <html data-theme="light">
+   ========================================================= */
+
+:root, [data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0A0B0F;
+  --sidebar-bg: linear-gradient(180deg, #101116 0%, #0C0D11 100%);
+  --line: rgba(255,255,255,.06);
+  --divider: rgba(255,255,255,.055);
+
+  --text: #F1F3F8;
+  --text-strong: #F4F6FB;      /* приветствие */
+  --text-body: #E6E9F0;        /* текст ответа */
+  --text-row: #D5D9E2;         /* строки истории */
+  --text-control: #C3C8D4;     /* модель, усилие в composer */
+  --muted: #8D93A3;
+  --faint: #7C8292;
+  --placeholder: #7C8292;
+
+  --accent: #5B86FF;
+  --accent-ink: #7FA0FF;       /* иконки, ссылки, каретка, фокус */
+  --accent-soft: #9DB4FF;      /* текст на акцентной подложке */
+  --accent-wash: rgba(91,134,255,.12);
+
+  --hover: rgba(255,255,255,.045);
+  --active-bg: linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.045));
+  --active-ring: inset 0 0 0 1px rgba(255,255,255,.06);
+  --segment-bg: rgba(255,255,255,.035);
+  --segment-ring: inset 0 0 0 1px rgba(255,255,255,.055);
+  --segment-on-bg: linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.055));
+  --segment-on-ring: inset 0 0 0 1px rgba(255,255,255,.07), 0 1px 2px rgba(0,0,0,.4);
+
+  --bubble-bg: linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.05));
+  --bubble-ring: inset 0 0 0 1px rgba(255,255,255,.07);
+
+  /* поле ввода: сплошное, фон сквозь него не просвечивает */
+  --composer-bg: #050608;
+  --composer-ring: inset 0 0 0 1px rgba(255,255,255,.09), inset 0 1px 0 rgba(255,255,255,.05), 0 24px 70px rgba(0,0,0,.38);
+  --composer-ring-focus: inset 0 0 0 1px rgba(127,160,255,.42), inset 0 1px 0 rgba(255,255,255,.06), 0 0 0 4px rgba(91,134,255,.10), 0 24px 70px rgba(0,0,0,.45);
+
+  --popover: #14161C;
+  --popover-shadow: inset 0 0 0 1px rgba(255,255,255,.08), 0 24px 60px rgba(0,0,0,.55);
+
+  --avatar-bg: linear-gradient(180deg, #23262F, #181A21);
+  --avatar-ring: inset 0 0 0 1px rgba(255,255,255,.08);
+
+  --send-on-bg: radial-gradient(circle at 34% 28%, #A9C0FF 0%, #5179F6 42%, #2643CC 100%);
+  --send-on-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 6px 18px rgba(70,110,255,.38);
+  --send-off-bg: rgba(255,255,255,.06);
+  --send-off-ring: inset 0 0 0 1px rgba(255,255,255,.07);
+  --send-off-ink: #7C8292;
+  --stop-bg: #F1F3F8;
+  --stop-ink: #0A0B0F;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: #F7F7F4;
+  --sidebar-bg: #EFEFEB;
+  --line: rgba(20,24,38,.07);
+  --divider: rgba(20,24,38,.07);
+
+  --text: #15171C;
+  --text-strong: #14161B;
+  --text-body: #1D2027;
+  --text-row: #33363F;
+  --text-control: #3F434D;
+  --muted: #686D7A;
+  --faint: #767B88;
+  --placeholder: #8A8F9B;
+
+  --accent: #2F5BEA;
+  --accent-ink: #2F5BEA;
+  --accent-soft: #2F5BEA;
+  --accent-wash: rgba(47,91,234,.09);
+
+  --hover: rgba(20,24,38,.05);
+  --active-bg: #FFFFFF;
+  --active-ring: 0 0 0 1px rgba(20,24,38,.06), 0 1px 2px rgba(20,24,38,.05);
+  --segment-bg: rgba(20,24,38,.05);
+  --segment-ring: none;
+  --segment-on-bg: #FFFFFF;
+  --segment-on-ring: 0 0 0 1px rgba(20,24,38,.06), 0 1px 2px rgba(20,24,38,.08);
+
+  --bubble-bg: #E9E9E4;
+  --bubble-ring: none;
+
+  --composer-bg: #FFFFFF;
+  --composer-ring: 0 0 0 1px rgba(20,24,38,.09), 0 1px 2px rgba(20,24,38,.04), 0 10px 30px rgba(20,24,38,.06);
+  --composer-ring-focus: 0 0 0 1px rgba(47,91,234,.45), 0 0 0 4px rgba(47,91,234,.10), 0 10px 30px rgba(20,24,38,.08);
+
+  --popover: #FFFFFF;
+  --popover-shadow: 0 0 0 1px rgba(20,24,38,.08), 0 16px 40px rgba(20,24,38,.14);
+
+  --avatar-bg: #E2E3E7;
+  --avatar-ring: none;
+
+  --send-on-bg: radial-gradient(circle at 34% 28%, #7F9DFF 0%, #3D66F0 45%, #2546C9 100%);
+  --send-on-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 4px 12px rgba(47,91,234,.28);
+  --send-off-bg: rgba(20,24,38,.06);
+  --send-off-ring: none;
+  --send-off-ink: #9095A1;
+  --stop-bg: #15171C;
+  --stop-ink: #FFFFFF;
+}
+
+/* ---------- фон главной области: зерно + звёзды + лучи короны ----------
+   <main class="grain"> ... <div class="sky" aria-hidden="true">
+     <div class="sky-stars"></div><div class="sky-rays"></div></div>
+   --cx / --cy у .sky = центр знака на стартовом экране. */
+.grain{background-color:#0A0B0F;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 .09 0 0 0 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");background-size:180px 180px}
+
+.ec{position:relative;flex:none;width:var(--s);height:var(--s)}
+.ec>span{position:absolute;border-radius:999px;pointer-events:none}
+
+/* outer corona: radial streamers = conic by angle × steep radial falloff */
+.ec-streamers{inset:calc(var(--s)*-1.15);transform:rotate(-16deg) scale(1.3,.86);
+  background:conic-gradient(from 0deg,rgba(228,236,255,.55) 0deg,rgba(228,236,255,.18) 9deg,rgba(228,236,255,.7) 17deg,rgba(228,236,255,.25) 28deg,rgba(228,236,255,.5) 36deg,rgba(228,236,255,.12) 47deg,rgba(228,236,255,.6) 60deg,rgba(228,236,255,.2) 72deg,rgba(228,236,255,.9) 86deg,rgba(228,236,255,.3) 95deg,rgba(228,236,255,.55) 104deg,rgba(228,236,255,.15) 118deg,rgba(228,236,255,.45) 131deg,rgba(228,236,255,.2) 147deg,rgba(228,236,255,.6) 160deg,rgba(228,236,255,.25) 172deg,rgba(228,236,255,.5) 184deg,rgba(228,236,255,.14) 197deg,rgba(228,236,255,.65) 210deg,rgba(228,236,255,.22) 223deg,rgba(228,236,255,.4) 240deg,rgba(228,236,255,.9) 266deg,rgba(228,236,255,.3) 276deg,rgba(228,236,255,.5) 290deg,rgba(228,236,255,.12) 305deg,rgba(228,236,255,.55) 320deg,rgba(228,236,255,.2) 335deg,rgba(228,236,255,.55) 360deg);
+  -webkit-mask-image:radial-gradient(closest-side,#000 30%,rgba(0,0,0,.6) 36%,rgba(0,0,0,.24) 48%,rgba(0,0,0,.08) 66%,rgba(0,0,0,.02) 84%,transparent 100%);
+  mask-image:radial-gradient(closest-side,#000 30%,rgba(0,0,0,.6) 36%,rgba(0,0,0,.24) 48%,rgba(0,0,0,.08) 66%,rgba(0,0,0,.02) 84%,transparent 100%);
+  filter:blur(calc(var(--s)*.018));transition:opacity .6s ease}
+/* fine filaments */
+.ec-fibers{inset:calc(var(--s)*-.7);transform:rotate(-16deg) scale(1.2,.9);
+  background:repeating-conic-gradient(rgba(255,255,255,.16) 0deg 1.1deg,rgba(255,255,255,0) 1.1deg 3.3deg);
+  -webkit-mask-image:radial-gradient(closest-side,#000 40%,rgba(0,0,0,.35) 52%,rgba(0,0,0,.08) 72%,transparent 100%);
+  mask-image:radial-gradient(closest-side,#000 40%,rgba(0,0,0,.35) 52%,rgba(0,0,0,.08) 72%,transparent 100%);
+  filter:blur(calc(var(--s)*.006));opacity:.8}
+/* inner corona: brightest right at the limb, falls off steeply */
+.ec-inner{inset:calc(var(--s)*-.3);background:radial-gradient(closest-side,#F3F6FF 60%,rgba(236,242,255,.9) 63%,rgba(214,226,255,.45) 69%,rgba(190,208,255,.16) 80%,rgba(170,195,255,.04) 92%,transparent 100%)}
+/* faint bluish scattered light (sky glow) */
+.ec-glow{inset:calc(var(--s)*-.9);background:radial-gradient(closest-side,rgba(120,150,255,.10) 0%,rgba(120,150,255,.04) 45%,transparent 100%)}
+/* the Sun's photosphere, hidden behind the Moon at totality */
+.ec-sun{inset:0;background:radial-gradient(circle,#FFFFFF 0%,#F4F7FF 72%,#DDE7FF 100%);transition:box-shadow .5s ease,transform .6s cubic-bezier(.2,.8,.2,1)}
+/* the Moon is slightly larger than the Sun (that's why totality happens) */
+.ec-orbit{inset:0}
+.ec-orbit>span{position:absolute;border-radius:999px}
+.ec-moon{inset:calc(var(--s)*-.025);background:radial-gradient(circle at 42% 38%,#0C0E15 0%,#050608 55%,#020203 100%);box-shadow:inset 0 0 calc(var(--s)*.04) rgba(0,0,0,.95);transition:transform .6s cubic-bezier(.2,.8,.2,1)}
+.ec-bloom{width:calc(var(--s)*.34);height:calc(var(--s)*.72);left:calc(var(--s)*.83);top:calc(var(--s)*.14);opacity:0;transition:opacity .5s ease;
+  background:radial-gradient(closest-side,rgba(255,255,255,.85) 0%,rgba(228,237,255,.38) 38%,rgba(190,210,255,0) 100%)}
+/* diamond ring: one bead of photosphere through a lunar valley + bloom */
+.ec-dia{width:calc(var(--s)*.9);height:calc(var(--s)*.9);left:calc(var(--s)*.371);top:calc(var(--s)*-.333);opacity:0;transform:scale(.4);transition:opacity .55s ease,transform .55s cubic-bezier(.2,.8,.2,1)}
+.ec-tw{position:absolute;inset:0;border-radius:999px;background:radial-gradient(closest-side,#FFFFFF 0%,rgba(255,255,255,.95) 6%,rgba(236,242,255,.55) 14%,rgba(200,215,255,.18) 34%,rgba(170,195,255,.05) 60%,transparent 100%)}
+.ec.hot .ec-tw{animation:twinkle 1.3s ease-in-out infinite}
+.ec.hot .ec-dia{opacity:1;transform:scale(1)}
+.ec.hot .ec-streamers{opacity:.55}
+/* thinking: the Moon stays still; the Sun slides a little off-centre and circles behind it, so a thin crescent of light glides around the limb */
+.ec.think .ec-sun{transform:translateX(calc(var(--s)*.05))}
+.ec.think .ec-orbit{animation:orbit 2.6s linear infinite}
+.ec.think .ec-bloom{opacity:1}
+.ec.think .ec-sun{box-shadow:0 0 calc(var(--s)*.12) rgba(225,235,255,.5)}
+
+/* small sizes: detail collapses to the essentials (moon + limb light) */
+.ec.sm .ec-streamers,.ec.sm .ec-fibers{display:none}
+.ec.sm .ec-inner{inset:calc(var(--s)*-.22)}
+
+@keyframes orbit{to{transform:rotate(360deg)}}
+@keyframes twinkle{0%,100%{opacity:1;transform:scale(1)}45%{opacity:.6;transform:scale(.84)}62%{opacity:.92;transform:scale(.96)}}
+.sky{position:absolute;inset:0;z-index:-1;pointer-events:none;overflow:hidden;--cx:calc(50% - 236px);--cy:40%}
+.sky-stars{position:absolute;inset:0;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='520' height='520'%3E%3Ccircle cx='168.4' cy='78.4' r='1.2' fill='%23FFFFFF' fill-opacity='0.14'/%3E%3Ccircle cx='48.9' cy='303.0' r='1.0' fill='%23C9D7FF' fill-opacity='0.21'/%3E%3Ccircle cx='217.4' cy='125.1' r='1.0' fill='%23FFFFFF' fill-opacity='0.3'/%3E%3Ccircle cx='64.4' cy='116.1' r='1.2' fill='%23C9D7FF' fill-opacity='0.37'/%3E%3Ccircle cx='304.5' cy='25.8' r='0.6' fill='%23FFFFFF' fill-opacity='0.14'/%3E%3Ccircle cx='150.6' cy='75.0' r='0.5' fill='%23FFFFFF' fill-opacity='0.37'/%3E%3Ccircle cx='354.6' cy='53.6' r='1.0' fill='%23FFFFFF' fill-opacity='0.39'/%3E%3Ccircle cx='284.8' cy='32.7' r='0.5' fill='%23FFFFFF' fill-opacity='0.39'/%3E%3Ccircle cx='276.5' cy='404.2' r='0.8' fill='%23FFFFFF' fill-opacity='0.37'/%3E%3Ccircle cx='155.9' cy='413.1' r='1.2' fill='%23C9D7FF' fill-opacity='0.46'/%3E%3Ccircle cx='156.1' cy='257.5' r='0.7' fill='%23FFFFFF' fill-opacity='0.43'/%3E%3Ccircle cx='509.7' cy='61.4' r='0.8' fill='%23FFFFFF' fill-opacity='0.19'/%3E%3Ccircle cx='485.3' cy='219.3' r='1.2' fill='%23FFFFFF' fill-opacity='0.15'/%3E%3Ccircle cx='410.3' cy='425.5' r='0.7' fill='%23FFFFFF' fill-opacity='0.42'/%3E%3Ccircle cx='301.5' cy='237.2' r='0.5' fill='%23FFFFFF' fill-opacity='0.53'/%3E%3Ccircle cx='345.4' cy='31.5' r='1.2' fill='%23FFFFFF' fill-opacity='0.25'/%3E%3Ccircle cx='354.2' cy='231.7' r='1.2' fill='%23FFFFFF' fill-opacity='0.29'/%3E%3Ccircle cx='11.7' cy='240.1' r='0.6' fill='%23FFFFFF' fill-opacity='0.38'/%3E%3Ccircle cx='113.5' cy='149.5' r='1.2' fill='%23FFFFFF' fill-opacity='0.23'/%3E%3Ccircle cx='453.1' cy='41.9' r='0.8' fill='%23FFFFFF' fill-opacity='0.29'/%3E%3Ccircle cx='71.2' cy='223.9' r='1.0' fill='%23FFFFFF' fill-opacity='0.24'/%3E%3Ccircle cx='186.6' cy='459.8' r='0.6' fill='%23FFFFFF' fill-opacity='0.18'/%3E%3Ccircle cx='120.6' cy='121.3' r='0.8' fill='%23FFFFFF' fill-opacity='0.48'/%3E%3Ccircle cx='146.6' cy='75.8' r='1.0' fill='%23FFFFFF' fill-opacity='0.28'/%3E%3Ccircle cx='495.6' cy='359.1' r='1.0' fill='%23FFFFFF' fill-opacity='0.53'/%3E%3Ccircle cx='384.7' cy='237.5' r='1.2' fill='%23FFFFFF' fill-opacity='0.46'/%3E%3C/svg%3E"),url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='830' height='830'%3E%3Ccircle cx='331.2' cy='85.9' r='1.2' fill='%23FFFFFF' fill-opacity='0.21'/%3E%3Ccircle cx='817.3' cy='365.7' r='0.5' fill='%23C9D7FF' fill-opacity='0.2'/%3E%3Ccircle cx='0.2' cy='125.5' r='0.5' fill='%23FFFFFF' fill-opacity='0.34'/%3E%3Ccircle cx='58.4' cy='172.6' r='0.8' fill='%23FFFFFF' fill-opacity='0.15'/%3E%3Ccircle cx='288.3' cy='302.3' r='0.5' fill='%23FFFFFF' fill-opacity='0.15'/%3E%3Ccircle cx='811.6' cy='398.7' r='0.7' fill='%23C9D7FF' fill-opacity='0.14'/%3E%3Ccircle cx='284.4' cy='219.7' r='1.2' fill='%23C9D7FF' fill-opacity='0.16'/%3E%3Ccircle cx='789.3' cy='438.5' r='0.6' fill='%23FFFFFF' fill-opacity='0.28'/%3E%3Ccircle cx='629.3' cy='247.4' r='1.2' fill='%23FFFFFF' fill-opacity='0.32'/%3E%3Ccircle cx='216.7' cy='304.4' r='0.6' fill='%23FFFFFF' fill-opacity='0.2'/%3E%3Ccircle cx='449.5' cy='417.2' r='1.2' fill='%23FFFFFF' fill-opacity='0.17'/%3E%3Ccircle cx='817.5' cy='707.7' r='0.6' fill='%23FFFFFF' fill-opacity='0.31'/%3E%3Ccircle cx='188.2' cy='429.6' r='0.7' fill='%23FFFFFF' fill-opacity='0.29'/%3E%3Ccircle cx='655.8' cy='392.0' r='0.6' fill='%23FFFFFF' fill-opacity='0.28'/%3E%3Ccircle cx='371.2' cy='777.7' r='0.7' fill='%23FFFFFF' fill-opacity='0.34'/%3E%3Ccircle cx='183.0' cy='188.3' r='0.6' fill='%23FFFFFF' fill-opacity='0.2'/%3E%3Ccircle cx='817.8' cy='506.5' r='0.5' fill='%23FFFFFF' fill-opacity='0.23'/%3E%3Ccircle cx='663.7' cy='70.4' r='1.2' fill='%23FFFFFF' fill-opacity='0.15'/%3E%3Ccircle cx='590.5' cy='165.4' r='0.6' fill='%23FFFFFF' fill-opacity='0.22'/%3E%3Ccircle cx='72.0' cy='785.3' r='1.2' fill='%23FFFFFF' fill-opacity='0.21'/%3E%3Ccircle cx='785.8' cy='601.6' r='0.6' fill='%23C9D7FF' fill-opacity='0.35'/%3E%3Ccircle cx='490.4' cy='386.2' r='1.2' fill='%23FFFFFF' fill-opacity='0.15'/%3E%3Ccircle cx='813.7' cy='545.5' r='0.7' fill='%23FFFFFF' fill-opacity='0.16'/%3E%3Ccircle cx='17.8' cy='663.5' r='1.2' fill='%23FFFFFF' fill-opacity='0.27'/%3E%3Ccircle cx='774.9' cy='360.1' r='0.6' fill='%23FFFFFF' fill-opacity='0.31'/%3E%3Ccircle cx='209.0' cy='243.2' r='0.6' fill='%23FFFFFF' fill-opacity='0.3'/%3E%3Ccircle cx='451.8' cy='692.4' r='0.5' fill='%23FFFFFF' fill-opacity='0.33'/%3E%3Ccircle cx='380.3' cy='484.2' r='1.0' fill='%23FFFFFF' fill-opacity='0.22'/%3E%3Ccircle cx='416.4' cy='441.4' r='1.0' fill='%23FFFFFF' fill-opacity='0.24'/%3E%3Ccircle cx='644.5' cy='505.1' r='0.6' fill='%23FFFFFF' fill-opacity='0.16'/%3E%3Ccircle cx='601.9' cy='461.9' r='0.7' fill='%23FFFFFF' fill-opacity='0.28'/%3E%3Ccircle cx='400.5' cy='644.5' r='1.0' fill='%23FFFFFF' fill-opacity='0.13'/%3E%3Ccircle cx='35.0' cy='81.1' r='0.8' fill='%23FFFFFF' fill-opacity='0.25'/%3E%3Ccircle cx='757.4' cy='367.9' r='1.0' fill='%23FFFFFF' fill-opacity='0.34'/%3E%3C/svg%3E");background-size:520px 520px,830px 830px;transition:opacity .8s ease}
+.sky-rays{position:absolute;inset:0;transition:opacity .8s ease;
+  background:radial-gradient(circle at var(--cx) var(--cy),rgba(150,175,255,.07) 0,rgba(150,175,255,.025) 260px,rgba(150,175,255,0) 700px),conic-gradient(from 0deg at var(--cx) var(--cy),rgba(205,218,255,0.015) 0deg,rgba(205,218,255,0.038) 5deg,rgba(205,218,255,0.038) 13deg,rgba(205,218,255,0.039) 17deg,rgba(205,218,255,0.070) 25deg,rgba(205,218,255,0.067) 34deg,rgba(205,218,255,0.034) 38deg,rgba(205,218,255,0.029) 44deg,rgba(205,218,255,0.050) 48deg,rgba(205,218,255,0.016) 54deg,rgba(205,218,255,0.009) 59deg,rgba(205,218,255,0.070) 66deg,rgba(205,218,255,0.027) 73deg,rgba(205,218,255,0.010) 78deg,rgba(205,218,255,0.056) 84deg,rgba(205,218,255,0.066) 87deg,rgba(205,218,255,0.050) 91deg,rgba(205,218,255,0.053) 96deg,rgba(205,218,255,0.030) 104deg,rgba(205,218,255,0.027) 110deg,rgba(205,218,255,0.027) 114deg,rgba(205,218,255,0.034) 119deg,rgba(205,218,255,0.029) 126deg,rgba(205,218,255,0.022) 132deg,rgba(205,218,255,0.008) 141deg,rgba(205,218,255,0.017) 149deg,rgba(205,218,255,0.006) 157deg,rgba(205,218,255,0.068) 162deg,rgba(205,218,255,0.057) 166deg,rgba(205,218,255,0.064) 174deg,rgba(205,218,255,0.071) 181deg,rgba(205,218,255,0.040) 187deg,rgba(205,218,255,0.037) 193deg,rgba(205,218,255,0.021) 198deg,rgba(205,218,255,0.014) 205deg,rgba(205,218,255,0.020) 214deg,rgba(205,218,255,0.007) 217deg,rgba(205,218,255,0.046) 221deg,rgba(205,218,255,0.020) 226deg,rgba(205,218,255,0.001) 230deg,rgba(205,218,255,0.031) 238deg,rgba(205,218,255,0.047) 247deg,rgba(205,218,255,0.053) 250deg,rgba(205,218,255,0.073) 259deg,rgba(205,218,255,0.014) 263deg,rgba(205,218,255,0.047) 272deg,rgba(205,218,255,0.015) 278deg,rgba(205,218,255,0.050) 284deg,rgba(205,218,255,0.060) 289deg,rgba(205,218,255,0.003) 297deg,rgba(205,218,255,0.038) 301deg,rgba(205,218,255,0.039) 309deg,rgba(205,218,255,0.034) 314deg,rgba(205,218,255,0.049) 321deg,rgba(205,218,255,0.041) 328deg,rgba(205,218,255,0.073) 336deg,rgba(205,218,255,0.016) 341deg,rgba(205,218,255,0.015) 345deg,rgba(205,218,255,0.055) 354deg,rgba(205,218,255,0.074) 358deg,rgba(205,218,255,0.030) 360deg);
+  -webkit-mask-image:radial-gradient(circle at var(--cx) var(--cy),#000 0,rgba(0,0,0,.75) 160px,rgba(0,0,0,.32) 460px,rgba(0,0,0,.1) 850px,transparent 1250px);
+  mask-image:radial-gradient(circle at var(--cx) var(--cy),#000 0,rgba(0,0,0,.75) 160px,rgba(0,0,0,.32) 460px,rgba(0,0,0,.1) 850px,transparent 1250px)}
+
+/* ---------- светлая тема: звёзд нет, корона «тушью», Луна остаётся чёрной ---------- */
+
+[data-theme="light"] .grain{background-color:#F7F7F4;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .08 0 0 0 0 .09 0 0 0 0 .14 .055 0 0 0 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+/* no stars in daylight */
+[data-theme="light"] .sky-stars{display:none}
+/* rays become a faint ink engraving fanning out of the mark */
+[data-theme="light"] .sky-rays{filter:invert(1) hue-rotate(180deg) saturate(.7);mix-blend-mode:multiply}
+/* eclipse on paper: the Moon stays black, corona is drawn in ink, the limb stays pearl-white on a soft shade */
+[data-theme="light"] .ec-glow{inset:calc(var(--s)*-.62);background:radial-gradient(closest-side,rgba(28,38,72,.30) 0%,rgba(28,38,72,.20) 42%,rgba(28,38,72,.07) 68%,transparent 100%)}
+[data-theme="light"] .ec-streamers{filter:blur(calc(var(--s)*.018)) invert(1) hue-rotate(180deg) saturate(.6);opacity:.42;mix-blend-mode:multiply}
+[data-theme="light"] .ec.hot .ec-streamers{opacity:.26}
+[data-theme="light"] .ec-fibers{background:repeating-conic-gradient(rgba(28,38,72,.14) 0deg 1.1deg,rgba(28,38,72,0) 1.1deg 3.3deg);opacity:.7}
+[data-theme="light"] .ec-inner{background:radial-gradient(closest-side,#FFFFFF 60%,rgba(255,255,255,.95) 63%,rgba(246,249,255,.7) 69%,rgba(236,242,255,.28) 80%,rgba(236,242,255,.06) 92%,transparent 100%)}
+[data-theme="light"] .ec-tw{filter:drop-shadow(0 0 calc(var(--s)*.03) rgba(28,38,72,.35))}
+[data-theme="light"] .ec.think .ec-sun{box-shadow:0 0 calc(var(--s)*.12) rgba(28,38,72,.18)}
+/* small marks: a soft shade so the white limb reads on paper */
+[data-theme="light"] .ec.sm .ec-inner{inset:calc(var(--s)*-.3);background:radial-gradient(closest-side,#FFFFFF 64%,rgba(255,255,255,.9) 68%,rgba(28,38,72,.26) 74%,rgba(28,38,72,.1) 86%,transparent 100%)}
+
+@media (prefers-reduced-motion: reduce) {
+  .ec *, .sky * { animation: none !important; transition: none !important; }
+}

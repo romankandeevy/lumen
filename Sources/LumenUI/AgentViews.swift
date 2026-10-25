@@ -228,6 +228,9 @@ struct StepsView: View {
     var live: (since: Date, tint: Color?)?
     /// Для снимков: показать раскрытым
     var initiallyOpen = false
+    /// Снимки экрана, сделанные на этих шагах: превью справа на строке (три и «+N»)
+    var shots: [Attachment] = []
+    var app: AppModel?
 
     @Environment(\.palette) private var p
     @State private var open = false
@@ -240,10 +243,14 @@ struct StepsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Button { withAnimation(.easeOut(duration: 0.18)) { open.toggle() } } label: { header.contentShape(Rectangle()) }
-                .buttonStyle(.plain)
-                .onHover { hover = $0 }
-                .help(open ? "Свернуть" : "Показать, что делал")
+            HStack(alignment: .center, spacing: 12) {
+                Button { withAnimation(.easeOut(duration: 0.18)) { open.toggle() } } label: { header.contentShape(Rectangle()) }
+                    .buttonStyle(.plain)
+                    .onHover { hover = $0 }
+                    .help(open ? "Свернуть" : "Показать, что делал")
+                Spacer(minLength: 8)
+                if !shots.isEmpty { ShotStrip(shots: shots, app: app) }
+            }
             if open { history.transition(.opacity.combined(with: .move(edge: .top))) }
         }
         .onAppear { if initiallyOpen { open = true } }
@@ -325,7 +332,7 @@ struct StepsView: View {
             list.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { historyHeight = $0 }
         }
         .scrollBounceBehavior(.always)
-        .scrollIndicators(.automatic)
+        .scrollIndicators(.never)
         .frame(height: min(max(historyHeight, 1), 300))
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(p.foreground.opacity(0.025), in: RoundedRectangle(cornerRadius: R.lg))
@@ -1089,6 +1096,44 @@ struct BackgroundTaskRow: View {
             Text("ошибка · \(took)").tw(12, lh: 16).foregroundStyle(Palette.destructive)
         case .stopped:
             Text("остановлена").tw(12, lh: 16).foregroundStyle(p.mutedFg)
+        }
+    }
+}
+
+
+/// Превью снимков экрана на строке шагов, как в Claude Code: до трёх штук, дальше «+1», «+2»… Нажатие открывает снимок сбоку
+struct ShotStrip: View {
+    let shots: [Attachment]
+    var app: AppModel?
+
+    @Environment(\.palette) private var p
+    static let visible = 3
+    static let size = CGSize(width: 76, height: 48)
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(shots.prefix(Self.visible)) { a in
+                Button { if let app { app.preview(a) } else { NSWorkspace.shared.open(a.url) } } label: {
+                    Group {
+                        if let img = ThumbCache.image(a.url) {
+                            Image(nsImage: img).resizable().aspectRatio(contentMode: .fill)
+                        } else {
+                            p.card
+                        }
+                    }
+                    .frame(width: Self.size.width, height: Self.size.height)
+                    .clipShape(RoundedRectangle(cornerRadius: R.md))
+                    .overlay(RoundedRectangle(cornerRadius: R.md).strokeBorder(p.border))
+                }
+                .buttonStyle(.plain)
+                .help(a.name)
+            }
+            if shots.count > Self.visible {
+                Text("+\(shots.count - Self.visible)").tw(13, .medium, lh: 16).foregroundStyle(p.mutedFg)
+                    .frame(width: Self.size.width * 0.6, height: Self.size.height)
+                    .background(p.foreground.opacity(0.06), in: RoundedRectangle(cornerRadius: R.md))
+                    .overlay(RoundedRectangle(cornerRadius: R.md).strokeBorder(p.border))
+            }
         }
     }
 }

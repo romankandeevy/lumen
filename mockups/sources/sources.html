@@ -1,0 +1,105 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Источники — три варианта</title>
+<link rel="stylesheet" href="lumen-theme.css">
+<style>
+*{box-sizing:border-box;margin:0}
+body{background:#000;font-family:-apple-system,"SF Pro Text",Helvetica,sans-serif;color:var(--text);-webkit-font-smoothing:antialiased;width:1360px;padding:0 0 30px}
+.cap{color:#999;font-size:13px;padding:22px 6px 8px}.cap b{color:#ddd}
+.win{width:1360px;height:700px;background:var(--bg);border-radius:14px;position:relative;overflow:hidden;display:flex}
+.chat{width:1360px;padding:36px 0 0 0;position:relative}
+.col{width:690px;margin:0 auto;position:relative}
+.u{margin-left:auto;width:max-content;max-width:520px;background:var(--bubble-bg);box-shadow:var(--bubble-ring);border-radius:20px 20px 6px 20px;padding:11px 17px;font-size:15.5px;line-height:24px}
+.steps{margin:22px 0 0;display:flex;align-items:center;gap:10px;color:var(--muted);font-size:14px}
+.mark{width:26px;height:26px;border-radius:50%;background:#050608;box-shadow:0 0 0 1.5px rgba(236,242,255,.75),0 0 14px rgba(236,242,255,.35);position:absolute;left:-38px;margin-top:20px}
+.ans{margin-top:18px;font-size:16px;line-height:27px;color:var(--text-body);position:relative}
+.ans p{margin-bottom:12px}
+.ans h4{font-size:16px;font-weight:600;color:var(--text-strong);margin:14px 0 6px}
+.ans li{margin:0 0 4px 18px}
+sup.c{font-size:10.5px;font-weight:600;color:var(--accent-soft);background:var(--accent-wash);border-radius:6px;padding:1px 5px;margin-left:2px;vertical-align:super;line-height:0}
+.fav{width:18px;height:18px;border-radius:5px;display:inline-grid;place-items:center;font-size:10px;font-weight:700;color:#fff;flex:none}
+.f1{background:#e0533d}.f2{background:#2f6fe4}.f3{background:#2fa36b}.f4{background:#8a5cf5}.f5{background:#d99a1e}.f6{background:#3b3f4a}
+/* A */
+.srcA{margin-top:14px}.lblA{font-size:12.5px;color:var(--muted);font-weight:500;margin-bottom:8px;display:flex;gap:8px;align-items:center}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:flex;align-items:center;gap:8px;height:34px;padding:0 12px 0 8px;border-radius:999px;background:rgba(255,255,255,.04);box-shadow:inset 0 0 0 1px var(--line);font-size:13px;color:var(--text-row);max-width:250px}
+.chip i{font-style:normal;color:var(--muted);font-size:12px}.chip span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip.more{padding:0 14px;color:var(--muted)}
+/* B */
+.srcB{margin-top:16px;border-radius:16px;background:rgba(255,255,255,.025);box-shadow:inset 0 0 0 1px var(--line);overflow:hidden}
+.hdrB{display:flex;align-items:center;gap:12px;padding:12px 14px;font-size:14px}
+.stack{display:flex}.stack .fav{margin-left:-6px;box-shadow:0 0 0 2px #14161C}.stack .fav:first-child{margin-left:0}
+.hdrB b{font-weight:500}.hdrB small{color:var(--muted);margin-left:auto;font-size:12.5px}
+.rowB{display:flex;gap:12px;padding:11px 14px;border-top:1px solid var(--divider)}
+.rowB .n{width:20px;color:var(--muted);font-size:12.5px;padding-top:2px}
+.rowB .t{flex:1;min-width:0}.rowB .t b{display:block;font-weight:500;font-size:14px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rowB .t em{font-style:normal;display:flex;gap:6px;align-items:center;color:var(--muted);font-size:12.5px;margin-top:2px}
+.rowB .t p{font-size:13px;color:var(--muted);line-height:1.45;margin:4px 0 0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.foot{padding:10px 14px;border-top:1px solid var(--divider);color:var(--accent-ink);font-size:13px}
+/* C */
+.pane{position:absolute;right:0;top:0;bottom:0;width:430px;background:#0C0D11;border-left:1px solid var(--line);padding:18px 16px;overflow:hidden}
+.pane h5{font-size:14px;font-weight:600;margin-bottom:3px;display:flex;align-items:center;gap:8px}
+.pane .s{color:var(--muted);font-size:12.5px;margin-bottom:14px}
+.card{border-radius:14px;background:rgba(255,255,255,.03);box-shadow:inset 0 0 0 1px var(--line);margin-bottom:10px;overflow:hidden;display:flex;gap:12px;padding:10px}
+.card.sel{box-shadow:inset 0 0 0 1px rgba(127,160,255,.5);background:rgba(91,134,255,.07)}
+.th{width:92px;height:72px;border-radius:9px;flex:none;position:relative;overflow:hidden}
+.th::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 40%,rgba(0,0,0,.45))}
+.card .t{flex:1;min-width:0}.card .t b{display:block;font-size:13.5px;font-weight:500;line-height:1.3;max-height:36px;overflow:hidden}
+.card .t em{font-style:normal;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin-top:5px}
+.card .t p{font-size:12.5px;color:var(--muted);margin:5px 0 0;line-height:1.4;max-height:35px;overflow:hidden}
+.num{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;background:var(--accent-wash);color:var(--accent-soft);font-size:10.5px;font-weight:700}
+.col.shift{margin-left:60px;width:620px}
+</style></head><body>
+
+<div class="cap"><b>Вариант A · «Чипы»</b> — тонкая строка под ответом: значок сайта и домен; видны первые четыре, остальные за «ещё 4». В тексте — маленькие номера [1], наведёшь — подсвечивается чип, нажмёшь — страница откроется сбоку.</div>
+<div class="win"><div class="chat"><div class="col">
+ <div class="u">посмотри в интернете, как делают топовые браузерные игры</div>
+ <div class="steps"><span>Искал в интернете · 3 запроса · 8 страниц</span></div>
+ <div style="position:relative"><div class="mark" style="margin-top:6px"></div>
+ <div class="ans"><p>Победители джемов почти всегда держатся на трёх вещах<sup class="c">1</sup>: игра понятна за десять секунд, у каждого действия есть мгновенный отклик, а сессия короткая<sup class="c">2</sup>.</p>
+ <h4>Что повторяется у лучших</h4>
+ <ul><li>Одна механика, доведённая до блеска, вместо пяти сырых<sup class="c">3</sup></li><li>Звук и «сок» (частицы, тряска экрана) делают половину впечатления<sup class="c">4</sup></li><li>Запуск без регистрации и загрузки, меньше 5 МБ<sup class="c">5</sup></li></ul>
+ <div class="srcA"><div class="lblA">Источники</div>
+  <div class="chips">
+   <div class="chip"><span class="fav f1">V</span><span>vibej.am</span><i>1</i></div>
+   <div class="chip"><span class="fav f2">G</span><span>gamedeveloper.com</span><i>2</i></div>
+   <div class="chip"><span class="fav f3">I</span><span>itch.io</span><i>3</i></div>
+   <div class="chip"><span class="fav f4">Y</span><span>youtube.com</span><i>4</i></div>
+   <div class="chip more">ещё 4</div>
+  </div></div>
+ </div></div>
+</div></div></div>
+
+<div class="cap"><b>Вариант B · «Карточка-аккордеон»</b> — одна строка «Источники · 8» со стопкой значков; раскрывается в список: номер, название, сайт, дата и две строки о чём страница. Внизу — «Открыть все сбоку».</div>
+<div class="win"><div class="chat"><div class="col">
+ <div class="u">посмотри в интернете, как делают топовые браузерные игры</div>
+ <div class="steps"><span>Искал в интернете · 3 запроса · 8 страниц</span></div>
+ <div style="position:relative"><div class="mark" style="margin-top:6px"></div>
+ <div class="ans"><p>Победители джемов почти всегда держатся на трёх вещах<sup class="c">1</sup>: игра понятна за десять секунд, у каждого действия есть мгновенный отклик, а сессия короткая<sup class="c">2</sup>.</p>
+ <div class="srcB">
+  <div class="hdrB"><div class="stack"><span class="fav f1">V</span><span class="fav f2">G</span><span class="fav f3">I</span><span class="fav f4">Y</span><span class="fav f5">M</span></div><b>Источники · 8</b><small>скрыть ⌃</small></div>
+  <div class="rowB"><div class="n">1</div><div class="t"><b>Vibe Jam 2026 — победители и разбор</b><em><span class="fav f1" style="width:14px;height:14px;font-size:8px">V</span>vibej.am · 12 мая</em><p>Итоги джема: какие игры победили и почему жюри отметило их за ясность и отклик на каждое действие.</p></div></div>
+  <div class="rowB"><div class="n">2</div><div class="t"><b>Как сделать игру, в которую хочется вернуться</b><em><span class="fav f2" style="width:14px;height:14px;font-size:8px">G</span>gamedeveloper.com · 3 апр</em><p>Короткие сессии и мгновенный отклик — основа удержания, на примерах трёх браузерных хитов.</p></div></div>
+  <div class="rowB"><div class="n">3</div><div class="t"><b>Лучшие игры недели — itch.io</b><em><span class="fav f3" style="width:14px;height:14px;font-size:8px">I</span>itch.io · 20 мая</em><p>Подборка свежих игр с комментариями авторов о том, что они отбросили при разработке.</p></div></div>
+  <div class="foot">Открыть все 8 в боковой панели →</div>
+ </div>
+ </div></div>
+</div></div></div>
+
+<div class="cap"><b>Вариант C · «Источники сбоку»</b> — под ответом только номера в тексте и одна строка «8 источников →»; нажал — справа лента карточек с превью, названием, сайтом и выжимкой; выбранный номер подсвечен и в тексте, и в ленте.</div>
+<div class="win"><div class="chat"><div class="col shift" style="margin-left:80px">
+ <div class="u">посмотри в интернете, как делают топовые браузерные игры</div>
+ <div class="steps"><span>Искал в интернете · 3 запроса · 8 страниц</span></div>
+ <div style="position:relative"><div class="mark" style="margin-top:6px"></div>
+ <div class="ans"><p>Победители джемов почти всегда держатся на трёх вещах<sup class="c">1</sup>: игра понятна за десять секунд, у каждого действия есть мгновенный отклик<sup class="c" style="background:var(--accent);color:#fff">2</sup>, а сессия короткая<sup class="c">3</sup>.</p>
+ <h4>Что повторяется у лучших</h4>
+ <ul><li>Одна механика, доведённая до блеска<sup class="c">3</sup></li><li>Звук и «сок» делают половину впечатления<sup class="c">4</sup></li></ul>
+ <div style="margin-top:12px;display:inline-flex;align-items:center;gap:10px;color:var(--text-row);font-size:13.5px;background:rgba(255,255,255,.04);box-shadow:inset 0 0 0 1px var(--line);border-radius:999px;height:34px;padding:0 14px 0 10px"><div class="stack"><span class="fav f1">V</span><span class="fav f2">G</span><span class="fav f3">I</span></div>8 источников<span style="color:var(--muted)">→</span></div>
+ </div></div>
+</div>
+ <div class="pane"><h5>Источники <span class="num" style="width:auto;padding:0 7px;border-radius:9px">8</span></h5><div class="s">Что нашёл Lumen по трём запросам</div>
+  <div class="card"><div class="th" style="background:linear-gradient(135deg,#e0533d,#7a2a8f)"></div><div class="t"><b><span class="num">1</span> Vibe Jam 2026 — победители и разбор</b><em><span class="fav f1" style="width:14px;height:14px;font-size:8px">V</span>vibej.am · 12 мая</em></div></div>
+  <div class="card sel"><div class="th" style="background:linear-gradient(135deg,#2f6fe4,#1d2a5c)"></div><div class="t"><b><span class="num" style="background:var(--accent);color:#fff">2</span> Как сделать игру, в которую хочется вернуться</b><em><span class="fav f2" style="width:14px;height:14px;font-size:8px">G</span>gamedeveloper.com · 3 апр</em><p>Короткие сессии и мгновенный отклик — основа удержания.</p></div></div>
+  <div class="card"><div class="th" style="background:linear-gradient(135deg,#2fa36b,#12392b)"></div><div class="t"><b><span class="num">3</span> Лучшие игры недели — itch.io</b><em><span class="fav f3" style="width:14px;height:14px;font-size:8px">I</span>itch.io · 20 мая</em></div></div>
+  <div class="card"><div class="th" style="background:linear-gradient(135deg,#8a5cf5,#2a1b5c)"></div><div class="t"><b><span class="num">4</span> Juice it or lose it — доклад</b><em><span class="fav f4" style="width:14px;height:14px;font-size:8px">Y</span>youtube.com · 2019</em></div></div>
+ </div>
+</div></div>
+</body></html>

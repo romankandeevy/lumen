@@ -149,3 +149,69 @@ import Testing
     ])
     #expect(MarkdownBlocks.isRule("- - -") && MarkdownBlocks.isRule("***") && !MarkdownBlocks.isRule("--"))
 }
+
+@Test func githubRepoIsParsedFromWhatPersonPasted() {
+    #expect(GitHubRepo.parse("romankandeevy/lumen") == GitHubRepo(owner: "romankandeevy", name: "lumen"))
+    #expect(GitHubRepo.parse("https://github.com/romankandeevy/lumen.git")?.slug == "romankandeevy/lumen")
+    #expect(GitHubRepo.parse("https://github.com/anthropics/claude-code/tree/main/docs")?.slug == "anthropics/claude-code")
+    #expect(GitHubRepo.parse("git@github.com:a/b.git")?.slug == "a/b")
+    #expect(GitHubRepo.parse("github.com/a/b")?.cloneURL == "https://github.com/a/b.git")
+    #expect(GitHubRepo.parse("https://example.com/a/b") == nil)
+    #expect(GitHubRepo.parse("просто слова") == nil && GitHubRepo.parse("a") == nil && GitHubRepo.parse("") == nil)
+}
+
+@Test func webSearchAndMemoryAreOnByDefault() throws {
+    let p = try JSONDecoder().decode(Preferences.self, from: Data("{}".utf8))
+    #expect(p.webSearch && p.useMemory)
+    var q = p
+    q.webSearch = false
+    q.useMemory = false
+    let back = try JSONDecoder().decode(Preferences.self, from: JSONEncoder().encode(q))
+    #expect(!back.webSearch && !back.useMemory)
+}
+
+@Test func editedQuestionKeepsOldAnswerAsVariantWithItsPrompt() {
+    var old = ChatMessage(conversationID: "c", role: .assistant, text: "ответ на старое")
+    old.alternates = [AnswerVariant(text: "ещё раньше", steps: [], attachments: [], error: nil, model: .sonnet, createdAt: Date())]
+    let all = (old.alternates ?? []) + [AnswerVariant(old, prompt: "старый вопрос")]
+    #expect(all.count == 2 && all.last?.prompt == "старый вопрос" && all.last?.text == "ответ на старое" && all.first?.prompt == nil)
+    // старые записи без «prompt» читаются
+    let json = Data(#"{"text":"т","steps":[],"attachments":[],"createdAt":0}"#.utf8)
+    #expect((try? JSONDecoder().decode(AnswerVariant.self, from: json))?.prompt == nil)
+}
+
+@Test func fileKindPicksThePreview() {
+    #expect(FileKind.of(extension: "MD") == .markdown && FileKind.of(extension: "swift") == .text)
+    #expect(FileKind.of(extension: "pdf") == .pdf && FileKind.of(extension: "png") == .image)
+    #expect(FileKind.of(extension: "mp4") == .video && FileKind.of(extension: "mp3") == .audio)
+    #expect(FileKind.of(extension: "pptx") == .office && FileKind.of(extension: "key") == .office && FileKind.of(extension: "docx") == .office)
+    #expect(FileKind.of(extension: "usdz") == .model3d && FileKind.of(extension: "stl") == .model3d)
+    #expect(FileKind.of(extension: "html") == .web && FileKind.of(extension: "zip") == .other)
+    #expect(FileKind.markdown.hasText && FileKind.pdf.hasText && !FileKind.image.hasText)
+}
+
+@Test func sourcesAreFoundInAnswerAndSteps() {
+    let text = "Победители держатся на одном [Vibe Jam](https://vibej.am/2026?utm_source=x) и на отклике: https://www.gamedeveloper.com/design/loop. "
+        + "Повтор: [тот же](https://vibej.am/2026/) и ```\nhttps://in-code.dev\n```"
+    var step = AgentStep(kind: .web, text: "Открывает https://itch.io/games")
+    step.detail = "https://itch.io/games"
+    let links = SourceLinks.extract(text: text, steps: [step])
+    #expect(links.map(\.host) == ["vibej.am", "gamedeveloper.com", "itch.io"])
+    #expect(links[0].title == "Vibe Jam" && links[1].title == nil)
+    // без сети и всего с двумя ссылками — это не ответ с источниками
+    #expect(SourceLinks.extract(text: "см. https://a.dev и https://b.dev", steps: []).isEmpty)
+    #expect(SourceLinks.extract(text: "https://a.dev https://b.dev https://c.dev", steps: []).count == 3)
+    #expect(SourceLinks.key("https://WWW.Site.com/a/#x") == SourceLinks.key("https://site.com/a"))
+}
+
+@Test func fileCardsInTextBecomeCardAndNote() {
+    let first = FileMarks.marker("a1"), second = FileMarks.marker("b2")
+    let draft = "\(first)поправь заголовок\n\(second)а тут цвета"
+    #expect(FileMarks.ids(in: draft) == ["a1", "b2"])
+    let sent = FileMarks.readable(draft, names: ["a1": "план.md", "b2": "эскиз.png"])
+    #expect(sent == "[Файл: план.md]\nпоправь заголовок\n[Файл: эскиз.png]\nа тут цвета")
+    #expect(FileMarks.segments(sent) == [.file("план.md"), .text("поправь заголовок"), .file("эскиз.png"), .text("а тут цвета")])
+    // метка без вложения не остаётся в тексте
+    #expect(FileMarks.strip(draft, keeping: ["b2"]) == "поправь заголовок\n\(second)а тут цвета")
+    #expect(!FileMarks.hasFiles("просто текст"))
+}

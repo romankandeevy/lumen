@@ -1,0 +1,154 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Настройки Lumen — макет</title>
+<link rel="stylesheet" href="lumen-theme.css">
+<style>
+*{box-sizing:border-box;margin:0}
+body{background:#000;font-family:-apple-system,"SF Pro Text",Helvetica,sans-serif;color:var(--text);-webkit-font-smoothing:antialiased;width:1440px}
+.cap{color:#888;font-size:12px;padding:14px 0 6px 6px}
+.win{display:flex;width:1440px;height:860px;background:var(--bg);border-radius:12px;overflow:hidden;position:relative}
+.rail{width:280px;background:var(--sidebar-bg);border-right:1px solid var(--line);padding:46px 12px 12px;display:flex;flex-direction:column;gap:2px;position:relative}
+.dots{position:absolute;left:16px;top:19px;display:flex;gap:8px}.dots i{width:12px;height:12px;border-radius:50%;background:#3a3d46}
+.back{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13.5px;padding:6px 10px;margin-bottom:6px}
+.search{display:flex;align-items:center;gap:8px;height:34px;border-radius:10px;background:var(--segment-bg);box-shadow:var(--segment-ring);padding:0 11px;color:var(--placeholder);font-size:13.5px;margin-bottom:10px}
+.item{display:flex;align-items:center;gap:11px;height:34px;padding:0 11px;border-radius:10px;font-size:14px;color:var(--text-row)}
+.item.on{background:var(--active-bg);box-shadow:var(--active-ring);color:var(--text)}
+.item svg,.row svg.ic{width:17px;height:17px;stroke:var(--muted);fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.item.on svg{stroke:var(--accent-ink)}
+.main{flex:1;position:relative;overflow:hidden}
+.sky{position:absolute;inset:0;background:radial-gradient(900px 500px at 60% -10%,rgba(91,134,255,.06),transparent 70%)}
+.page{position:relative;max-width:760px;margin:0 auto;padding:54px 0 40px}
+.crumb{color:var(--muted);font-size:13.5px;margin-bottom:6px}
+h1{font-size:26px;font-weight:600;letter-spacing:-.01em;margin-bottom:6px;color:var(--text-strong)}
+.sub{color:var(--muted);font-size:14px;margin-bottom:26px}
+.h{font-size:12.5px;font-weight:600;color:var(--muted);margin:22px 0 8px 4px;letter-spacing:.02em}
+.card{background:rgba(255,255,255,.025);border-radius:16px;box-shadow:inset 0 0 0 1px var(--line)}
+.row{display:flex;align-items:center;gap:14px;padding:14px 16px;border-top:1px solid var(--divider)}
+.row:first-child{border-top:0}
+.row .t{flex:1}.row .t b{display:block;font-weight:500;font-size:14.5px;color:var(--text)}.row .t span{display:block;color:var(--muted);font-size:13px;margin-top:2px;line-height:1.4}
+.row.hit{background:rgba(91,134,255,.08);box-shadow:inset 0 0 0 1px rgba(127,160,255,.35);border-radius:14px;border-top-color:transparent}
+.sw{width:40px;height:24px;border-radius:999px;background:rgba(255,255,255,.12);position:relative;flex:none}
+.sw::after{content:"";position:absolute;left:3px;top:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.2s}
+.sw.on{background:var(--accent)}.sw.on::after{left:19px}
+.seg{display:flex;background:var(--segment-bg);box-shadow:var(--segment-ring);border-radius:10px;padding:3px;gap:2px;flex:none}
+.seg i{font-style:normal;font-size:13px;padding:5px 12px;border-radius:8px;color:var(--muted)}
+.seg i.on{background:var(--segment-on-bg);box-shadow:var(--segment-on-ring);color:var(--text)}
+.btn{font-size:13px;padding:6px 13px;border-radius:9px;background:var(--segment-bg);box-shadow:var(--segment-ring);color:var(--text);flex:none}
+.dd{position:absolute;left:12px;right:12px;top:130px;background:var(--popover);border-radius:14px;box-shadow:var(--popover-shadow);padding:6px;z-index:5}
+.dd .r{display:flex;gap:10px;align-items:center;padding:8px 10px;border-radius:9px;font-size:13.5px}
+.dd .r.on{background:var(--hover)}.dd .r small{color:var(--muted);margin-left:auto;font-size:12px}
+.comp{position:absolute;left:50%;transform:translateX(-50%);bottom:56px;width:700px;height:130px;border-radius:24px;background:var(--composer-bg);box-shadow:var(--composer-ring-focus);padding:20px 24px;color:var(--placeholder);font-size:16px}
+.pills{position:absolute;left:18px;bottom:12px;display:flex;gap:6px;align-items:center}
+.pill{height:30px;border-radius:999px;padding:0 12px;display:flex;align-items:center;gap:7px;font-size:13px;color:var(--text-control);background:var(--segment-bg);box-shadow:var(--segment-ring)}
+.pill.on{color:var(--accent-soft);background:var(--accent-wash);box-shadow:inset 0 0 0 1px rgba(127,160,255,.25)}
+.pill svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.plus{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:var(--hover)}
+.menu{position:absolute;left:150px;bottom:120px;width:300px;background:var(--popover);border-radius:14px;box-shadow:var(--popover-shadow);padding:6px;z-index:6}
+.menu .m{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:9px;font-size:14px}
+.menu .m:hover,.menu .m.on{background:var(--hover)}
+.menu .m svg{width:16px;height:16px;stroke:var(--muted);fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.menu .m small{margin-left:auto;color:var(--muted);font-size:12px}
+.menu hr{border:0;border-top:1px solid var(--divider);margin:5px 4px}
+.menu .tg{margin-left:auto;width:34px;height:20px;border-radius:999px;background:rgba(255,255,255,.12);position:relative}
+.menu .tg::after{content:"";position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;background:#fff}
+.menu .tg.on{background:var(--accent)}.menu .tg.on::after{left:16px}
+</style></head><body>
+<svg width="0" height="0" style="position:absolute"><defs>
+<symbol id="gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+<symbol id="pal" viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2a10 10 0 0 0 0 20 2 2 0 0 0 2-2c0-.6-.2-1-.5-1.4a2 2 0 0 1 1.5-3.3H17a5 5 0 0 0 5-5A10 10 0 0 0 12 2z"/></symbol>
+<symbol id="msg" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22z"/></symbol>
+<symbol id="term" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6M12 19h8"/></symbol>
+<symbol id="key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/></symbol>
+<symbol id="plug" viewBox="0 0 24 24"><path d="M12 22v-5M9 8V2M15 8V2M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8z"/></symbol>
+<symbol id="db" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5M3 12a9 3 0 0 0 18 0"/></symbol>
+<symbol id="spark" viewBox="0 0 24 24"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z"/></symbol>
+<symbol id="paw" viewBox="0 0 24 24"><circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="4" cy="8" r="2"/><path d="M9 10a5 5 0 0 1 5 3.1 3 3 0 0 0 2.4 1.9A3.5 3.5 0 0 1 14 21c-1.4 0-2.6-.8-4-1-1.5.2-2.6 1-4 1a3.5 3.5 0 0 1-2.4-6A3 3 0 0 0 6 13.1 5 5 0 0 1 9 10z"/></symbol>
+<symbol id="info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></symbol>
+<symbol id="srch" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="back" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></symbol>
+<symbol id="globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"/></symbol>
+<symbol id="brain" viewBox="0 0 24 24"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/></symbol>
+<symbol id="flask" viewBox="0 0 24 24"><path d="M10 2v7.5L4.5 19a2 2 0 0 0 1.7 3h11.6a2 2 0 0 0 1.7-3L14 9.5V2M8.5 2h7M7 16h10"/></symbol>
+<symbol id="clip" viewBox="0 0 24 24"><path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/></symbol>
+<symbol id="gh" viewBox="0 0 24 24"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.1-1.3-.3-2.7-1-3.8.3-1.2.3-2.5 0-3.7 0 0-1 0-3 1.5a13.4 13.4 0 0 0-7 0C6 2 5 2 5 2a4.2 4.2 0 0 0 0 3.7A5.4 5.4 0 0 0 4 9.5c0 3.5 3 5.5 6 5.5a4.8 4.8 0 0 0-1 3.5v4M9 18c-4.5 1.5-5-2.5-7-3"/></symbol>
+<symbol id="fold" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/><path d="M12 10v6M9 13h6"/></symbol>
+<symbol id="book" viewBox="0 0 24 24"><path d="M12 7v14M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></symbol>
+<symbol id="wave" viewBox="0 0 24 24"><path d="M3 12h2l2-6 4 12 3-9 2 3h5"/></symbol>
+</defs></svg>
+
+<div class="cap">1 · Настройки на всё окно: слева вместо панели приложения — разделы и поиск; строки одинаковые</div>
+<div class="win"><div class="rail"><div class="dots"><i></i><i></i><i></i></div>
+ <div class="back"><svg class="ic" style="width:16px;height:16px;stroke:var(--muted);fill:none;stroke-width:1.7"><use href="#back"/></svg>Назад в Lumen</div>
+ <div class="search"><svg style="width:15px;height:15px;stroke:var(--muted);fill:none;stroke-width:1.7"><use href="#srch"/></svg>Найти настройку</div>
+ <div class="item on"><svg><use href="#gear"/></svg>Основное</div>
+ <div class="item"><svg><use href="#pal"/></svg>Вид</div>
+ <div class="item"><svg><use href="#msg"/></svg>Чат</div>
+ <div class="item"><svg><use href="#term"/></svg>Агент</div>
+ <div class="item"><svg><use href="#key"/></svg>Модели и ключи</div>
+ <div class="item"><svg><use href="#plug"/></svg>Подключения</div>
+ <div class="item"><svg><use href="#db"/></svg>Память и данные</div>
+ <div class="item"><svg><use href="#spark"/></svg>Характер</div>
+ <div class="item"><svg><use href="#paw"/></svg>Питомец</div>
+ <div class="item"><svg><use href="#info"/></svg>О программе</div>
+</div>
+<div class="main"><div class="sky"></div><div class="page">
+ <div class="crumb">Настройки</div><h1>Основное</h1><div class="sub">Запуск, уведомления и движение.</div>
+ <div class="h">ЗАПУСК</div>
+ <div class="card"><div class="row"><div class="t"><b>Открывать при входе в систему</b><span>Lumen запускается сам, когда включаешь Мак</span></div><div class="sw"></div></div>
+ <div class="row"><div class="t"><b>Продолжать последний разговор</b><span>При запуске открывается то, на чём остановился</span></div><div class="sw on"></div></div></div>
+ <div class="h">КОГДА ОТВЕТ ГОТОВ</div>
+ <div class="card"><div class="row"><div class="t"><b>Уведомление</b><span>Название разговора и начало ответа</span></div><div class="sw on"></div></div>
+ <div class="row"><div class="t"><b>Звук</b><span>Только когда Lumen не на переднем плане</span></div><div class="seg"><i>Без звука</i><i class="on">Стекло</i><i>Пинг</i><i>Хлопок</i></div></div></div>
+ <div class="h">ДВИЖЕНИЕ</div>
+ <div class="card"><div class="row"><div class="t"><b>Меньше движения</b><span>Знак не мерцает, свет по кругу стоит, значки не крутятся</span></div><div class="seg"><i class="on">Как в системе</i><i>Вкл.</i><i>Выкл.</i></div></div></div>
+</div></div></div>
+
+<div class="cap">2 · Раздел «Чат»: поиск в сети, память о тебе и ресерч — по умолчанию; поиск нашёл строку и подсветил её</div>
+<div class="win"><div class="rail"><div class="dots"><i></i><i></i><i></i></div>
+ <div class="back"><svg class="ic" style="width:16px;height:16px;stroke:var(--muted);fill:none;stroke-width:1.7"><use href="#back"/></svg>Назад в Lumen</div>
+ <div class="search" style="color:var(--text);box-shadow:inset 0 0 0 1px rgba(127,160,255,.4)"><svg style="width:15px;height:15px;stroke:var(--accent-ink);fill:none;stroke-width:1.7"><use href="#srch"/></svg>поиск</div>
+ <div class="dd"><div class="r on"><svg style="width:16px;height:16px;stroke:var(--accent-ink);fill:none;stroke-width:1.6"><use href="#globe"/></svg>Поиск в сети<small>Чат</small></div>
+  <div class="r"><svg style="width:16px;height:16px;stroke:var(--muted);fill:none;stroke-width:1.6"><use href="#srch"/></svg>Поиск по разговорам<small>Память и данные</small></div>
+  <div class="r"><svg style="width:16px;height:16px;stroke:var(--muted);fill:none;stroke-width:1.6"><use href="#globe"/></svg>Браузер сбоку<small>Подключения</small></div></div>
+ <div style="height:130px"></div>
+ <div class="item"><svg><use href="#gear"/></svg>Основное</div>
+ <div class="item"><svg><use href="#pal"/></svg>Вид</div>
+ <div class="item on"><svg><use href="#msg"/></svg>Чат</div>
+ <div class="item"><svg><use href="#term"/></svg>Агент</div>
+ <div class="item"><svg><use href="#key"/></svg>Модели и ключи</div>
+ <div class="item"><svg><use href="#plug"/></svg>Подключения</div>
+ <div class="item"><svg><use href="#db"/></svg>Память и данные</div>
+</div>
+<div class="main"><div class="sky"></div><div class="page">
+ <div class="crumb">Настройки</div><h1>Чат</h1><div class="sub">Что Lumen умеет в разговоре по умолчанию. В поле ввода любое из этого можно включить и выключить для одного разговора.</div>
+ <div class="h">ВОЗМОЖНОСТИ ПО УМОЛЧАНИЮ</div>
+ <div class="card">
+  <div class="row hit"><svg class="ic"><use href="#globe"/></svg><div class="t"><b>Поиск в сети</b><span>Lumen может искать в интернете и открывать страницы. Выключишь — отвечает только из головы и твоей памяти</span></div><div class="sw on"></div></div>
+  <div class="row"><svg class="ic"><use href="#brain"/></svg><div class="t"><b>Память о тебе</b><span>Lumen знает твои факты и дополняет их по ходу разговора. Выключишь — не читает и не записывает</span></div><div class="sw on"></div></div>
+  <div class="row"><svg class="ic"><use href="#flask"/></svg><div class="t"><b>Ресерч</b><span>Глубокое исследование: много запросов, сверка источников, отчёт со ссылками. Дольше и дороже обычного ответа</span></div><div class="sw"></div></div>
+ </div>
+ <div class="h">ОТОБРАЖЕНИЕ</div>
+ <div class="card"><div class="row"><div class="t"><b>Ссылки</b><span>Куда открывать ссылки из ответов</span></div><div class="seg"><i class="on">Браузер сбоку</i><i>Мой браузер</i></div></div>
+ <div class="row"><div class="t"><b>Шаги агента</b><span>Показывать инструменты, которые он использовал</span></div><div class="seg"><i class="on">Свёрнуто</i><i>Раскрыто</i><i>Скрыть</i></div></div>
+ <div class="row"><div class="t"><b>Ширина переписки</b><span>Колонка с текстом</span></div><div class="seg"><i>Узкая</i><i class="on">Обычная</i><i>Широкая</i></div></div></div>
+</div></div></div>
+
+<div class="cap">3 · Меню «+» в поле ввода: GitHub, «В проект», ресерч; поиск в сети и память — переключатели прямо тут и таблетками у поля</div>
+<div class="win"><div class="rail"><div class="dots"><i></i><i></i><i></i></div>
+ <div class="item" style="margin-top:6px"><svg><use href="#msg"/></svg>Новый чат</div></div>
+<div class="main"><div class="sky"></div>
+ <div class="menu">
+  <div class="m"><svg><use href="#clip"/></svg>Добавить файлы или фото<small>⌘U</small></div>
+  <div class="m"><svg><use href="#gh"/></svg>Добавить из GitHub…</div>
+  <div class="m"><svg><use href="#fold"/></svg>Добавить в проект…<small>Lumen</small></div>
+  <div class="m"><svg><use href="#book"/></svg>Навыки<small>›</small></div>
+  <div class="m"><svg><use href="#plug"/></svg>Коннекторы<small>›</small></div>
+  <hr>
+  <div class="m"><svg><use href="#globe"/></svg>Поиск в сети<span class="tg on"></span></div>
+  <div class="m"><svg><use href="#brain"/></svg>Память о тебе<span class="tg on"></span></div>
+  <div class="m"><svg><use href="#flask"/></svg>Ресерч<span class="tg"></span></div>
+ </div>
+ <div class="comp">Просто напиши · / — команды и навыки
+  <div class="pills"><div class="plus"><svg style="width:18px;height:18px;stroke:var(--muted);fill:none;stroke-width:1.7;stroke-linecap:round" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div>
+   <div class="pill on"><svg><use href="#globe"/></svg>Поиск в сети</div><div class="pill on"><svg><use href="#brain"/></svg>Память</div><div class="pill"><svg><use href="#flask"/></svg>Ресерч</div></div>
+ </div>
+</div></div>
+</body></html>

@@ -15,6 +15,8 @@ public struct Attachment: Codable, Sendable, Equatable, Hashable, Identifiable {
     public var size: Int
     public var width: Int?
     public var height: Int?
+    /// Снимок экрана, что сделал сам агент (browser_screenshot): виден превью на строке его шагов, а не отдельной картинкой
+    public var snapshot: Bool?
 
     public init(id: String = UUID().uuidString.lowercased(), name: String, kind: Kind, mime: String, path: String, size: Int,
                 width: Int? = nil, height: Int? = nil) {

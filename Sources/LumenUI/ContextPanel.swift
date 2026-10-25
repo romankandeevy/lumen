@@ -78,7 +78,7 @@ struct ContextPanel: View {
     private func link(_ id: String) -> (String, () -> Void)? {
         switch id {
         case "memory": ("Вся память", { app.page = .memory })
-        case "usage": ("Модели и оплата", { app.page = .settings(.models) })
+        case "usage": ("Модели и оплата", { app.openSettings(.models) })
         default: nil
         }
     }

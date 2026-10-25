@@ -130,6 +130,15 @@ public final class AppModel {
     var searchOpen = false
     /// Артефакты, которые «Прикрепить» отправил в чат: поле ввода забирает их, когда чат открыт (ArtifactsView)
     var attachInbox: [Attachment] = []
+    /// Цитата из файла в панели сбоку («В чат» у выделенного): поле ввода вставляет её в текст, когда чат открыт
+    var draftInbox = ""
+    /// Какой раздел настроек открыт в окне настроек (SettingsWindow)
+    var settingsSection: SettingsView.Section = .general
+
+    /// Настройки — отдельным окном поверх главного
+    func openSettings(_ section: SettingsView.Section? = nil) {
+        SettingsWindow.shared.show(self, section: section)
+    }
     /// Щелчок по имени папки в заголовке новой задачи — открыть выбор папки в поле ввода (как у кнопки папки)
     var folderPickerRequest = 0
     var renamingID: String?

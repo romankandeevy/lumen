@@ -202,8 +202,8 @@ struct FloatingPet: View {
         .contextMenu {
             Button("Открыть Lumen") { PetPanel.openLumen() }
             Button("Настройки питомца") {
-                app.page = .settings(.pet)
                 PetPanel.openLumen()
+                app.openSettings(.pet)
             }
             Divider()
             Button("Меньше") { app.update { $0.pet.side = max(PetPrefs.sideRange.lowerBound, $0.pet.side - 16) } }

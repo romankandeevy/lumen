@@ -196,8 +196,11 @@ struct MessageAttachments: View {
         VStack(alignment: leading ? .leading : .trailing, spacing: 8) {
             if images.count == 1, let a = images.first, let image = NSImage(contentsOf: a.url) {
                 Button { open(a) } label: {
+                    // рамка ровно по картинке, без пустых полей по бокам
+                    let box = CGSize(width: leading ? 520 : 320, height: leading ? 400 : 280)
+                    let k = min(box.width / max(image.size.width, 1), box.height / max(image.size.height, 1), 1)
                     Image(nsImage: image).resizable().aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: leading ? 520 : 320, maxHeight: leading ? 400 : 280)
+                        .frame(width: image.size.width * k, height: image.size.height * k)
                         .clipShape(RoundedRectangle(cornerRadius: R.xl))
                         .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
                 }

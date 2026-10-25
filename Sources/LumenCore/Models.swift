@@ -86,9 +86,9 @@ public enum LinkTarget: String, Codable, Sendable, CaseIterable {
 public enum ChatWidth: String, Codable, Sendable, CaseIterable {
     case normal, wide, full
 
-    /// max-w-[44rem] / [60rem] / [88rem]
+    /// max-w-[44rem] / [60rem] / [88rem] + 16 pt: слева теперь поле под знак (Рома, 22.10), а сам текст остаётся прежней ширины
     public var points: Double {
-        switch self { case .normal: 720; case .wide: 960; case .full: 1408 }
+        switch self { case .normal: 736; case .wide: 976; case .full: 1424 }
     }
 }
 
@@ -148,6 +148,12 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var recentFolders: [String] = []
     /// «Запоминать само»: Lumen сам сохраняет важное из разговора, а не только по просьбе «запомни»
     public var autoRemember = true
+    /// «Поиск в сети» (меню «+»): Lumen и агент могут искать в интернете и открывать страницы. По умолчанию включён
+    public var webSearch = true
+    /// «Память о тебе» (меню «+»): Lumen знает твои факты и дополняет их. Выключена — не читает и не записывает. По умолчанию включена
+    public var useMemory = true
+    /// Фон главной области: зерно, звёзды и лучи короны (Sky). Выключен — ровный цвет темы
+    public var skyBackground = true
     /// Предохранитель API: не тратить больше стольких долларов в месяц (§18.3: $100, что входят в Max)
     public var monthlyLimit = 100
     /// Правая панель «Контекст» открыта
@@ -255,6 +261,9 @@ public struct Preferences: Codable, Sendable, Equatable {
         chatWidth = try c.decodeIfPresent(ChatWidth.self, forKey: .chatWidth) ?? .normal
         recentFolders = try c.decodeIfPresent([String].self, forKey: .recentFolders) ?? []
         autoRemember = try c.decodeIfPresent(Bool.self, forKey: .autoRemember) ?? true
+        webSearch = try c.decodeIfPresent(Bool.self, forKey: .webSearch) ?? true
+        useMemory = try c.decodeIfPresent(Bool.self, forKey: .useMemory) ?? true
+        skyBackground = try c.decodeIfPresent(Bool.self, forKey: .skyBackground) ?? true
         monthlyLimit = try c.decodeIfPresent(Int.self, forKey: .monthlyLimit) ?? 100
         contextOpen = try c.decodeIfPresent(Bool.self, forKey: .contextOpen) ?? false
         sidebarHidden = try c.decodeIfPresent(Bool.self, forKey: .sidebarHidden) ?? false

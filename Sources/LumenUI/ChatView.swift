@@ -111,15 +111,28 @@ struct ChatView: View {
         // прикрепили с «Артефактов» — в поле ввода этого разговора
         .onAppear(perform: takeInbox)
         .onChange(of: app.attachInbox) { takeInbox() }
+        .onAppear(perform: takeDraftInbox)
+        .onChange(of: app.draftInbox) { takeDraftInbox() }
+    }
+
+    /// Цитата из файла в панели сбоку — в конец текста в поле ввода (с новой строки)
+    private func takeDraftInbox() {
+        guard !isSplit, !app.draftInbox.isEmpty else { return }
+        draft += (draft.isEmpty || draft.hasSuffix("\n") ? "" : "\n\n") + app.draftInbox
+        app.draftInbox = ""
     }
 
     private func takeInbox() {
         guard !isSplit, !app.attachInbox.isEmpty else { return }
-        for a in app.attachInbox where !attachments.contains(where: { $0.path == a.path }) { attachments.append(a) }
+        // каждый файл — карточкой в тексте, с новой строки: после неё человек пишет правку, потом прикладывает следующий
+        for a in app.attachInbox where !attachments.contains(where: { $0.path == a.path }) {
+            attachments.append(a)
+            draft += (draft.isEmpty || draft.hasSuffix("\n") ? "" : "\n") + FileMarks.marker(a.id)
+        }
         app.attachInbox = []
     }
 
-    static let headerHeight: CGFloat = 52
+    static let headerHeight: CGFloat = 40
 
     /// Пустой экран и новый чат: названия нет — его роль у приветствия
     private var showsTitle: Bool { !(chat.messages.isEmpty && !chat.busy) }
@@ -129,26 +142,20 @@ struct ChatView: View {
     /// справа фоновые задачи и кнопки. Размытие и линия — только когда переписка прокручена
     private var header: some View {
         GeometryReader { g in
-            ZStack {
-                if showsTitle { headerTitle.frame(maxWidth: g.size.width * 0.5) }
-                HStack(spacing: 2) {
-                    Spacer(minLength: 0)
-                    headerButtons
-                }
-                .padding(.trailing, 12)
+            // как в Claude: название слева, у окна, кнопки справа — всё на одной линии со светофором. После значков окна (сайдбар спрятан) — правее
+            HStack(spacing: 2) {
+                if showsTitle { headerTitle.frame(maxWidth: g.size.width * 0.5, alignment: .leading) }
+                Spacer(minLength: 0)
+                headerButtons
             }
+            .padding(.leading, app.prefs.sidebarHidden ? 168 : 24).padding(.trailing, 12)
             .frame(width: g.size.width, height: Self.headerHeight)
+            // светофор сидит выше середины шапки — поднимаем строку на его линию
+            .offset(y: -4)
         }
         .frame(height: Self.headerHeight)
         .background(WindowDragArea())
-        .background {
-            Rectangle().fill(p.background.opacity(0.72))
-                .background(.ultraThinMaterial)
-                .overlay(alignment: .bottom) { p.borderBase.opacity(0.06).frame(height: 1) }
-                .opacity(barSolid ? 1 : 0)
-                .allowsHitTesting(false)
-        }
-        .animation(.easeOut(duration: 0.2), value: barSolid)
+        // плашки нет: под шапкой текст не обрезается краем, а растворяется (маска у прокрутки) — шва с фоном не бывает
         .onChange(of: chat.conversation?.id) { scrolled = false }
     }
 
@@ -158,8 +165,9 @@ struct ChatView: View {
         } else if let bot {
             HeaderTitle(text: bot.name, project: nil, editing: .constant(false), conversation: nil, app: app, onMenu: { _ in })
         } else if let c = chat.conversation {
+            // меню разговора («⋯» раньше сбоку) — по галочке у названия, как в Claude
             HeaderTitle(text: c.title, project: app.project(c.projectID), editing: $titleEditing, conversation: c, app: app) { point in
-                titleMenu(c, at: point)
+                app.showChatMenu(c, at: point) { titleEditing = true }
             }
         }
     }
@@ -192,15 +200,6 @@ struct ChatView: View {
             IconButton(icon: "panel-right", help: bot == nil ? "Контекст: память, окно, расход" : "Паспорт бота: что может и что отрезано",
                        active: app.prefs.contextOpen, side: 32, iconSize: 17) {
                 app.update { $0.contextOpen.toggle() }
-            }
-            if let c = chat.conversation, bot == nil, group == nil {
-                GeometryReader { g in
-                    IconButton(icon: "ellipsis", help: "Ещё", side: 32, iconSize: 17) {
-                        let f = g.frame(in: .global)
-                        app.showChatMenu(c, at: CGPoint(x: f.maxX - 230, y: f.maxY + 6)) { titleEditing = true }
-                    }
-                }
-                .frame(width: 32, height: 32)
             }
         }
     }
@@ -451,13 +450,16 @@ struct ChatView: View {
                 // без «резинки» сверху и снизу
                 .background(NoBounce())
                 // поля по бокам: на узком окне переписка не упирается в края
-                .padding(.horizontal, 28).padding(.top, 18).padding(.bottom, 48)
+                // слева 44: знак (затмение, питомец, бот) висит левее текста ответа, в этом поле; поле ввода ниже — с теми же отступами
+                .padding(.leading, 44).padding(.trailing, 28).padding(.top, 18).padding(.bottom, 48)
                 .frame(maxWidth: columnWidth)
                 .animation(.easeInOut(duration: 0.3), value: app.prefs.chatWidth)
                 .frame(maxWidth: .infinity)
             }
-            .scrollIndicators(.never)
+            .scrollIndicators(.automatic)
             .contentMargins(.top, Self.headerHeight, for: .scrollContent)
+            // верх переписки растворяется под шапкой: вместо плашки с краем, который виден швом на фоне со звёздами
+            .modifier(HeaderFade(height: Self.headerHeight + 22))
             .modifier(ScrolledPast(scrolled: $scrolled, threshold: 4))
             // к концу — когда страница уже разложена (иначе после смены вкладки переписка оказывалась пустой)
             // разговор открывается сразу внизу и держится у низа, пока высоты сообщений досчитываются
@@ -615,12 +617,36 @@ struct MessageRow: View {
         return m
     }
 
+    /// Прежний вопрос, на который отвечал показанный вариант (если вопрос потом изменили)
+    private var variantPrompt: String? {
+        guard let i = variant, let alts = message.alternates, alts.indices.contains(i) else { return nil }
+        return alts[i].prompt
+    }
+
     var body: some View {
         VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 8) {
             if message.chapter { ChapterMark(title: ChapterMark.title(message)) }
             content
         }
         .onHover { hover = $0 }
+    }
+
+    /// Пузырь человека: 20/20/6/20, мягкий градиент и тонкое кольцо внутри, без тени (макет 21.10)
+    private func userBubble(_ text: String) -> some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+            let bubble = UnevenRoundedRectangle(topLeadingRadius: 20, bottomLeadingRadius: 20, bottomTrailingRadius: 6, topTrailingRadius: 20,
+                                                style: .continuous)
+            Text(text)
+                .chatTw(15.5, lh: 24)
+                .textSelection(.enabled)
+                .padding(.horizontal, 17).padding(.vertical, 11)
+                .background(bubble.fill(p.bubbleFill))
+                .overlay(bubble.strokeBorder(p.bubbleRing))
+                // 74% колонки переписки, а не окна: иначе на широком окне пузырь вылезает к правому краю
+                .frame(maxWidth: bubbleMax, alignment: .trailing)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     /// Действия под сообщением: как в Claude
@@ -636,28 +662,32 @@ struct MessageRow: View {
             .frame(maxWidth: .infinity)
         } else if message.role == .user {
             VStack(alignment: .trailing, spacing: 4) {
-            if !message.attachments.isEmpty {
-                MessageAttachments(items: message.attachments).frame(maxWidth: .infinity, alignment: .trailing)
+            // приписка агенту с путями вложений — не для человека
+            let shownText = Attachment.splitSavedNote(message.text).text
+            let segments = FileMarks.segments(shownText)
+            // карточки, на которые ссылается текст («[Файл: имя]»), стоят в нём; остальные — над сообщением
+            let cited = Set(segments.compactMap { if case .file(let n) = $0 { return n } else { return nil } })
+            let loose = message.attachments.filter { !cited.contains($0.name) }
+            if !loose.isEmpty {
+                MessageAttachments(items: loose).frame(maxWidth: .infinity, alignment: .trailing)
             }
             if editing {
                 editor
-            } else if !Attachment.splitSavedNote(message.text).text.isEmpty {
-            HStack(spacing: 0) {
-                Spacer(minLength: 0)
-                // приписка агенту с путями вложений — не для человека
-                // пузырь 20/20/6/20: мягкий градиент и тонкое кольцо внутри, без тени (макет 21.10)
-                let bubble = UnevenRoundedRectangle(topLeadingRadius: 20, bottomLeadingRadius: 20, bottomTrailingRadius: 6, topTrailingRadius: 20,
-                                                    style: .continuous)
-                Text(Attachment.splitSavedNote(message.text).text)
-                    .chatTw(15.5, lh: 24)
-                    .textSelection(.enabled)
-                    .padding(.horizontal, 17).padding(.vertical, 11)
-                    .background(bubble.fill(p.bubbleFill))
-                    .overlay(bubble.strokeBorder(p.bubbleRing))
-                    // 74% колонки переписки, а не окна: иначе на широком окне пузырь вылезает к правому краю
-                    .frame(maxWidth: bubbleMax, alignment: .trailing)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            } else if FileMarks.hasFiles(shownText) {
+                // карточка файла и под ней правка к нему; дальше — следующий файл и его правка
+                ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                    switch segment {
+                    case .file(let name):
+                        if let a = message.attachments.first(where: { $0.name == name }) {
+                            MessageAttachments(items: [a]).frame(maxWidth: .infinity, alignment: .trailing)
+                        } else {
+                            Text(name).font(.geist(13)).foregroundStyle(p.mutedFg)
+                        }
+                    case .text(let t): userBubble(t)
+                    }
+                }
+            } else if !shownText.isEmpty {
+                userBubble(shownText)
             }
             if let via = message.via, !via.isClaudeCode { ViaChip(via: via, app: chat?.app) }
             if !editing, let chat {
@@ -669,7 +699,11 @@ struct MessageRow: View {
             // выбран прежний вариант ответа (‹ 1/3 ›) — показываем его
             let original = message
             let message = shownMessage
-            HStack(alignment: .top, spacing: 16) {
+            // источники ответа (вариант A): чипы под текстом и номера у ссылок; пока печатается — не считаем
+            let sources = streaming ? [] : SourceCache.sources(for: message)
+            let sourceNumbers = Dictionary(sources.enumerated().map { ($1.id, $0 + 1) }, uniquingKeysWith: { a, _ in a })
+            // текст ответа стоит ровно по левому краю поля ввода (Рома, 22.10): знак (затмение, питомец, бот) висит левее, в поле
+            HStack(alignment: .top, spacing: 0) {
                 // шар 26 слева от ответа (макет 21.10); у бота — его знак
                 Group {
                     if !showsMark {
@@ -692,10 +726,18 @@ struct MessageRow: View {
                     }
                 }
                 .padding(.top, 1)
+                .frame(width: 26, height: 26, alignment: .topLeading)
+                .frame(width: 0, alignment: .leading)
+                .offset(x: -38)
                 VStack(alignment: .leading, spacing: 12) {
                     // ответ бота в чужом чате — подписан, чтобы было видно, кто отвечал
                     if let b = chat?.app.bot(message.botID), chat?.conversation?.kind != .bot {
                         Text("@\(b.id) · \(b.name)").tw(12, .medium, lh: 16).foregroundStyle(BotColor.accent(b.hue))
+                    }
+                    // листаем к ответу на прежнюю формулировку вопроса — видно, на что он был
+                    if let prompt = variantPrompt {
+                        IconLabel(text: "Ответ на прежний вопрос: «\(prompt.prefix(80))\(prompt.count > 80 ? "…" : "")»", icon: "clock", size: 13)
+                            .font(.geist(12)).foregroundStyle(p.mutedFg).lineLimit(2)
                     }
                     // как в Claude Code: абзац — шаги — абзац; блок «что дальше» пока пишется — не показывать сырым
                     let pieces = AnswerPiece.layout(text: NextStep.split(message.text).text, steps: message.steps)
@@ -705,15 +747,26 @@ struct MessageRow: View {
                         case .text(let t): RichText(text: t, caret: streaming && last)
                         // последняя группа шагов идущего ответа — она же «что делает сейчас»
                         case .steps(let s):
+                            let shotIDs = Set(s.compactMap(\.shot))
+                            let shots = message.attachments.filter { shotIDs.contains($0.id) }
                             if streaming && last, let chat, chat.busy, !chat.thinking, chat.pendingPermission == nil, let live = chat.liveStep {
-                                StepsView(steps: s, live: (live.since, chat.app.bot(chat.turnBot).map { BotColor.accent($0.hue) }))
+                                StepsView(steps: s, live: (live.since, chat.app.bot(chat.turnBot).map { BotColor.accent($0.hue) }), shots: shots, app: chat.app)
                             } else {
-                                StepsView(steps: s)
+                                StepsView(steps: s, shots: shots, app: chat?.app)
                             }
                         }
                     }
+                    if !sources.isEmpty, let app = chat?.app {
+                        SourceStrip(sources: sources) { s in if let u = URL(string: s.url) { app.openLink(u) } }
+                    }
                     // снимки страниц и файлы, которые агент показал в чате
-                    if !message.attachments.isEmpty { AttachmentThumbs(items: message.attachments, app: chat?.app) }
+                    // снимки, сделанные на шагах, уже превью на их строке; то, что агент показал сам (show_in_chat), — крупно, файлы — карточками
+                    let stepShots = Set(message.steps.compactMap(\.shot))
+                    let rest = message.attachments.filter { !stepShots.contains($0.id) }
+                    let big = rest.filter { $0.kind == .image && $0.snapshot != true }
+                    let small = rest.filter { !($0.kind == .image && $0.snapshot != true) }
+                    if !big.isEmpty { MessageAttachments(items: big, leading: true) }
+                    if !small.isEmpty { AttachmentThumbs(items: small, app: chat?.app) }
                     if let changes = message.changes, let chat {
                         ChangeCard(message: message, changes: changes, chat: chat)
                     }
@@ -757,6 +810,7 @@ struct MessageRow: View {
                             .opacity(showActions ? 1 : 0)
                     }
                 }
+                .environment(\.sourceNumbers, sourceNumbers)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -1286,6 +1340,27 @@ struct Composer: View {
         draft = String(draft[draft.index(after: space)...])
     }
 
+    /// Вложения, стоящие карточкой в тексте (остальные — в ряду над полем)
+    private var inlineIDs: Set<String> { Set(FileMarks.ids(in: draft)) }
+
+    private var inlineChips: [String: FieldChip] {
+        var out: [String: FieldChip] = [:]
+        for a in attachments where inlineIDs.contains(a.id) {
+            let title = a.name.count > 28 ? String(a.name.prefix(26)) + "…" : a.name
+            out[a.id] = FieldChip(id: "file:" + a.id, title: title, tint: p.glow, symbol: FileKind.of(a.url).icon)
+        }
+        return out
+    }
+
+    private var stripItems: Binding<[Attachment]> {
+        Binding(
+            get: { attachments.filter { !inlineIDs.contains($0.id) } },
+            set: { new in
+                let keep = Set(new.map(\.id)), inline = inlineIDs
+                attachments.removeAll { !inline.contains($0.id) && !keep.contains($0.id) }
+            })
+    }
+
     /// Чипы в начале текста поля: позванный бот и выбранный навык
     private var fieldChips: [FieldChip] {
         var out: [FieldChip] = []
@@ -1297,6 +1372,10 @@ struct Composer: View {
     /// Цвет поля: бот, в чьём разговоре мы, или позванный чипом
     private var tintBot: Bot? { currentBot ?? mentioned }
     private var currentBot: Bot? { inBot ? app.bot(chat.conversation?.botID) : nil }
+    /// «Ресерч» на следующее сообщение: после отправки выключается
+    @State private var research = false
+    /// Репозитории GitHub, добавленные в это сообщение (таблетки у «+»)
+    @State private var githubAdded: [GitHubAdded] = []
     @State private var botFolderOpen = false
     @State private var botEffortOpen = false
 
@@ -1400,10 +1479,10 @@ struct Composer: View {
                 .overlay(alignment: .bottom) { p.border.frame(height: 1) }
             }
             if !chat.openQueue.isEmpty { queueList }
-            if !attachments.isEmpty { AttachmentStrip(items: $attachments) }
+            if !stripItems.wrappedValue.isEmpty { AttachmentStrip(items: stripItems) }
             // чипы бота и навыка лежат внутри текста — на одном уровне с буквами, ⌫ стирает их как символ
             ComposerTextView(
-                text: $draft, chips: fieldChips, palette: p,
+                text: $draft, chips: fieldChips, inline: inlineChips, palette: p,
                 placeholder: mentioned.map { "Задача для «\($0.name)»" } ?? (agent ? "Опиши задачу · / — навыки агента" : (currentBot.map { "Напиши боту «\($0.name)»" } ?? (chat.conversation?.kind == .group ? "Написать группе · @id — ответит один" : "Просто напиши · / — команды и навыки"))),
                 focused: $focused,
                 // 16.5 / 1.5; растёт до 240 pt (9 строк), дальше листается
@@ -1440,11 +1519,18 @@ struct Composer: View {
                     return true
                 },
                 onRemoveChip: { id in
-                    if id.hasPrefix("bot:") { mentioned = nil } else { pickedSkill = nil }
+                    if id.hasPrefix("file:") {
+                        let file = String(id.dropFirst(5))
+                        draft = draft.replacingOccurrences(of: FileMarks.marker(file), with: "")
+                        attachments.removeAll { $0.id == file }
+                    } else if id.hasPrefix("bot:") { mentioned = nil } else { pickedSkill = nil }
                 },
                 onFiles: { providers in app.attach(providers) { attachments.append($0) } }
             )
             .onChange(of: draft) { old, new in
+                // карточку стёрли ⌫ — вложение уходит вместе с ней
+                let gone = Set(FileMarks.ids(in: old)).subtracting(FileMarks.ids(in: new))
+                if !gone.isEmpty { attachments.removeAll { gone.contains($0.id) } }
                 absorbDroppedFiles(old: old, new: new)
                 absorbMention()
                 if slashIndex >= slashItems.count { slashIndex = 0 }
@@ -1482,9 +1568,14 @@ struct Composer: View {
         }
         .zIndex(1)
         .onPasteCommand(of: [.fileURL, .png, .tiff, .jpeg]) { providers in app.attach(providers) { attachments.append($0) } }
+        // метка в тексте без вложения (разговор сменился, вложение убрали) — лишняя
+        .onChange(of: attachments.map(\.id)) {
+            let clean = FileMarks.strip(draft, keeping: Set(attachments.map(\.id)))
+            if clean != draft { draft = clean }
+        }
         // ширина — как у колонки переписки (Рома, 17.10), не шире 700 (макет 21.10).
         // Без белой полосы-градиента над полем: она закрывала последние строки ответа
-        .frame(maxWidth: big ? .infinity : min(700, ChatView.columnWidth(app: app, conversation: chat.conversation, agent: agent) - 56))
+        .frame(maxWidth: big ? .infinity : min(700, ChatView.columnWidth(app: app, conversation: chat.conversation, agent: agent) - 72))
         .overlay(alignment: .bottom) {
             if disclaimer {
                 Color.clear.frame(height: 0).overlay(alignment: .top) {
@@ -1493,7 +1584,7 @@ struct Composer: View {
                 }
             }
         }
-        .padding(.horizontal, big ? 0 : 28).padding(.bottom, big ? 0 : (disclaimer ? 40 : 16)).padding(.top, big ? 0 : 8)
+        .padding(.leading, big ? 0 : 44).padding(.trailing, big ? 0 : 28).padding(.bottom, big ? 0 : (disclaimer ? 40 : 16)).padding(.top, big ? 0 : 8)
         .frame(maxWidth: .infinity)
         .onAppear { focused = true }
         .onChange(of: focused) { _, f in focusedOut?.wrappedValue = f }
@@ -1538,7 +1629,12 @@ struct Composer: View {
     /// Слева: «+», папка и режим агента, бот — каждая кнопка во всю подпись
     @ViewBuilder private var leftControls: some View {
         // как в Claude: «+» в левом нижнем углу — картинки и файлы
-        PlusMenu(app: app, agent: agent, canPickFolder: agent && chat.conversation == nil, draft: $draft, attachments: $attachments).fixedSize()
+        PlusMenu(app: app, agent: agent, canPickFolder: agent && chat.conversation == nil, chat: chat, draft: $draft, attachments: $attachments,
+                 research: $research, github: $githubAdded, showsTools: !inBot && !inGroup).fixedSize()
+        // рядом с «+» — только то, что включено или добавлено в это сообщение: «Ресерч» и репозитории GitHub
+        if !inBot && !inGroup && (research || !githubAdded.isEmpty) {
+            ToolPills(research: $research, github: $githubAdded, removeGitHub: removeGitHub).fixedSize()
+        }
         // агент: папка (единственная кнопка с рамкой) и «Режим» — в нём и режим, и «Ночь» (Рома, 21.10)
         if agent { folderPicker.fixedSize(); modeMenu.fixedSize(); modePills }
         if let b = currentBot { botChip(b).fixedSize(); botFolderPicker(b).fixedSize(); botEffortPicker(b).fixedSize() }
@@ -1586,11 +1682,14 @@ struct Composer: View {
         if slashItems.indices.contains(slashIndex) { pickSlash(slashItems[slashIndex]); return }
         // идёт ответ — сообщение встаёт в очередь (в группе — сразу в комнату)
         guard canSend, ready else { return }
-        var text = draft
+        var text = FileMarks.readable(draft, names: Dictionary(attachments.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a }))
         if let sk = pickedSkill { text = "Возьми навык «\(sk.name)»: " + text }
         if let b = mentioned { text = "@\(b.id) " + text }
         // «/что-то», что не наша команда, не уходит в claude командой: там свои навыки Claude Code
         if text.hasPrefix("/") { text = "\u{200B}" + text }
+        chat.researchOnce = research && !inBot && !inGroup
+        research = false
+        githubAdded = []
         chat.send(text, attachments: attachments)
         draft = ""
         attachments = []
@@ -1716,6 +1815,12 @@ struct Composer: View {
         guard panel.runModal() == .OK else { return }
         let files = chat.addPaths(panel.urls)
         attachments += files.compactMap(app.importAttachment)
+    }
+
+    /// Убрать репозиторий GitHub из сообщения: у агента — доступ к его папке, у чата — вложенные README и список файлов
+    private func removeGitHub(_ g: GitHubAdded) {
+        githubAdded.removeAll { $0.id == g.id }
+        if agent { removeExtra(g.folder) } else { attachments.removeAll { g.attachmentIDs.contains($0.id) } }
     }
 
     private func removeExtra(_ d: URL) {
@@ -1944,23 +2049,23 @@ struct HeaderTitle: View {
     @State private var draft = ""
     @FocusState private var focused: Bool
 
-    private static let strong = Color(.sRGB, red: 213 / 255, green: 217 / 255, blue: 226 / 255)
-    private static let soft = Color(.sRGB, red: 141 / 255, green: 147 / 255, blue: 163 / 255)
-    private static let faint = Color(.sRGB, red: 124 / 255, green: 130 / 255, blue: 146 / 255)
+    private var strong: Color { p.foreground }
+    private var soft: Color { p.mutedFg }
+    private var faint: Color { p.faint }
 
     var body: some View {
         HStack(spacing: 6) {
             if let project, !editing {
                 Button { app.page = .project(project.id) } label: {
-                    Text(project.name).tw(13.5, .medium, lh: 18).foregroundStyle(Self.soft).lineLimit(1)
+                    Text(project.name).tw(13.5, .medium, lh: 18).foregroundStyle(soft).lineLimit(1)
                 }
                 .buttonStyle(.plain)
                 .help("Открыть проект")
-                Text("/").tw(13.5, lh: 18).foregroundStyle(Self.faint)
+                Text("/").tw(13.5, lh: 18).foregroundStyle(faint)
             }
             if editing {
                 TextField("", text: $draft)
-                    .textFieldStyle(.plain).tw(13.5, .medium, lh: 18).foregroundStyle(Self.strong)
+                    .textFieldStyle(.plain).tw(13.5, .medium, lh: 18).foregroundStyle(strong)
                     .multilineTextAlignment(.center)
                     .focused($focused)
                     .frame(maxWidth: 320)
@@ -1970,8 +2075,8 @@ struct HeaderTitle: View {
                     .onAppear { draft = text; focused = true }
             } else if conversation != nil {
                 HStack(spacing: 6) {
-                    Text(text).tw(13.5, .medium, lh: 18).foregroundStyle(Self.strong).lineLimit(1).truncationMode(.tail)
-                    Icon("chevron-down", 12).foregroundStyle(Self.faint).opacity(hover ? 1 : 0)
+                    Text(text).tw(13.5, .medium, lh: 18).foregroundStyle(strong).lineLimit(1).truncationMode(.tail)
+                    Icon("chevron-down", 12).foregroundStyle(hover ? soft : faint)
                 }
                 .contentShape(Rectangle())
                 .overlay {
@@ -1988,7 +2093,7 @@ struct HeaderTitle: View {
                 .accessibilityHint("Открывает меню разговора")
                 .accessibilityAddTraits(.isButton)
             } else {
-                Text(text).tw(13.5, .medium, lh: 18).foregroundStyle(Self.strong).lineLimit(1).truncationMode(.tail)
+                Text(text).tw(13.5, .medium, lh: 18).foregroundStyle(strong).lineLimit(1).truncationMode(.tail)
             }
         }
         .animation(.easeOut(duration: 0.12), value: hover)
@@ -2521,5 +2626,22 @@ private struct ModeRow: View {
         .buttonStyle(.plain)
         .onHover { hover = $0 }
         .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
+}
+
+
+/// Верх переписки растворяется под шапкой: прозрачная маска вместо плашки, у которой был бы край (шов на фоне со звёздами)
+struct HeaderFade: ViewModifier {
+    let height: CGFloat
+
+    func body(content: Content) -> some View {
+        content.mask {
+            VStack(spacing: 0) {
+                LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .clear, location: 0.45), .init(color: .black, location: 1)],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(height: height)
+                Color.black
+            }
+        }
     }
 }

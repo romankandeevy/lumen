@@ -118,7 +118,10 @@ public struct AnswerVariant: Codable, Sendable, Equatable, Hashable {
     public var error: String?
     public var model: ChatModel?
     public var createdAt: Date
-    public init(text: String, steps: [AgentStep], attachments: [Attachment], error: String?, model: ChatModel?, createdAt: Date) {
+    /// На какую формулировку вопроса это ответ — если вопрос потом изменили («Изменить»): ответ листается, но видно, на что он
+    public var prompt: String?
+    public init(text: String, steps: [AgentStep], attachments: [Attachment], error: String?, model: ChatModel?, createdAt: Date, prompt: String? = nil) {
+        self.prompt = prompt
         self.text = text
         self.steps = steps
         self.attachments = attachments
@@ -127,8 +130,8 @@ public struct AnswerVariant: Codable, Sendable, Equatable, Hashable {
         self.createdAt = createdAt
     }
 
-    public init(_ m: ChatMessage) {
-        self.init(text: m.text, steps: m.steps, attachments: m.attachments, error: m.error, model: m.model, createdAt: m.createdAt)
+    public init(_ m: ChatMessage, prompt: String? = nil) {
+        self.init(text: m.text, steps: m.steps, attachments: m.attachments, error: m.error, model: m.model, createdAt: m.createdAt, prompt: prompt)
     }
 }
 
@@ -214,6 +217,8 @@ public struct AgentStep: Codable, Sendable, Equatable, Hashable {
     public var at: Int?
     /// Подробности, которые раскрываются в чате: полный путь, команда, что поменяли. nil — раскрывать нечего
     public var detail: String? = nil
+    /// Снимок экрана, сделанный на этом шаге (id вложения): превью на строке шагов, как в Claude Code
+    public var shot: String? = nil
 
     public init(kind: Kind, text: String, at: Int? = nil) {
         self.kind = kind

@@ -17,6 +17,7 @@ struct LinkText: NSViewRepresentable {
     @Environment(\.palette) private var p
     @Environment(\.chatText) private var t
     @Environment(\.openURL) private var openURL
+    @Environment(\.sourceNumbers) private var numbers
 
     func makeNSView(context: Context) -> LinkTextView {
         let v = LinkTextView()
@@ -27,7 +28,7 @@ struct LinkText: NSViewRepresentable {
     func updateNSView(_ v: LinkTextView, context: Context) {
         context.coordinator.open = { openURL($0) }
         let m = metrics
-        let key = "\(t.font)|\(t.scale)|\(Font.uiScale)|\(p.foreground)|\(p.glow)"
+        let key = "\(t.font)|\(t.scale)|\(Font.uiScale)|\(p.foreground)|\(p.glow)|\(numbers.hashValue)"
         v.barColor = NSColor(p.foreground.opacity(0.22))
         v.ruleColor = NSColor(p.borderBase.opacity(0.14))
         v.setCaret(caret, color: NSColor(p.glow), height: m.size * 1.1)
@@ -36,7 +37,7 @@ struct LinkText: NSViewRepresentable {
         context.coordinator.key = key
         v.linkTextAttributes = [.foregroundColor: NSColor(p.glow), .cursor: NSCursor.pointingHand]
         v.textContainerInset = NSSize(width: 0, height: m.extra / 2)
-        v.setText(Self.styledBlocks(source, base: m.font, size: m.size, extra: m.extra, color: NSColor(p.textBody), muted: NSColor(p.mutedFg)))
+        v.setText(Self.styledBlocks(source, base: m.font, size: m.size, extra: m.extra, color: NSColor(p.textBody), muted: NSColor(p.mutedFg), numbers: numbers))
         v.invalidateIntrinsicContentSize()
     }
 
@@ -87,7 +88,8 @@ struct LinkText: NSViewRepresentable {
     }
 
     /// Строчная разметка одного блока с заданным стилем абзаца
-    static func runs(_ text: AttributedString, base: NSFont, size: CGFloat, para: NSParagraphStyle, color: NSColor, bold forceBold: Bool = false) -> NSAttributedString {
+    static func runs(_ text: AttributedString, base: NSFont, size: CGFloat, para: NSParagraphStyle, color: NSColor, bold forceBold: Bool = false,
+                     numbers: [String: Int] = [:]) -> NSAttributedString {
         let out = NSMutableAttributedString()
         for run in text.runs {
             var font = forceBold ? bold(base) : base
@@ -104,13 +106,21 @@ struct LinkText: NSViewRepresentable {
             attrs[.font] = font
             if let link = run.link { attrs[.link] = link }
             out.append(NSAttributedString(string: String(text[run.range].characters), attributes: attrs))
+            // у ссылки на источник ответа — маленький номер: тот же, что у чипа под ответом (вариант A); тоже кликается
+            if let link = run.link, let n = numbers[SourceLinks.key(link.absoluteString)] {
+                out.append(NSAttributedString(string: "\u{2009}\(n)", attributes: [
+                    .font: NSFont.systemFont(ofSize: size * 0.62, weight: .semibold), .baselineOffset: size * 0.32, .link: link,
+                    .paragraphStyle: para,
+                ]))
+            }
         }
         return out
     }
 
     /// Весь ответ одним текстом: заголовки крупнее и жирно, списки с отступом и маркерами, цитата с чертой, линия «---».
     /// Выделяется и копируется целиком — через абзацы, списки и заголовки
-    @MainActor static func styledBlocks(_ source: String, base: NSFont, size: CGFloat, extra: CGFloat, color: NSColor, muted: NSColor) -> NSAttributedString {
+    @MainActor static func styledBlocks(_ source: String, base: NSFont, size: CGFloat, extra: CGFloat, color: NSColor, muted: NSColor,
+                                         numbers: [String: Int] = [:]) -> NSAttributedString {
         let blocks = MarkdownBlocks.parse(source)
         let out = NSMutableAttributedString()
         for (i, b) in blocks.enumerated() {
@@ -123,22 +133,22 @@ struct LinkText: NSViewRepresentable {
             switch b {
             case .paragraph(let t):
                 para.paragraphSpacing = last ? 0 : 12
-                piece = runs(RichText.inline(t), base: base, size: size, para: para, color: color)
+                piece = runs(RichText.inline(t), base: base, size: size, para: para, color: color, numbers: numbers)
             case .heading(let level, let t):
                 let k: CGFloat = level == 1 ? 1.38 : level == 2 ? 1.22 : level == 3 ? 1.1 : 1.0
                 let f = scaled(bold(base), k)
                 para.paragraphSpacingBefore = i == 0 ? 0 : 6
                 para.paragraphSpacing = last ? 0 : 6
-                piece = runs(RichText.inline(t), base: f, size: size * k, para: para, color: color, bold: true)
+                piece = runs(RichText.inline(t), base: f, size: size * k, para: para, color: color, bold: true, numbers: numbers)
             case .bullet(let depth, let t):
-                piece = item(marker: depth == 0 ? "•" : "◦", depth: depth, hang: 16, text: t, base: base, size: size, para: para, color: color, muted: muted, next: next, last: last)
+                piece = item(marker: depth == 0 ? "•" : "◦", depth: depth, hang: 16, text: t, base: base, size: size, para: para, color: color, muted: muted, next: next, last: last, numbers: numbers)
             case .ordered(let depth, let num, let t):
-                piece = item(marker: num + ".", depth: depth, hang: 22, text: t, base: base, size: size, para: para, color: color, muted: muted, next: next, last: last)
+                piece = item(marker: num + ".", depth: depth, hang: 22, text: t, base: base, size: size, para: para, color: color, muted: muted, next: next, last: last, numbers: numbers)
             case .quote(let t):
                 para.firstLineHeadIndent = 14
                 para.headIndent = 14
                 para.paragraphSpacing = last ? 0 : 12
-                piece = runs(RichText.inline(t), base: base, size: size, para: para, color: muted)
+                piece = runs(RichText.inline(t), base: base, size: size, para: para, color: muted, numbers: numbers)
                 extraAttrs[.lumenQuote] = true
             case .rule:
                 para.minimumLineHeight = 26
@@ -159,7 +169,8 @@ struct LinkText: NSViewRepresentable {
 
     /// Пункт списка: маркер, табуляция, текст; перенос строки встаёт под текст, а не под маркер
     @MainActor private static func item(marker: String, depth: Int, hang: CGFloat, text: String, base: NSFont, size: CGFloat,
-                                        para: NSMutableParagraphStyle, color: NSColor, muted: NSColor, next: MDBlock?, last: Bool) -> NSAttributedString {
+                                        para: NSMutableParagraphStyle, color: NSColor, muted: NSColor, next: MDBlock?, last: Bool,
+                                        numbers: [String: Int]) -> NSAttributedString {
         let indent = CGFloat(depth) * 20
         para.firstLineHeadIndent = indent
         para.headIndent = indent + hang
@@ -167,7 +178,7 @@ struct LinkText: NSViewRepresentable {
         para.defaultTabInterval = hang
         para.paragraphSpacing = last ? 0 : ((next?.isListItem ?? false) ? 4 : 12)
         let out = NSMutableAttributedString(string: marker + "\t", attributes: [.font: base, .foregroundColor: muted, .paragraphStyle: para])
-        out.append(runs(RichText.inline(text), base: base, size: size, para: para, color: color))
+        out.append(runs(RichText.inline(text), base: base, size: size, para: para, color: color, numbers: numbers))
         return out
     }
 
