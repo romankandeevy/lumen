@@ -7,12 +7,14 @@ import SwiftUI
 /// (с 1.5 работает и «Питомец»).
 struct SettingsView: View {
     @Bindable var app: AppModel
+    /// Внутри панели поверх окна (SettingsSheet): без отступа под кнопки окна
+    var inSheet = false
 
     @Environment(\.palette) private var p
     @State private var launchAtLogin = AppModel.launchesAtLogin
     @State private var loginNote: String?
     @State private var notifyNote: String?
-    @State private var closed: Set<String> = []
+    @State private var query = ""
 
     enum Section: String, CaseIterable, Hashable {
         case general = "Общие"
@@ -45,11 +47,28 @@ struct SettingsView: View {
             }
         }
 
+        /// Что ещё внутри раздела — для поиска слева
+        var keywords: [String] {
+            switch self {
+            case .general: ["запуск", "уведомления", "звук", "свет", "тёмная", "светлая"]
+            case .theme: ["цвет", "фон", "космический", "звёзды", "лучи", "акцент", "тёмная", "светлая"]
+            case .fonts: ["шрифт", "размер", "текст", "масштаб"]
+            case .window: ["панель", "браузер", "ширина", "ссылки"]
+            case .chat: ["переписка", "ширина", "код"]
+            case .pet: ["питомец", "кот", "капля"]
+            case .persona: ["тон", "правила", "язык", "характер"]
+            case .models: ["подписка", "ключ", "api", "chatgpt", "лимит", "модель"]
+            case .importClaude, .data: ["импорт", "экспорт", "claude code", "папка"]
+            case .about: ["версия", "обновления", "бета"]
+            case .uninstall: ["удалить"]
+            }
+        }
+
         /// Все разделы (снимки настроек обходят их)
         @MainActor static func visible(_ app: AppModel) -> [Section] { allCases }
     }
 
-    /// Группа слева: одна строка или раскрывающийся список
+    /// Группа слева: тихая подпись и строки под ней (как в Claude — без раскрывающихся списков)
     struct NavGroup: Identifiable {
         let title: String
         let icon: String
@@ -59,9 +78,7 @@ struct SettingsView: View {
 
     static let groups: [NavGroup] = [
         NavGroup(title: "Внешний вид", icon: "palette", items: [.general, .theme, .fonts, .window, .chat, .pet]),
-        NavGroup(title: "Характер", icon: "sparkles", items: [.persona]),
-        NavGroup(title: "Модели и оплата", icon: "key-round", items: [.models]),
-        NavGroup(title: "Данные", icon: "database", items: [.data]),
+        NavGroup(title: "Работа", icon: "sparkles", items: [.persona, .models, .data]),
         NavGroup(title: "О программе", icon: "info", items: [.about, .uninstall]),
     ]
 
@@ -72,14 +89,18 @@ struct SettingsView: View {
 
     private var group: NavGroup { Self.groups.first { $0.items.contains(current) } ?? Self.groups[0] }
 
+    /// Сверху — место под кнопки окна; в панели поверх окна его нет
+    private var top: CGFloat { inSheet ? 16 : 52 }
+
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             nav
-                .frame(width: 228)
-                .padding(.top, 52)
-            p.border.frame(width: 1).padding(.top, 52)
+                .frame(width: 248)
+                .padding(.top, top)
+                .background(p.foreground.opacity(inSheet ? 0.025 : 0))
+            p.border.frame(width: 1).padding(.top, inSheet ? 0 : 52)
             VStack(alignment: .leading, spacing: 0) {
-                crumbs.padding(.horizontal, 32).padding(.top, 52).padding(.bottom, 20)
+                crumbs.padding(.horizontal, 32).padding(.top, inSheet ? 26 : 52).padding(.bottom, 20)
                 if current == .persona {
                     PersonaView(app: app, embedded: true).padding(.horizontal, 32)
                 } else {
@@ -102,28 +123,48 @@ struct SettingsView: View {
     // MARK: слева
 
     private var nav: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(Self.groups) { g in
-                    if g.items.count == 1, let only = g.items.first {
-                        SettingsNavRow(title: g.title, icon: g.icon, active: current == only) { go(only) }
-                    } else {
-                        let open = !closed.contains(g.id)
-                        SettingsNavRow(title: g.title, icon: g.icon, active: false, chevron: open ? "chevron-down" : "chevron-right",
-                                       framed: g.items.contains(current)) {
-                            withAnimation(.easeOut(duration: 0.15)) { if open { closed.insert(g.id) } else { closed.remove(g.id) } }
-                        }
-                        if open {
-                            ForEach(g.items, id: \.self) { s in
-                                SettingsNavRow(title: s.rawValue, icon: s.icon, active: current == s, sub: true) { go(s) }
+        VStack(alignment: .leading, spacing: 0) {
+            // поиск по разделам: «шрифт», «тема», «ключ»…
+            HStack(spacing: 8) {
+                Icon("search", 14).foregroundStyle(p.mutedFg)
+                TextField("Поиск", text: $query).textFieldStyle(.plain).tw(14, lh: 20)
+                if !query.isEmpty {
+                    Button { query = "" } label: { Icon("x", 12).foregroundStyle(p.mutedFg) }.buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 10).frame(height: 34)
+            .background(p.input.opacity(0.35), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(p.border))
+            .padding(.horizontal, 12).padding(.bottom, 8)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(Self.groups) { g in
+                        let items = g.items.filter(matches)
+                        if !items.isEmpty {
+                            Text(g.title).tw(12, .medium, lh: 16).foregroundStyle(p.mutedFg)
+                                .padding(.horizontal, 10).padding(.top, 14).padding(.bottom, 4)
+                            ForEach(items, id: \.self) { s in
+                                SettingsNavRow(title: s.rawValue, icon: s.icon, active: current == s) { go(s) }
                             }
                         }
                     }
+                    if Self.groups.allSatisfy({ $0.items.filter(matches).isEmpty }) {
+                        Text("Ничего не нашлось").tw(13, lh: 18).foregroundStyle(p.mutedFg).padding(10)
+                    }
                 }
+                .padding(.horizontal, 12).padding(.bottom, 24)
             }
-            .padding(.horizontal, 12).padding(.bottom, 24)
+            .scrollIndicators(.never)
         }
-        .scrollIndicators(.never)
+    }
+
+    /// Раздел подходит под поиск: по названию, группе и словам внутри
+    private func matches(_ s: Section) -> Bool {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return true }
+        let group = Self.groups.first { $0.items.contains(s) }?.title ?? ""
+        return ([s.rawValue, group] + s.keywords).contains { $0.lowercased().contains(q) }
     }
 
     private func go(_ s: Section) {
@@ -262,12 +303,12 @@ struct SettingsView: View {
                 row("Шрифт", icon: "type") {
                     Segmented(value: Binding(get: { app.prefs.chatFont }, set: { v in app.update { $0.chatFont = v } }),
                               options: [(.geist, "Geist"), (.system, "Системный"), (.serif, "С засечками"), (.mono, "Моно")])
-                        .frame(width: 380)
+                        .frame(width: 452)
                 }
                 row("Размер", "\(Int((15 * app.prefs.textScale).rounded())) pt", icon: "layers") {
                     Segmented(value: Binding(get: { app.prefs.textScale }, set: { v in app.update { $0.textScale = v } }),
                               options: [(0.87, "Мельче"), (1.0, "Обычный"), (1.13, "Крупнее"), (1.27, "Крупно")])
-                        .frame(width: 380)
+                        .frame(width: 452)
                 }
             }
             group("Так будет выглядеть ответ") {
@@ -560,12 +601,16 @@ struct ThemeSettings: View {
             SettingsHeader(icon: "palette", title: "Тема", lead: "Свет, цвета и шрифты. У каждой темы есть светлые и тёмные цвета — режим выбирает, какие сейчас.").padding(.bottom, 4)
 
             card {
-                line("Режим") {
+                line("Режим", divider: true) {
                     HStack(spacing: 10) {
                         ModeCard(app: app, mode: .dark)
                         ModeCard(app: app, mode: .light)
                         ModeCard(app: app, mode: .system)
                     }
+                }
+                // на виду, сразу под светом: искали и не нашли (Рома, 25.10)
+                line("Космический фон", "Звёзды и лучи из центра знака за перепиской") {
+                    LSwitch(isOn: Binding(get: { app.prefs.skyBackground }, set: { v in app.update { $0.skyBackground = v } }))
                 }
             }
             .padding(.top, 20)
@@ -586,9 +631,6 @@ struct ThemeSettings: View {
                 line("Акцентный цвет", divider: true) { accentMenu }
                 line("Фон", divider: true) {
                     ColorField(color: p.background) { c in setOverride { $0.background = c?.hexString } }
-                }
-                line("Звёзды и лучи на фоне", divider: true) {
-                    LSwitch(isOn: Binding(get: { app.prefs.skyBackground }, set: { v in app.update { $0.skyBackground = v } }))
                 }
                 line("Цвет текста") {
                     ColorField(color: p.foreground) { c in setOverride { $0.foreground = c?.hexString } }

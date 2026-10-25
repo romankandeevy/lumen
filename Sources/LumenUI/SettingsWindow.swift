@@ -1,67 +1,42 @@
-import AppKit
 import SwiftUI
 
-/// Настройки — отдельное окно поверх главного (как в Claude), а не страница вместо чата (как в Codex): открылись, поправил, закрыл —
-/// чат под ним остаётся на месте. Окно стоит над главным, двигается и тянется, Esc или ⌘W закрывают.
-@MainActor final class SettingsWindow: NSObject, NSWindowDelegate {
-    static let shared = SettingsWindow()
-
-    private var window: NSWindow?
-
-    func show(_ app: AppModel, section: SettingsView.Section? = nil) {
-        if let section { app.settingsSection = section }
-        if let w = window {
-            w.makeKeyAndOrderFront(nil)
-            return
-        }
-        let host = NSHostingController(rootView: SettingsRoot(app: app) { [weak self] in self?.window?.performClose(nil) })
-        let w = NSWindow(contentViewController: host)
-        w.styleMask = [.titled, .closable, .resizable, .fullSizeContentView]
-        w.title = "Настройки"
-        w.titlebarAppearsTransparent = true
-        w.titleVisibility = .hidden
-        w.isReleasedWhenClosed = false
-        w.minSize = NSSize(width: 800, height: 540)
-        w.setContentSize(NSSize(width: 1000, height: 720))
-        w.delegate = self
-        // размер и место прошлого раза — если были; иначе по центру главного окна
-        if !w.setFrameUsingName("LumenSettings") {
-            if let parent = NSApp.mainWindow ?? NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) {
-                let f = parent.frame, s = w.frame.size
-                w.setFrameOrigin(NSPoint(x: f.midX - s.width / 2, y: f.midY - s.height / 2))
-            } else {
-                w.center()
-            }
-        }
-        w.setFrameAutosaveName("LumenSettings")
-        // дочернее окно главного: всегда над ним и вместе с ним сворачивается
-        if let parent = NSApp.mainWindow ?? NSApp.keyWindow, parent !== w { parent.addChildWindow(w, ordered: .above) }
-        window = w
-        w.makeKeyAndOrderFront(nil)
-    }
-
-    func windowWillClose(_ notification: Notification) {
-        if let w = window { w.parent?.removeChildWindow(w) }
-        window = nil
-    }
-}
-
-/// Содержимое окна настроек: то же оформление, что у главного окна (тема, шрифты, «меньше движения»)
-struct SettingsRoot: View {
+/// Настройки — панель поверх главного окна, как в Claude (Рома, 25.10): окно под ней приглушено и чуть размыто,
+/// чат остаётся на месте. Закрывается крестиком, Esc, ⌘W или щелчком мимо панели.
+struct SettingsSheet: View {
     @Bindable var app: AppModel
-    let close: () -> Void
+
+    @Environment(\.palette) private var p
+    @Environment(\.lessMotion) private var lessMotion
 
     var body: some View {
-        let p = app.palette
-        SettingsView(app: app)
-            .frame(minWidth: 800, minHeight: 540)
-            .background(p.background.ignoresSafeArea())
-            .environment(\.palette, p)
-            .environment(\.chatText, ChatText(font: app.prefs.chatFont, scale: app.prefs.textScale, code: app.prefs.codeFontSize))
-            .environment(\.lessMotion, app.lessMotion)
-            .preferredColorScheme(p.scheme)
-            .tint(p.glow)
-            .id(app.prefs.uiFontSize)
-            .onExitCommand(perform: close)
+        GeometryReader { g in
+            ZStack {
+                // подложка: приглушает окно; щелчок по ней закрывает
+                Rectangle()
+                    .fill(.black.opacity(p.isLight ? 0.18 : 0.42))
+                    .background(.ultraThinMaterial.opacity(0.6))
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture { app.closeSettings() }
+                    .transition(.opacity)
+
+                SettingsView(app: app, inSheet: true)
+                    .frame(width: min(1120, g.size.width - 96), height: min(780, g.size.height - 72))
+                    .background(p.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(p.border))
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(alignment: .topTrailing) {
+                        IconButton(icon: "x", help: "Закрыть · Esc", side: 32, iconSize: 17) { app.closeSettings() }
+                            .padding(14)
+                    }
+                    .shadow(color: .black.opacity(0.35), radius: 40, y: 18)
+                    .transition(lessMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.97)))
+            }
+            .frame(width: g.size.width, height: g.size.height)
+        }
+        .onExitCommand { app.closeSettings() }
+        .background {
+            Button("") { app.closeSettings() }.keyboardShortcut("w", modifiers: .command).opacity(0)
+        }
     }
 }

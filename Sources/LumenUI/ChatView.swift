@@ -28,9 +28,38 @@ struct ChatView: View {
     @State private var scrolled = false
     /// Название разговора правят прямо в шапке
     @State private var titleEditing = false
+    @Environment(\.windowWidth) private var settleWindow
+    /// Ширина колонки, с которой переписка сейчас разложена (для решения «ехать или сразу»)
+    @State private var shownColumn: CGFloat?
+
+    /// Ширина поменялась (панель, браузер, окно): был внизу — остаться внизу, когда ширина успокоится.
+    /// Середину не трогаем: прыжок к сообщению в ленивом списке оставлял экран пустым до прокрутки
+    private func widthChanged(_ proxy: ScrollViewProxy) {
+        if wasAtBottom == nil { wasAtBottom = atBottom }
+        widthGeneration += 1
+        let gen = widthGeneration
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(320))
+            guard gen == widthGeneration, let bottom = wasAtBottom else { return }
+            wasAtBottom = nil
+            guard bottom else { return }
+            proxy.scrollTo("bottom", anchor: .bottom)
+            // строки сильно перенеслись — ленивый список сначала мерит на глаз и промахивается мимо низа;
+            // когда он разложит сообщения по-настоящему, ещё раз вниз
+            try? await Task.sleep(for: .milliseconds(120))
+            if gen == widthGeneration { proxy.scrollTo("bottom", anchor: .bottom) }
+        }
+    }
 
     private var chat: ChatController { controller ?? app.chat }
     private var isSplit: Bool { controller != nil }
+    /// Ширина колонки переписки, когда панели доедут. Колонка берёт её сразу (строки переносятся один раз),
+    /// а плавно едет только её место — иначе каждый кадр выезда панели ленивый список перекладывался
+    /// и прокрутка улетала вверх (25.10). Разделённый экран — по-старому
+    private var settledColumn: CGFloat? {
+        guard app.split == nil, !isSplit, settleWindow > 0 else { return nil }
+        return max(320, min(columnWidth, app.chatAreaWidth(window: settleWindow)))
+    }
     private var backend: Backend { chat.conversation?.backend ?? app.prefs.backend }
     private var agent: Bool { chat.conversation.map { $0.kind == .agent } ?? (app.tab == .agent) }
     private var folder: URL? { chat.conversation?.folder.map { URL(fileURLWithPath: $0) } ?? app.agentFolder }
@@ -42,8 +71,9 @@ struct ChatView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // переписка меняет ширину сразу (см. RootView): анимирует только выезжающая панель
-            content.transaction { $0.animation = nil }
+            // переписка едет вместе с выезжающей панелью (Motion.panel), если её колонка не меняет ширину.
+            // Меняет (узкое окно) — строки переносятся заново, и анимация утащила бы прокрутку вверх: тогда сразу, как раньше
+            content.transaction { if settledColumn != shownColumn { $0.animation = nil } }
             if app.prefs.contextOpen && !isSplit {
                 Group {
                     if let group { GroupPanel(app: app, group: group) } else if let bot { BotPassport(app: app, bot: bot) } else { ContextPanel(app: app) }
@@ -51,7 +81,9 @@ struct ChatView: View {
                 .transition(.move(edge: .trailing))
             }
         }
-        .animation(.easeOut(duration: 0.2), value: app.prefs.contextOpen)
+        .animation(app.lessMotion ? nil : Motion.panel, value: app.prefs.contextOpen)
+        .onAppear { shownColumn = settledColumn }
+        .onChange(of: settledColumn) { shownColumn = settledColumn }
     }
 
     /// Ширина колонки переписки: у агента — из настроек, у чата и ботов — всегда обычная, не меняется (Рома, 18.10)
@@ -452,7 +484,8 @@ struct ChatView: View {
                 // поля по бокам: на узком окне переписка не упирается в края
                 // слева 44: знак (затмение, питомец, бот) висит левее текста ответа, в этом поле; поле ввода ниже — с теми же отступами
                 .padding(.leading, 44).padding(.trailing, 28).padding(.top, 18).padding(.bottom, 48)
-                .frame(maxWidth: columnWidth)
+                .frame(maxWidth: settledColumn == nil ? columnWidth : nil)
+                .frame(width: settledColumn)
                 .animation(.easeInOut(duration: 0.3), value: app.prefs.chatWidth)
                 .frame(maxWidth: .infinity)
             }
@@ -495,17 +528,7 @@ struct ChatView: View {
             // вернуть к низу или к тому сообщению, что было сверху
             // ширина поменялась (панель, браузер): был внизу — остаться внизу, когда ширина успокоится.
             // Середину не трогаем: прыжок к сообщению в ленивом списке оставлял экран пустым до прокрутки
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { _ in
-                if wasAtBottom == nil { wasAtBottom = atBottom }
-                widthGeneration += 1
-                let gen = widthGeneration
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(320))
-                    guard gen == widthGeneration, let bottom = wasAtBottom else { return }
-                    wasAtBottom = nil
-                    if bottom { proxy.scrollTo("bottom", anchor: .bottom) }
-                }
-            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { _ in widthChanged(proxy) }
             // окно переписки стало ниже или выше — выросло поле ввода (очередь, вложения, длинный черновик). Был внизу —
             // остаться внизу: иначе последние строки уезжали под поле, и казалось, что переписку подняло вверх (Рома, 19.10)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { _ in
@@ -2643,5 +2666,16 @@ struct HeaderFade: ViewModifier {
                 Color.black
             }
         }
+    }
+}
+
+extension AppModel {
+    /// Сколько места остаётся переписке, когда левая панель, браузер и правая панель встанут на место
+    func chatAreaWidth(window: CGFloat) -> CGFloat {
+        var w = window
+        if !prefs.sidebarHidden { w -= CGFloat(ResizeHandle.clamp(sidebarWidth, min: 220, window: Double(window))) }
+        if browserOpen { w -= CGFloat(max(360, min(browserWidth, Double(window) * 0.6))) }
+        if prefs.contextOpen, page == .chat { w -= RightPanel.width(window) }
+        return w
     }
 }

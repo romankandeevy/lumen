@@ -319,7 +319,13 @@ final class LinkTextView: NSTextView {
         guard let c = textContainer, let l = layoutManager else { return 0 }
         c.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
         l.ensureLayout(for: c)
-        return ceil(l.usedRect(for: c).height + textContainerInset.height * 2)
+        let h = ceil(l.usedRect(for: c).height + textContainerInset.height * 2)
+        // SwiftUI меряет разные ширины, а рамку может и не поменять: тогда текст так и переносился бы по последней
+        // пробной ширине и вылезал из своей высоты (демка в «Шрифтах», 25.10). Перенос — по настоящей ширине
+        if frame.width > 0, abs(frame.width - width) > 0.5 {
+            c.containerSize = NSSize(width: frame.width, height: CGFloat.greatestFiniteMagnitude)
+        }
+        return h
     }
 
     /// Размер в одну строку (когда ширину не предлагают)

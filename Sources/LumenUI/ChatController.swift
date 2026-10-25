@@ -1863,6 +1863,7 @@ extension AppModel {
         // у агента нет характера (Рома, 19.10): правила работы — зашитые в код и свои из настроек (AgentRules)
         var lines = [AgentRules.core(userName: profile.name, ty: profile.address == .ty, russianOnly: persona.language == .ru)]
         if let mine = AgentRules.user(prefs.agentRules) { lines.append(mine) }
+        lines.append(selfKnowledge)
         lines.append("Всегда веди план, даже для маленькой задачи из двух шагов: первым действием составь его (TaskCreate на каждый шаг или TodoWrite), перед шагом отмечай его начатым, после — сделанным (TaskUpdate). Lumen показывает план человеку под перепиской. Только ответ на вопрос без действий — без плана.")
         lines.append("""
             В самом конце каждого ответа добавь блок для карточки «что дальше» — строго JSON внутри тегов, без markdown:
@@ -1911,6 +1912,12 @@ extension AppModel {
         return on.isEmpty ? "Сейчас коннекторов нет." : "Сейчас подключены: " + on.joined(separator: ", ") + " — их инструменты у тебя есть."
     }
 
+    /// Что Lumen знает о себе: автор, функции, где что в интерфейсе (LumenCore/SelfKnowledge.swift)
+    var selfKnowledge: String {
+        SelfKnowledge.block(version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+                            release: Bundle.main.object(forInfoDictionaryKey: "LumenReleaseNumber") as? String)
+    }
+
     /// Библиотека навыков Lumen
     var skillLibrary: SkillLibrary { SkillLibrary(root: paths.skills) }
 
@@ -1919,6 +1926,7 @@ extension AppModel {
     func systemPrompt(for c: Conversation? = nil) -> String {
         // характер — из настроек «Характер» (Persona.swift)
         var lines = [persona.soul(userName: profile.name, ty: profile.address == .ty), "\n## Где ты\nТы — Lumen, личный помощник на Маке."]
+        lines.append(selfKnowledge)
         if let known = knownBlock(for: c) { lines.append(known) }
         lines.append("Это чат: у тебя нет доступа к файлам и командам этого Мака, но есть браузер сбоку. "
                      + "Файлы для человека делай инструментом make_file — они приходят вложением. Про папки, пути и временные каталоги "

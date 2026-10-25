@@ -121,7 +121,7 @@ private struct AttachmentThumb: View {
 
     var body: some View {
         Group {
-            if attachment.kind == .image, let image = NSImage(contentsOf: attachment.url) {
+            if attachment.kind == .image, let image = ThumbCache.image(attachment.url, side: 64) {
                 Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
                     .frame(width: 64, height: 64)
                     .clipShape(RoundedRectangle(cornerRadius: R.lg))
@@ -194,7 +194,7 @@ struct MessageAttachments: View {
         let images = items.filter { $0.kind == .image }
         let files = items.filter { $0.kind != .image }
         VStack(alignment: leading ? .leading : .trailing, spacing: 8) {
-            if images.count == 1, let a = images.first, let image = NSImage(contentsOf: a.url) {
+            if images.count == 1, let a = images.first, let image = ThumbCache.image(a.url, side: 520) {
                 Button { open(a) } label: {
                     // рамка ровно по картинке, без пустых полей по бокам
                     let box = CGSize(width: leading ? 520 : 320, height: leading ? 400 : 280)
@@ -212,7 +212,7 @@ struct MessageAttachments: View {
                     ForEach(images) { a in
                         Button { open(a) } label: {
                             Group {
-                                if let image = NSImage(contentsOf: a.url) {
+                                if let image = ThumbCache.image(a.url, side: 160) {
                                     Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
                                 } else { p.card }
                             }
@@ -322,17 +322,34 @@ struct AttachmentThumbs: View {
 }
 
 /// Уменьшенные копии картинок для превью: десятки снимков страниц не держат в памяти целиком
+/// Превью картинок: с диска читаются один раз и уменьшаются (вложения в переписке, снимки шагов, артефакты).
+/// Раньше вложения в переписке перечитывали и декодировали картинку целиком на каждой перерисовке (25.10)
 enum ThumbCache {
-    nonisolated(unsafe) private static let cache = NSCache<NSURL, NSImage>()
+    nonisolated(unsafe) private static let cache: NSCache<NSString, NSImage> = {
+        let c = NSCache<NSString, NSImage>()
+        c.countLimit = 400
+        return c
+    }()
 
-    static func image(_ url: URL) -> NSImage? {
-        if let i = cache.object(forKey: url as NSURL) { return i }
+    /// Не больше `side` pt по длинной стороне (пикселей вдвое больше — для Retina). Размер картинки в pt — как у оригинала
+    static func image(_ url: URL, side: CGFloat = 360) -> NSImage? {
+        let key = "\(url.path)|\(Int(side))" as NSString
+        if let i = cache.object(forKey: key) { return i }
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
               let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true,
-                                                                   kCGImageSourceThumbnailMaxPixelSize: 720,
-                                                                   kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary) else { return nil }
-        let img = NSImage(cgImage: cg, size: NSSize(width: CGFloat(cg.width) / 2, height: CGFloat(cg.height) / 2))
-        cache.setObject(img, forKey: url as NSURL)
+                                                                   kCGImageSourceThumbnailMaxPixelSize: side * 2,
+                                                                   kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary)
+        else { return nil }
+        var size = NSSize(width: CGFloat(cg.width) / 2, height: CGFloat(cg.height) / 2)
+        if let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+           let w = props[kCGImagePropertyPixelWidth] as? CGFloat, let h = props[kCGImagePropertyPixelHeight] as? CGFloat {
+            // pt — как у NSImage(contentsOf:): пиксели × 72 / dpi; повёрнутые снимки — сторонами наоборот
+            let k = 72 / ((props[kCGImagePropertyDPIWidth] as? CGFloat) ?? 72)
+            let turned = ((props[kCGImagePropertyOrientation] as? Int) ?? 1) >= 5
+            size = turned ? NSSize(width: h * k, height: w * k) : NSSize(width: w * k, height: h * k)
+        }
+        let img = NSImage(cgImage: cg, size: size)
+        cache.setObject(img, forKey: key)
         return img
     }
 }

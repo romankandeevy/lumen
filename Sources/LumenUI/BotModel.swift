@@ -123,6 +123,7 @@ extension AppModel {
     func botPrompt(_ b: Bot) -> String {
         let skills = SkillLibrary.promptBlock(skillLibrary.enabled(only: Set(b.skills)))
         return b.rules(handoff: b.handoff.flatMap { bot($0) }, userName: profile.name, ty: profile.address == .ty, skills: skills, bots: bots)
+            + "\n\n" + selfKnowledge
     }
 
     /// Меню бота — как у разговоров

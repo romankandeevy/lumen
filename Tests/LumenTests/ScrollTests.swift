@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+import LumenCore
 @testable import LumenUI
 
 // Прыжок вверх в конце ответа (Рома, 19.10): «он написал сообщение — и меня поднимает вверх, приходится листать вниз».
@@ -162,4 +163,68 @@ private struct FakeChat: View {
     }
     let scroll = try #require(found)
     #expect(scroll.verticalScrollElasticity == .none)
+}
+
+/// Панели выезжают плавно, и переписка едет вместе с ними (Рома, 25.10). Раньше ширину меняли рывком,
+/// чтобы прокрутка не уезжала вверх; теперь сторожим: длинный разговор у низа — после левой и правой панели он у низа
+@MainActor @Test(.serialized, arguments: [1100.0, 1600.0]) func panelsSlideAndTranscriptStaysAtBottom(width: Double) async throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-panels-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .subscription, theme: .lumen)
+    let c = Conversation(title: "Длинный", backend: .subscription, model: .sonnet, effort: .medium)
+    try app.store.save(c)
+    for i in 0..<30 {
+        try app.store.save(ChatMessage(conversationID: c.id, role: i % 2 == 0 ? .user : .assistant, text: FakeTranscript.text(i)))
+    }
+    app.reloadConversations()
+    app.openChat(c)
+    let size = CGRect(x: 0, y: 0, width: width, height: 720)
+    let host = NSHostingView(rootView: RootView(app: app).frame(width: size.width, height: size.height))
+    host.frame = size
+    let window = NSWindow(contentRect: size, styleMask: [.titled, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = host
+    defer { window.close() }
+    try await settle(host, 2)
+    let start = transcriptGapToBottom(host) ?? 99
+    #expect(start < 60) // 48 — нижнее поле переписки
+    var worst: CGFloat = 0
+    let transcriptGap = { transcriptGapToBottom(host) ?? 99 }
+    for flip in [{ app.update { $0.sidebarHidden.toggle() } }, { app.update { $0.contextOpen.toggle() } },
+                 { app.update { $0.sidebarHidden.toggle() } }, { app.update { $0.contextOpen.toggle() } }] {
+        flip()
+        var trace: [Int] = []
+        var xs: [Int] = []
+        for _ in 0..<25 {
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(40))
+            trace.append(Int(transcriptGap()))
+            xs.append(Int(transcriptScrollMinX(host) ?? -1))
+        }
+        print("место переписки (\(Int(width))): \(xs)")
+        print("ход (\(Int(width))): \(trace)")
+        // во время движения переписка тоже у низа, а не уезжает и возвращается
+        #expect((trace.max() ?? 0) < 60)
+        try await settle(host, 1.2)
+        print("шаг: \(transcriptGap()) pt от низа")
+        worst = max(worst, transcriptGap())
+    }
+    print("панели: в начале \(start) pt от низа, худшее после движения — \(worst) pt")
+    #expect(worst < 60)
+}
+
+/// Как gapToBottom, но у самой длинной прокрутки в окне — переписки (в окне есть и прокрутка левой панели)
+@MainActor private func transcriptGapToBottom(_ view: NSView) -> CGFloat? {
+    func all(_ v: NSView) -> [NSScrollView] { (v as? NSScrollView).map { [$0] } ?? [] + v.subviews.flatMap(all) }
+    guard let scroll = all(view).max(by: { ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0) }),
+          let doc = scroll.documentView else { return nil }
+    let clip = scroll.contentView.bounds
+    return doc.isFlipped ? doc.frame.height - clip.maxY : clip.minY
+}
+
+@MainActor private func transcriptScrollMinX(_ view: NSView) -> CGFloat? {
+    func all(_ v: NSView) -> [NSScrollView] { (v as? NSScrollView).map { [$0] } ?? [] + v.subviews.flatMap(all) }
+    guard let scroll = all(view).max(by: { ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0) }) else { return nil }
+    return scroll.convert(scroll.bounds, to: nil).minX
 }

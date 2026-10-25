@@ -72,3 +72,15 @@ import Testing
     // напоминание в сессиях claude — служебное: при разборе вырезается
     #expect(ClaudeHistory.clean("сделай план" + "\n\n" + r) == "сделай план")
 }
+
+/// Lumen знает о себе: кто сделал, где что в интерфейсе (25.10: «кто твой основатель?» — «не знаю»)
+@MainActor @Test func lumenKnowsAboutItselfInChatAgentAndBots() throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-self-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    for prompt in [app.systemPrompt(), app.agentPrompt()] {
+        #expect(prompt.contains("Lumen придумал и делает Роман"))
+        #expect(prompt.contains("github.com/romankandeevy/lumen"))
+        #expect(prompt.contains("Космический фон"))
+    }
+}

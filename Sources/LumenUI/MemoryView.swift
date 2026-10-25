@@ -12,6 +12,7 @@ struct MemoryView: View {
     @State private var adding = false
     @State private var file: URL?
     @State private var hits: [ConversationHit] = []
+    @State private var wide = true
 
     enum Mode: Hashable { case facts, graph, talks }
     @State private var graph: GraphModel?
@@ -52,17 +53,22 @@ struct MemoryView: View {
                     .onChange(of: app.memories) { graph?.update(app.memoryGraph()) }
                 } else {
                 // xl:grid-cols-[1fr_280px]: на широком окне файлы и настройки сбоку, иначе — снизу
+                // ширина решает раскладку сама: ViewThatFits раскладывал весь список фактов дважды (открытие «Памяти» — 260 мс)
                 ScrollView {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(alignment: .top, spacing: 32) {
-                            main.frame(minWidth: 560)
-                            aside.frame(width: 280)
+                    Group {
+                        if wide {
+                            HStack(alignment: .top, spacing: 32) {
+                                main.frame(minWidth: 560)
+                                aside.frame(width: 280)
+                            }
+                        } else {
+                            VStack(alignment: .leading, spacing: 32) { main; aside }
                         }
-                        VStack(alignment: .leading, spacing: 32) { main; aside }
                     }
                     .padding(.bottom, 40)
                 }
                 .scrollIndicators(.never)
+                .onGeometryChange(for: Bool.self) { $0.size.width >= 560 + 32 + 280 } action: { wide = $0 }
                 }
             }
         }
@@ -80,7 +86,8 @@ struct MemoryView: View {
                         KindChip(name: "Всё", active: kind == nil) { kind = nil }
                         ForEach(MemoryKind.allCases) { k in KindChip(name: k.name, active: kind == k) { kind = k } }
                     }
-                    VStack(spacing: 0) {
+                    let shown = shown
+                    LazyVStack(spacing: 0) {
                         if shown.isEmpty {
                             Text(query.isEmpty ? "Здесь пусто. Скажи в чате «запомни, что…» — и факт появится тут."
                                                : "Ничего не нашлось. Попробуй другое слово или поищи в прошлых разговорах.")

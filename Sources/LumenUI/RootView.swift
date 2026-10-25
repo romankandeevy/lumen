@@ -14,12 +14,22 @@ public struct RootView: View {
     /// Стартовый экран: пустой чат или новая задача — фон в полную силу; в открытом чате и на других страницах он приглушён
     private var skyStart: Bool { app.page == .chat && app.chat.messages.isEmpty && !app.chat.busy }
 
+    /// Какая страница открыта — для плавной смены. Разговоры (чат, бот, группа) — одна страница:
+    /// переход между ними без затухания, иначе переписка пересоздаётся и мигает
+    private var pageKey: String {
+        switch app.page {
+        case .chat, .bot, .group: "chat"
+        default: String(describing: app.page)
+        }
+    }
+
     public var body: some View {
         let p = app.palette
         let _ = { Font.uiScale = CGFloat(app.prefs.uiFontSize / 14) }()
         GeometryReader { g in
         HStack(spacing: 0) {
             if !app.prefs.sidebarHidden { Sidebar(app: app).transition(.move(edge: .leading)) }
+            ZStack {
             Group {
                 switch app.page {
                 case .chat:
@@ -51,10 +61,12 @@ public struct RootView: View {
                 case .skillEditor(let name): SkillEditor(app: app, name: name).id(name ?? "new")
                 }
             }
-            // колонка переписки меняет ширину сразу, без покадровой анимации: иначе каждый кадр переписка
-            // перекладывается и прокрутка уезжает вверх. Анимируется только выезжающая панель
-            .transaction { $0.animation = nil }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            // страница сменилась — новая проявляется и чуть подрастает, старая гаснет (Motion.page)
+            .id(pageKey)
+            .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.985, anchor: .top)), removal: .opacity))
+            }
+            .animation(app.lessMotion ? nil : Motion.page, value: pageKey)
             // зерно, звёзды и лучи короны из центра знака (lumen-theme.css); сайдбар их не получает
             .coordinateSpace(name: "main")
             .onPreferenceChange(SkyAnchorKey.self) { if let c = $0 { skyCenter = c } }
@@ -64,8 +76,8 @@ public struct RootView: View {
         .environment(\.windowWidth, g.size.width)
         }
         .ignoresSafeArea(.container, edges: .top)
-        .animation(.easeOut(duration: 0.2), value: app.prefs.sidebarHidden)
-        .animation(.easeOut(duration: 0.2), value: app.browserOpen)
+        .animation(app.lessMotion ? nil : Motion.panel, value: app.prefs.sidebarHidden)
+        .animation(app.lessMotion ? nil : Motion.panel, value: app.browserOpen)
         // агент открыл страницу или показал макет — браузер выезжает сам
         .onChange(of: app.browser.wantsOpen) { if !app.browserOpen && app.prefs.browserAutoOpen { app.browserOpen = true } }
         .task { app.startBrowser() }
@@ -79,12 +91,16 @@ public struct RootView: View {
             app.openLink(u, alternate: NSEvent.modifierFlags.contains(.command))
             return .handled
         })
-        // панель спрятана — её кнопки остаются рядом с кнопками окна, как в Claude
+        // кнопки «панель» и «поиск» — рядом с кнопками окна и не двигаются, открыта панель или нет (Рома, 25.10):
+        // передумал — нажимаешь туда же. Панель выезжает под ними
         .overlay(alignment: .topLeading) {
-            if app.prefs.sidebarHidden { WindowControls(app: app).padding(.leading, 76).ignoresSafeArea() }
+            WindowControls(app: app).padding(.leading, 84).padding(.top, -2).ignoresSafeArea()
         }
         .overlay { MenuLayer(app: app) }
-        .overlay { if app.searchOpen { SearchLayer(app: app) } }
+        .overlay { if app.searchOpen { SearchLayer(app: app).transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top))) } }
+        .animation(app.lessMotion ? nil : Motion.page, value: app.searchOpen)
+        // настройки — панелью поверх окна (SettingsWindow.swift)
+        .overlay { if app.settingsOpen { SettingsSheet(app: app) } }
         .background {
             // ⌘K — поиск, ⌘N — новый чат, ⌘\ — панель
             Group {
@@ -162,10 +178,8 @@ struct Sidebar: View {
         VStack(alignment: .leading, spacing: 0) {
             // как в Claude: в одной строке с кнопками окна — «спрятать панель» и поиск
             // строка заголовка: кнопки на одной линии с кнопками окна; ниже — сразу вкладки (Рома, 21.10: «слишком жирно»)
-            WindowControls(app: app)
-                .padding(.leading, 84).padding(.top, -2)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: 36, alignment: .top)
+            // место под кнопки окна, «панель» и «поиск»: сами кнопки висят над окном (RootView), чтобы не ездить с панелью
+            Color.clear.frame(height: 36)
 
             TabSwitch(app: app).padding(.horizontal, 14).padding(.top, 2)
 

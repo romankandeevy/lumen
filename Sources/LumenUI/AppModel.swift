@@ -5,6 +5,7 @@ import Network
 import LumenProviders
 import LumenStorage
 import Observation
+import SwiftUI
 
 /// Состояние приложения для интерфейса. Сервисы (claude, API, база) живут ниже, сюда приходят готовые ответы.
 @MainActor @Observable
@@ -132,12 +133,21 @@ public final class AppModel {
     var attachInbox: [Attachment] = []
     /// Цитата из файла в панели сбоку («В чат» у выделенного): поле ввода вставляет её в текст, когда чат открыт
     var draftInbox = ""
-    /// Какой раздел настроек открыт в окне настроек (SettingsWindow)
+    /// Какой раздел настроек открыт в панели настроек (SettingsSheet)
     var settingsSection: SettingsView.Section = .general
+    /// Панель настроек открыта поверх окна
+    var settingsOpen = false
 
-    /// Настройки — отдельным окном поверх главного
+    /// Настройки — панелью поверх главного окна (как в Claude)
     func openSettings(_ section: SettingsView.Section? = nil) {
-        SettingsWindow.shared.show(self, section: section)
+        if let section { settingsSection = section }
+        searchOpen = false
+        NSApp.activate(ignoringOtherApps: true)
+        withAnimation(Motion.panel) { settingsOpen = true }
+    }
+
+    func closeSettings() {
+        withAnimation(Motion.panel) { settingsOpen = false }
     }
     /// Щелчок по имени папки в заголовке новой задачи — открыть выбор папки в поле ввода (как у кнопки папки)
     var folderPickerRequest = 0

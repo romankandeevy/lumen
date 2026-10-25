@@ -570,6 +570,19 @@ enum Snap {
         app.page = .settings(s)
         try await Snap.save(RootView(app: app), "80-settings-\(s)")
     }
+    // 25.10: настройки — панелью поверх окна, как в Claude
+    app.page = .chat
+    app.settingsOpen = true
+    for s in [SettingsView.Section.theme, .fonts, .window] {
+        app.settingsSection = s
+        try await Snap.save(RootView(app: app), "84-settings-sheet-\(s)")
+    }
+    app.settingsOpen = false
+    // кнопка «панель» не ездит: открыта панель или спрятана — она на том же месте
+    app.update { $0.sidebarHidden = true }
+    try await Snap.save(RootView(app: app), "85-sidebar-hidden")
+    app.update { $0.sidebarHidden = false }
+    try await Snap.save(RootView(app: app), "85-sidebar-shown")
     app.update { $0.appearance = .light }
     app.page = .settings(.theme)
     try await Snap.save(RootView(app: app), "81-settings-theme-light")
