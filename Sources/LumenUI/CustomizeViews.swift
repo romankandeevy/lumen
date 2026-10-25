@@ -37,7 +37,7 @@ struct ConnectorsTab: View {
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     GroupTitle(text: "Готовые")
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 10)], spacing: 10) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 10, alignment: .top)], alignment: .leading, spacing: 10) {
                         ForEach(ConnectorPreset.popular) { preset in
                             PresetCard(app: app, preset: preset) { open = $0 }
                         }
@@ -221,7 +221,7 @@ private struct ConnectorRow: View {
             }
             if open == name { details(s, missing: missing) }
         }
-        .background(hover ? p.card.opacity(0.7) : p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xl))
+        .background(hover ? p.card.opacity(1) : p.card.opacity(0.85), in: RoundedRectangle(cornerRadius: R.xl))
         .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
         .onHover { hover = $0 }
         .onRightClick { point in
@@ -418,8 +418,8 @@ private struct PresetCard: View {
             }
         }
         .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xl))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(p.card.opacity(0.85), in: RoundedRectangle(cornerRadius: R.xl))
         .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
     }
 
@@ -466,7 +466,7 @@ private struct RegistryRow: View {
                     Text(entry.description).tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(2)
                 }
                 if !entry.asks.isEmpty {
-                    Text("Нужно: " + entry.asks.map(\.key).joined(separator: ", ")).tw(11, lh: 14).foregroundStyle(p.mutedFg.opacity(0.8))
+                    Text("Нужно: " + entry.asks.map(\.key).joined(separator: ", ")).tw(11, lh: 14).foregroundStyle(p.mutedFg)
                 }
             }
             Spacer(minLength: 12)
@@ -717,7 +717,7 @@ struct HooksTab: View {
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     GroupTitle(text: "Готовые")
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 10)], spacing: 10) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 10, alignment: .top)], alignment: .leading, spacing: 10) {
                         ForEach(HookTemplate.all) { t in
                             let added = app.hooks.contains { $0.command == t.rule.command }
                             VStack(alignment: .leading, spacing: 6) {
@@ -737,11 +737,11 @@ struct HooksTab: View {
                                 }
                                 Text(t.note).tw(12, lh: 16).foregroundStyle(p.mutedFg)
                                 Text(t.rule.event.title + (t.rule.matcher.isEmpty ? "" : " · \(t.rule.matcher)"))
-                                    .tw(11, lh: 14).foregroundStyle(p.mutedFg.opacity(0.8))
+                                    .tw(11, lh: 14).foregroundStyle(p.mutedFg)
                             }
                             .padding(14)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xl))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                            .background(p.card.opacity(0.85), in: RoundedRectangle(cornerRadius: R.xl))
                             .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
                         }
                     }
@@ -789,7 +789,7 @@ private struct HookRow: View {
             }))
         }
         .padding(14)
-        .background(hover ? p.card.opacity(0.7) : p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xl))
+        .background(hover ? p.card.opacity(1) : p.card.opacity(0.85), in: RoundedRectangle(cornerRadius: R.xl))
         .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
         .contentShape(Rectangle())
         .onTapGesture(perform: edit)

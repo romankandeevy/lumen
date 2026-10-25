@@ -4,9 +4,11 @@ import Foundation
 /// Свой маленький перевод в HTML: без сети и сторонних библиотек.
 public enum MarkdownHTML {
     /// Готовая страница для просмотра файла `name` с содержимым `text`
-    public static func page(name: String, text: String) -> String {
+    /// `raw` — показать исходный текст (у Markdown: переключатель «код»), с номерами строк, как у Claude
+    public static func page(name: String, text: String, raw: Bool = false) -> String {
         let ext = (name as NSString).pathExtension.lowercased()
-        let body = ["md", "markdown"].contains(ext) ? render(text) : "<pre><code>\(escape(text))</code></pre>"
+        let isMarkdown = ["md", "markdown"].contains(ext)
+        let body = isMarkdown && !raw ? render(text) : numbered(text)
         return """
             <!doctype html><html><head><meta charset="utf-8"><title>\(escape(name))</title>
             <style>
@@ -20,10 +22,21 @@ public enum MarkdownHTML {
             table { border-collapse: collapse; } th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; }
             a { color: #d97706; } hr { border: none; border-top: 1px solid #8884; margin: 2em 0; }
             .file { font: 12px ui-monospace, Menlo, monospace; opacity: .55; margin-bottom: 1.5em; }
-            </style></head><body><div class="file">\(escape(name))</div>
+            .code { font: 13px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; padding: 4px 0; }
+            .code .l { display: flex; } .code .n { flex: none; width: 3.2em; padding-right: 1.1em; text-align: right; opacity: .45; user-select: none; }
+            .code .t { white-space: pre-wrap; word-break: break-word; min-width: 0; }
+            body.codeview { max-width: none; margin: 0; padding: 12px 20px 40px 8px; }
+            </style></head><body class="\(isMarkdown && !raw ? "" : "codeview")">
             \(body)
             </body></html>
             """
+    }
+
+    /// Текст с номерами строк
+    static func numbered(_ text: String) -> String {
+        let lines = text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
+        let shown = lines.last == "" && lines.count > 1 ? Array(lines.dropLast()) : lines
+        return "<div class=\"code\">" + shown.enumerated().map { "<div class=\"l\"><span class=\"n\">\($0.offset + 1)</span><span class=\"t\">\(escape($0.element))</span></div>" }.joined() + "</div>"
     }
 
     /// Markdown → HTML: заголовки, абзацы, списки, код (```), цитаты, таблицы, черта, **жирный**, *курсив*, `код`, [ссылки](…)

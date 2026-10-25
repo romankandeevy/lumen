@@ -37,8 +37,14 @@ extension AppModel {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: dir) }
             let tmp = dir.appendingPathComponent(name)
-            guard (try? content.write(to: tmp, atomically: true, encoding: .utf8)) != nil,
-                  var a = importAttachment(tmp) else { return .init(text: "Файл не получился.", error: true) }
+            // .docx и .xlsx собираем сами из текста (Documents.swift): Word и Excel их открывают как настоящие
+            let written: Bool
+            if let doc = Documents.data(forName: name, content: content) {
+                written = (try? doc.write(to: tmp, options: .atomic)) != nil
+            } else {
+                written = (try? content.write(to: tmp, atomically: true, encoding: .utf8)) != nil
+            }
+            guard written, var a = importAttachment(tmp) else { return .init(text: "Файл не получился.", error: true) }
             a.name = name
             guard controllers.contains(where: { $0.addShot(conv, a) }) else { return .init(text: "Сейчас нет идущего ответа, куда положить файл.", error: true) }
             return .init(text: "Файл «\(name)» (\(a.sizeText)) лежит под ответом: человек может открыть его сбоку и скачать. В проект он не записан.")

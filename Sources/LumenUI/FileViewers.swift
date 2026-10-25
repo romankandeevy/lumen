@@ -26,6 +26,8 @@ struct FileTabView: View {
     @State private var region: NSImage?
     @State private var attached = false
     @State private var copied = false
+    /// Markdown: исходный текст вместо оформленного (переключатель «просмотр / код» в шапке)
+    @State private var showCode = false
 
     private var hasPointer: Bool { !selection.isEmpty || region != nil }
 
@@ -41,20 +43,27 @@ struct FileTabView: View {
             .animation(.easeOut(duration: 0.18), value: hasPointer)
         }
         // другой файл — прежнее выделение не переносится
-        .onChange(of: file) { selection = ""; region = nil; attached = false; copied = false }
+        .onChange(of: file) { selection = ""; region = nil; attached = false; copied = false; showCode = false }
     }
 
     // MARK: шапка
 
+    /// Как у Claude: слева (у Markdown) «просмотр / код», название и тип; справа «Копировать ▾», «В чат», закрыть
     private var header: some View {
         HStack(spacing: 10) {
-            Icon(file.kind.icon, 16).foregroundStyle(p.glow)
-                .frame(width: 30, height: 30)
-                .background(p.glow.opacity(0.1), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-            VStack(alignment: .leading, spacing: 0) {
-                Text(file.name).tw(13, .medium, lh: 17).lineLimit(1).truncationMode(.middle)
-                Text(subtitle).tw(11.5, lh: 15).foregroundStyle(p.mutedFg).lineLimit(1)
+            if file.kind == .markdown {
+                HStack(spacing: 2) {
+                    modeButton("eye", on: !showCode, help: "Просмотр") { showCode = false }
+                    modeButton("code", on: showCode, help: "Исходный текст") { showCode = true }
+                }
+                .padding(2)
+                .background(p.foreground.opacity(0.07), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
             }
+            HStack(spacing: 6) {
+                Text(displayTitle).tw(14, .medium, lh: 18).lineLimit(1).truncationMode(.middle).foregroundStyle(p.foreground)
+                Text("· " + typeLabel).tw(13, lh: 18).foregroundStyle(p.mutedFg).lineLimit(1).fixedSize()
+            }
+            .help(subtitle)
             Spacer(minLength: 6)
             Button {
                 app.attachToChat(file.url)
@@ -71,14 +80,53 @@ struct FileTabView: View {
             }
             .buttonStyle(.plain)
             .help("Прикрепить этот файл к разговору — на него можно ссылаться")
-            BrowserTool(icon: copied ? "check" : "copy", help: copyHelp) { copyWhole() }
-            BrowserTool(icon: "download", help: "Скачать в «Загрузки»") { app.downloadFile(file.url, name: file.name) }
-            BrowserTool(icon: "external-link", help: "Открыть в программе") { NSWorkspace.shared.open(file.url) }
-            BrowserTool(icon: "folder-open", help: "Показать в Finder") { NSWorkspace.shared.activateFileViewerSelecting([file.url]) }
-            p.border.frame(width: 1, height: 16).padding(.horizontal, 2)
+            copyMenu
             BrowserTool(icon: "x", help: "Закрыть панель · ⇧⌘B") { app.browserOpen = false }
         }
-        .padding(.horizontal, 10).frame(height: 50)
+        .padding(.horizontal, 12).frame(height: 52)
+    }
+
+    private func modeButton(_ icon: String, on: Bool, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Icon(icon, 14).foregroundStyle(on ? p.foreground : p.mutedFg)
+                .frame(width: 30, height: 26)
+                .background(on ? p.foreground.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    /// «Копировать ▾»: копировать, скачать, открыть в программе, показать в Finder
+    private var copyMenu: some View {
+        Menu {
+            Button(copyHelp) { copyWhole() }
+            Button("Скачать в «Загрузки»") { app.downloadFile(file.url, name: file.name) }
+            Button("Открыть в программе") { NSWorkspace.shared.open(file.url) }
+            Button("Показать в Finder") { NSWorkspace.shared.activateFileViewerSelecting([file.url]) }
+        } label: {
+            HStack(spacing: 6) {
+                Icon(copied ? "check" : "copy", 13)
+                Text(copied ? "Скопировано" : "Копировать").tw(13, .medium, lh: 16)
+                Icon("chevron-down", 11).foregroundStyle(p.mutedFg)
+            }
+            .foregroundStyle(p.textBody)
+            .padding(.horizontal, 10).frame(height: 28)
+            .background(p.foreground.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+    }
+
+    /// «Привет» вместо «Привет.docx» — расширение уходит в тип справа
+    private var displayTitle: String {
+        let base = (file.name as NSString).deletingPathExtension
+        return base.isEmpty ? file.name : base
+    }
+
+    private var typeLabel: String {
+        let ext = (file.name as NSString).pathExtension.uppercased()
+        return ext.isEmpty ? file.kind.label : ext
     }
 
     private var subtitle: String {
@@ -165,7 +213,7 @@ struct FileTabView: View {
     @ViewBuilder private var viewer: some View {
         switch file.kind {
         case .markdown, .text:
-            TextFileViewer(url: file.url, name: file.name, onSelect: { selection = $0 })
+            TextFileViewer(url: file.url, name: file.name, raw: showCode, onSelect: { selection = $0 })
         case .pdf:
             PDFFileViewer(url: file.url, onSelect: { selection = $0 })
         case .image:
@@ -195,6 +243,7 @@ struct FileTabView: View {
 struct TextFileViewer: NSViewRepresentable {
     let url: URL
     let name: String
+    var raw = false
     let onSelect: (String) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -216,15 +265,17 @@ struct TextFileViewer: NSViewRepresentable {
 
     func updateNSView(_ v: WKWebView, context: Context) {
         context.coordinator.onSelect = onSelect
-        guard context.coordinator.loaded != url else { return }
+        guard context.coordinator.loaded != url || context.coordinator.raw != raw else { return }
         context.coordinator.loaded = url
+        context.coordinator.raw = raw
         let text = (try? String(contentsOf: url, encoding: .utf8)).map { String($0.prefix(2_000_000)) } ?? "Файл не читается как текст."
-        v.loadHTMLString(MarkdownHTML.page(name: name, text: text), baseURL: url.deletingLastPathComponent())
+        v.loadHTMLString(MarkdownHTML.page(name: name, text: text, raw: raw), baseURL: url.deletingLastPathComponent())
     }
 
     final class Coordinator: NSObject, WKScriptMessageHandler {
         var onSelect: (String) -> Void = { _ in }
         var loaded: URL?
+        var raw = false
 
         func userContentController(_ c: WKUserContentController, didReceive message: WKScriptMessage) {
             onSelect((message.body as? String) ?? "")

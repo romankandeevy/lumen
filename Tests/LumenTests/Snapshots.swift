@@ -460,6 +460,12 @@ enum Snap {
     app.page = .skills
     try await Snap.save(RootView(app: app), "50-skills")
 
+    // 25.10: хуки и коннекторы тоже читаются
+    app.customizeTab = .hooks
+    try await Snap.save(RootView(app: app), "50-hooks")
+    app.customizeTab = .connectors
+    try await Snap.save(RootView(app: app), "50-connectors")
+    app.customizeTab = .skills
     app.page = .skillEditor("release-notes")
     try await Snap.save(RootView(app: app), "51-skill-editor", size: CGSize(width: 1180, height: 1100))
 
@@ -833,6 +839,10 @@ enum Snap {
     app.switchTab(.agent)
     app.newAgentTask()
     try await Snap.save(RootView(app: app), "composer-pills-agent", size: CGSize(width: 1100, height: 700))
+    // узкое окно: кнопки не режутся, а встают ровно (правка 5, 25.10)
+    for w in [900, 780, 700] {
+        try await Snap.save(RootView(app: app), "composer-narrow-\(w)", size: CGSize(width: CGFloat(w), height: 640))
+    }
 }
 
 @MainActor @Test(.enabled(if: snapDir != nil)) func snapshotFilePane() async throws {

@@ -166,7 +166,7 @@ private struct BotCard: View {
             Circle().fill(BotColor.faint(bot.hue)).frame(width: 160, height: 160).blur(radius: 30).offset(x: 60, y: -60)
                 .opacity(hover ? 1 : 0.6)
         }
-        .background(p.card.opacity(0.4))
+        .background(p.card.opacity(0.85))
         .clipShape(RoundedRectangle(cornerRadius: R.xxl))
         .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(hover ? BotColor.soft(bot.hue) : p.border))
         .contentShape(RoundedRectangle(cornerRadius: R.xxl))

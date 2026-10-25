@@ -211,7 +211,7 @@ struct FolderTile: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 12).padding(.vertical, 10)
-            .background(active ? p.glow.opacity(0.06) : (hover ? p.card : p.card.opacity(0.4)), in: RoundedRectangle(cornerRadius: R.xl))
+            .background(active ? p.glow.opacity(0.06) : (hover ? p.card : p.card.opacity(0.85)), in: RoundedRectangle(cornerRadius: R.xl))
             .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(active ? p.glow.opacity(0.5) : p.border))
             .contentShape(Rectangle())
         }
@@ -292,7 +292,7 @@ struct StepsView: View {
                         if current {
                             LiveDot(color: live?.tint ?? p.glow, size: 7)
                         } else {
-                            Icon(Self.icon(s.kind), 12).foregroundStyle(p.mutedFg)
+                            Icon(Self.icon(s.kind), 12).foregroundStyle(p.textSoft)
                         }
                     }
                     .frame(width: 22, height: 22)
@@ -302,7 +302,7 @@ struct StepsView: View {
                         HStack(spacing: 6) {
                             Self.styled(s.text, p: p, current: current).lineLimit(2).textSelection(.enabled)
                             if s.detail != nil {
-                                Icon(detailRow == i ? "chevron-down" : "chevron-right", 11).foregroundStyle(p.mutedFg.opacity(0.7))
+                                Icon(detailRow == i ? "chevron-down" : "chevron-right", 11).foregroundStyle(p.mutedFg)
                             }
                         }
                         if detailRow == i, let d = s.detail {
@@ -335,7 +335,7 @@ struct StepsView: View {
         .scrollIndicators(.never)
         .frame(height: min(max(historyHeight, 1), 300))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(p.foreground.opacity(0.025), in: RoundedRectangle(cornerRadius: R.lg))
+        .background(p.foreground.opacity(0.05), in: RoundedRectangle(cornerRadius: R.lg))
         .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
     }
 
@@ -343,13 +343,13 @@ struct StepsView: View {
     static func styled(_ text: String, p: Palette, current: Bool) -> Text {
         let parts = text.split(separator: " ", maxSplits: 1).map(String.init)
         guard parts.count == 2, parts[0].first?.isUppercase == true else {
-            return Text(text).font(.geist(13)).foregroundColor(current ? p.foreground : p.mutedFg)
+            return Text(text).font(.geist(13)).foregroundColor(current ? p.foreground : p.textSoft)
         }
         let object = parts[1]
         let code = object.contains("/") || object.contains("*") || object.contains("«") == false && object.contains("_")
         let tail = code ? Text(object).font(.system(size: 12, design: .monospaced)) : Text(object).font(.geist(13))
         return Text(parts[0] + " ").font(.geist(13)).foregroundColor(p.mutedFg)
-            + tail.foregroundColor(current ? p.foreground : p.mutedFg)
+            + tail.foregroundColor(current ? p.foreground : p.textSoft)
     }
 
     /// Как в Claude Code: один шаг — его строкой, несколько — «Выполнено 5 команд, прочитано 2 файла»
@@ -368,6 +368,7 @@ struct StepsView: View {
             part(count([.read]), ("прочитан", "прочитано"), ("файл", "файла", "файлов")),
             part(count([.search]), ("сделан", "сделано"), ("поиск", "поиска", "поисков")),
             part(count([.web]), ("открыт", "открыто"), ("сайт", "сайта", "сайтов")),
+            part(count([.file]), ("создан", "создано"), ("файл", "файла", "файлов")),
             part(count([.think, .other]), ("сделан", "сделано"), ("шаг", "шага", "шагов")),
         ].compactMap { $0 }
         let line = parts.joined(separator: ", ")
@@ -381,6 +382,7 @@ struct StepsView: View {
         case .run: "terminal"
         case .search: "search"
         case .web: "globe"
+        case .file: "file-text"
         case .think: "brain"
         case .other: "wrench"
         }
@@ -637,7 +639,7 @@ struct NextStepCard: View {
         }
         .padding(.horizontal, 14).padding(.vertical, 11)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(p.card.opacity(0.7), in: RoundedRectangle(cornerRadius: R.xl))
+        .background(p.card.opacity(1), in: RoundedRectangle(cornerRadius: R.xl))
         .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
         .overlay(alignment: .topTrailing) {
             Button(action: close) { Icon("x", 14).foregroundStyle(p.mutedFg) }

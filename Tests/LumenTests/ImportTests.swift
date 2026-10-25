@@ -262,8 +262,11 @@ private func writeSession(dir: URL, id: String, cwd: String) throws -> URL {
     #expect(html.contains("<blockquote>"))
     #expect(html.contains("<pre><code>let a = 1 &lt; 2</code></pre>"))
     #expect(html.contains("<th>Имя</th>") && html.contains("<td>A</td>"))
-    // код — моноширинным, без разметки
-    #expect(MarkdownHTML.page(name: "App.swift", text: "if a < b {}").contains("<pre><code>if a &lt; b {}</code></pre>"))
+    // код — моноширинным, без разметки, с номерами строк (как у Claude)
+    let code = MarkdownHTML.page(name: "App.swift", text: "if a < b {}\nreturn")
+    #expect(code.contains("<span class=\"n\">1</span><span class=\"t\">if a &lt; b {}</span>") && code.contains("<span class=\"n\">2</span>"))
+    // у Markdown есть и исходный вид («код» в шапке панели)
+    #expect(MarkdownHTML.page(name: "a.md", text: "# Привет", raw: true).contains("<span class=\"t\"># Привет</span>"))
 }
 
 @Test func artifactsCollectEverythingLumenGaveAsAttachment() throws {

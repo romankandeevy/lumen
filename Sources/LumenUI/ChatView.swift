@@ -1562,15 +1562,22 @@ struct Composer: View {
             .padding(.bottom, 6)
             // один ряд: слева «+», папка и режим, справа модель, «сколько думать» и отправить
             // узкая область (браузер сбоку, спрятанная панель): кнопки не вылезают за край, а встают в два ряда
+            // три вида, ни один не режет кнопки посередине: всё в ряд → плашка «Ещё отвечаю» сжимается до точки → два ряда
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 4) {
-                    leftControls
+                    leftControls(compact: false)
+                    Spacer(minLength: 8)
+                    rightControls
+                }
+                .frame(height: 38)
+                HStack(spacing: 4) {
+                    leftControls(compact: true)
                     Spacer(minLength: 8)
                     rightControls
                 }
                 .frame(height: 38)
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 4) { leftControls; Spacer(minLength: 0) }.frame(height: 38)
+                    HStack(spacing: 4) { leftControls(compact: true); Spacer(minLength: 0) }.frame(height: 38)
                     HStack(spacing: 4) { Spacer(minLength: 0); rightControls }.frame(height: 38)
                 }
             }
@@ -1650,7 +1657,7 @@ struct Composer: View {
     }
 
     /// Слева: «+», папка и режим агента, бот — каждая кнопка во всю подпись
-    @ViewBuilder private var leftControls: some View {
+    @ViewBuilder private func leftControls(compact: Bool) -> some View {
         // как в Claude: «+» в левом нижнем углу — картинки и файлы
         PlusMenu(app: app, agent: agent, canPickFolder: agent && chat.conversation == nil, chat: chat, draft: $draft, attachments: $attachments,
                  research: $research, github: $githubAdded, showsTools: !inBot && !inGroup).fixedSize()
@@ -1661,7 +1668,7 @@ struct Composer: View {
         // агент: папка (единственная кнопка с рамкой) и «Режим» — в нём и режим, и «Ночь» (Рома, 21.10)
         if agent { folderPicker.fixedSize(); modeMenu.fixedSize(); modePills }
         if let b = currentBot { botChip(b).fixedSize(); botFolderPicker(b).fixedSize(); botEffortPicker(b).fixedSize() }
-        ElsewherePill(app: app)
+        ElsewherePill(app: app, compact: compact)
     }
 
     /// Справа: модель, «сколько думать», отправить
@@ -2161,6 +2168,8 @@ private struct ViaChip: View {
 /// Где ещё Lumen сейчас отвечает (писать здесь можно и так): живая точка и название, щелчок — открыть
 private struct ElsewherePill: View {
     let app: AppModel
+    /// В тесной строке — только точка (и число, если разговоров несколько): плашка не режется посередине
+    var compact = false
 
     @Environment(\.palette) private var p
     @State private var pulse = false
@@ -2175,14 +2184,16 @@ private struct ElsewherePill: View {
                     Circle().fill(p.glow).frame(width: 6, height: 6)
                         .shadow(color: p.glow.opacity(pulse ? 0.9 : 0.2), radius: pulse ? 5 : 1)
                         .scaleEffect(pulse ? 1.15 : 0.85)
-                    Text(others.count == 1 ? "Ещё отвечаю: «\(first.title)»" : "Ещё отвечаю в \(others.count) разговорах")
-                        .lineLimit(1).truncationMode(.middle)
+                    if !compact || others.count > 1 {
+                        Text(compact ? "\(others.count)" : (others.count == 1 ? "Ещё отвечаю" : "Ещё отвечаю · \(others.count)"))
+                            .lineLimit(1)
+                    }
                 }
-                .font(.geist(12)).foregroundStyle(hover ? p.foreground : p.mutedFg)
+                .font(.geist(12)).foregroundStyle(hover ? p.foreground : p.textSoft)
                 .padding(.horizontal, 10).frame(height: 26)
-                .background(p.glow.opacity(hover ? 0.12 : 0.07), in: Capsule())
-                .overlay(Capsule().strokeBorder(p.glow.opacity(0.22)))
-                .frame(maxWidth: 150, alignment: .leading)
+                .background(p.glow.opacity(hover ? 0.16 : 0.1), in: Capsule())
+                .overlay(Capsule().strokeBorder(p.glow.opacity(0.3)))
+                .fixedSize()
                 .contentShape(Capsule())
             }
             .buttonStyle(.plain)

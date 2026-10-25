@@ -223,7 +223,7 @@ struct ChoiceCard: View {
 
     private var background: Color {
         if active { return p.glow.opacity(0.06) }
-        if settingsStyle { return hover ? p.card : p.card.opacity(0.4) }
+        if settingsStyle { return hover ? p.card : p.card.opacity(0.85) }
         return hover ? p.foreground.opacity(0.05) : .clear
     }
 }
@@ -251,7 +251,7 @@ struct SettingsCard<Content: View>: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xxl))
+        .background(p.card.opacity(0.85), in: RoundedRectangle(cornerRadius: R.xxl))
         .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(p.border))
     }
 }
@@ -408,11 +408,12 @@ struct LSwitch: View {
     var body: some View {
         Button { withAnimation(.easeOut(duration: 0.15)) { isOn.toggle() } } label: {
             Capsule()
-                .fill(isOn ? p.primary : (p.isLight ? p.foreground.opacity(0.14) : p.input.opacity(0.8)))
+                .fill(isOn ? p.primary : (p.isLight ? p.foreground.opacity(0.18) : p.foreground.opacity(0.16)))
                 .frame(width: 32, height: 18)
+                .overlay(Capsule().strokeBorder(isOn ? .clear : p.foreground.opacity(0.28)))
                 .overlay(alignment: isOn ? .trailing : .leading) {
                     // на светлой теме ручка белая с тенью, как в macOS
-                    Circle().fill(p.isLight ? Color.white : (isOn ? p.primaryFg : p.foreground))
+                    Circle().fill(p.isLight ? Color.white : (isOn ? p.primaryFg : p.textBody))
                         .shadow(color: .black.opacity(p.isLight ? 0.18 : 0), radius: 1.5, y: 0.5)
                         .frame(width: 14, height: 14).padding(2)
                 }

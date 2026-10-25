@@ -255,6 +255,10 @@ struct SettingsView: View {
     private var general: some View {
         page("Как выглядит Lumen, когда он запускается и как сообщает, что ответ готов.") {
             group("Вид") {
+                // первой строкой: искали и не нашли (Рома, 25.10)
+                row("Космический фон", "Звёзды и лучи из центра знака за перепиской", icon: "sparkles") {
+                    LSwitch(isOn: Binding(get: { app.prefs.skyBackground }, set: { v in app.update { $0.skyBackground = v } }))
+                }
                 row("Свет", "У каждой темы есть светлые и тёмные цвета", icon: "sun-moon") {
                     LightSwitch(value: lightBinding).fixedSize()
                 }
@@ -679,7 +683,7 @@ struct ThemeSettings: View {
         VStack(alignment: .leading, spacing: 0) { c() }
             .padding(.horizontal, 18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(p.card.opacity(0.45), in: RoundedRectangle(cornerRadius: R.xl))
+            .background(p.card.opacity(0.85), in: RoundedRectangle(cornerRadius: R.xl))
             .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
     }
 
@@ -895,19 +899,43 @@ private struct ColorField: View {
 
     @Environment(\.palette) private var p
     @State private var text = ""
+    @State private var picked: Color = .black
+    /// Цвет, который мы сами отправили в тему: его эхо из темы обратно в круг не пускаем
+    @State private var applied = ""
+    @State private var pending: Task<Void, Never>?
     @FocusState private var focused: Bool
 
     var body: some View {
         HStack(spacing: 8) {
-            ColorPicker("", selection: Binding(get: { color }, set: { set($0) }), supportsOpacity: false).labelsHidden()
+            // Круг крутится на своей копии цвета, а в тему цвет уходит, когда рука чуть замерла: раньше каждый кадр
+            // перекрашивал всё окно и записывался в настройки, а цвет из темы возвращался в круг и уводил его (25.10)
+            ColorPicker("", selection: $picked, supportsOpacity: false).labelsHidden()
+                .onChange(of: picked) { _, c in
+                    let h = c.hexString
+                    guard h != applied, h != color.hexString else { return }
+                    text = h
+                    pending?.cancel()
+                    pending = Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(200))
+                        guard !Task.isCancelled else { return }
+                        applied = h
+                        set(c)
+                    }
+                }
             TextField("", text: $text).textFieldStyle(.plain).font(.system(size: 13, design: .monospaced))
                 .frame(width: 76).focused($focused)
-                .onSubmit { if let c = Color(hexString: text) { set(c) } else { text = color.hexString } }
+                .onSubmit { if let c = Color(hexString: text) { applied = c.hexString; set(c) } else { text = color.hexString } }
         }
         .padding(.leading, 6).padding(.trailing, 12).frame(height: 34)
         .overlay(Capsule().strokeBorder(p.border))
-        .onAppear { text = color.hexString }
-        .onChange(of: color.hexString) { _, h in if !focused { text = h } }
+        .onAppear { picked = color; text = color.hexString; applied = color.hexString }
+        .onChange(of: color.hexString) { _, h in
+            // изменили не мы (другая тема, «Вернуть цвета») — подтянуть круг и поле
+            guard h != applied else { return }
+            applied = h
+            if !focused { text = h }
+            if picked.hexString != h { picked = color }
+        }
     }
 }
 
@@ -1158,7 +1186,7 @@ private struct DataSettings: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(p.card.opacity(0.45), in: RoundedRectangle(cornerRadius: R.xl))
+        .background(p.card.opacity(0.85), in: RoundedRectangle(cornerRadius: R.xl))
         .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
         .padding(.top, 16)
     }
@@ -1329,7 +1357,7 @@ private struct AboutSettings: View {
             line("Claude Code", claude, last: true)
         }
         .padding(.horizontal, 16)
-        .background(p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xl))
+        .background(p.card.opacity(0.85), in: RoundedRectangle(cornerRadius: R.xl))
         .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
     }
 
@@ -1394,7 +1422,7 @@ private struct UninstallSettings: View {
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.lg))
+            .background(p.card.opacity(0.85), in: RoundedRectangle(cornerRadius: R.lg))
             .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
             .contentShape(Rectangle())
         }
@@ -1733,7 +1761,7 @@ struct ApiKeyCard: View {
                     VStack(spacing: 0) {
                         ForEach(app.prefs.apiKeys) { k in KeyRow(app: app, entry: k) }
                     }
-                    .background(p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.lg))
+                    .background(p.card.opacity(0.85), in: RoundedRectangle(cornerRadius: R.lg))
                     .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
                     .padding(.bottom, 14)
                     Text(app.prefs.apiKeys.count > 1 ? "Выбранный ключ используется для всех разговоров через API. Можно переключать." : "Добавь ещё ключ — сможешь переключаться между ними.")
@@ -1874,7 +1902,7 @@ struct SettingsGroup<Content: View>: View {
                 .clipped()
                 .padding(.horizontal, 16)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(p.card.opacity(0.45), in: RoundedRectangle(cornerRadius: R.xl))
+                .background(p.card.opacity(0.85), in: RoundedRectangle(cornerRadius: R.xl))
                 .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
             if let footer {
                 Text(footer).tw(12, lh: 16).foregroundStyle(p.mutedFg).padding(.horizontal, 4).fixedSize(horizontal: false, vertical: true)

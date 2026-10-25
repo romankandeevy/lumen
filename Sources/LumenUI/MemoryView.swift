@@ -99,7 +99,7 @@ struct MemoryView: View {
                             FactRow(app: app, fact: f)
                         }
                     }
-                    .background(p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xl))
+                    .background(p.card.opacity(0.85), in: RoundedRectangle(cornerRadius: R.xl))
                     .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
                 } else {
                     VStack(spacing: 8) {
@@ -148,7 +148,7 @@ struct MemoryView: View {
                     }
                 }
                 .padding(14)
-                .background(p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xl))
+                .background(p.card.opacity(0.85), in: RoundedRectangle(cornerRadius: R.xl))
                 .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
             }
         }
@@ -202,15 +202,16 @@ struct MiniSegmented<T: Hashable>: View {
                     Text(name).font(.geist(12))
                         .foregroundStyle(id == value ? p.foreground : p.mutedFg)
                         .padding(.horizontal, 12).frame(height: 28)
-                        .background(id == value ? p.background : .clear, in: RoundedRectangle(cornerRadius: R.md))
-                        .overlay(RoundedRectangle(cornerRadius: R.md).strokeBorder(id == value ? p.border : .clear))
+                        .background(id == value ? p.secondary : .clear, in: RoundedRectangle(cornerRadius: R.md))
+                        .overlay(RoundedRectangle(cornerRadius: R.md).strokeBorder(id == value ? p.borderBase.opacity(0.2) : .clear))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(2)
-        .background(p.muted.opacity(0.5), in: RoundedRectangle(cornerRadius: R.lg))
+        .background(p.muted, in: RoundedRectangle(cornerRadius: R.lg))
+        .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
     }
 }
 
@@ -362,7 +363,7 @@ struct TalkCard: View {
             .foregroundStyle(p.foreground)
             .padding(.horizontal, 16).padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(hover ? p.card : p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xl))
+            .background(hover ? p.card : p.card.opacity(0.85), in: RoundedRectangle(cornerRadius: R.xl))
             .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(hover ? p.glow.opacity(0.3) : p.border))
             .contentShape(Rectangle())
         }
@@ -394,7 +395,7 @@ struct FileRow: View {
             }
             .foregroundStyle(p.foreground)
             .padding(.horizontal, 12).padding(.vertical, 8)
-            .background(hover ? p.card : p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.lg))
+            .background(hover ? p.card : p.card.opacity(0.85), in: RoundedRectangle(cornerRadius: R.lg))
             .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
             .contentShape(Rectangle())
         }

@@ -51,6 +51,8 @@ struct ArtifactsView: View {
                             ArtifactCard(app: app, item: it, attached: app.attachInbox.contains { $0.path == it.attachment.path })
                         }
                     }
+                    // поля вокруг сетки: верх первого ряда и рамки по бокам не срезаются краем прокрутки
+                    .padding(.top, 3).padding(.horizontal, 3)
                     .padding(.bottom, app.attachInbox.isEmpty ? 24 : 96)
                 }
                 .scrollIndicators(.never)
@@ -113,7 +115,7 @@ private struct ArtifactCard: View {
                 Text(a.name).font(.geist(13.5, .medium)).lineLimit(2).truncationMode(.tail)
                     // всегда место под две строки: карточки в ряду ровные
                     .frame(maxWidth: .infinity, minHeight: 36, alignment: .topLeading)
-                Text("«\(item.title)» · \(RelativeWhen.string(item.message.createdAt)) · \(a.sizeText)").font(.geist(12)).foregroundStyle(p.faint).monospacedDigit()
+                Text("«\(item.title)» · \(RelativeWhen.string(item.message.createdAt)) · \(a.sizeText)").font(.geist(12)).foregroundStyle(p.mutedFg).monospacedDigit()
                     .lineLimit(1)
             }
             .padding(.horizontal, 14).padding(.top, 12)
@@ -127,9 +129,9 @@ private struct ArtifactCard: View {
             }
             .padding(.horizontal, 10).padding(.top, 10).padding(.bottom, 10)
         }
-        .background(shape.fill(LinearGradient(colors: [p.borderBase.opacity(hover ? 0.06 : 0.045), p.borderBase.opacity(hover ? 0.035 : 0.02)],
+        .background(shape.fill(LinearGradient(colors: [p.borderBase.opacity(hover ? 0.09 : 0.07), p.borderBase.opacity(hover ? 0.06 : 0.045)],
                                               startPoint: .top, endPoint: .bottom)))
-        .overlay(shape.strokeBorder(attached ? p.glow.opacity(0.45) : p.borderBase.opacity(hover ? 0.12 : 0.07)))
+        .overlay(shape.strokeBorder(attached ? p.glow.opacity(0.55) : p.borderBase.opacity(hover ? 0.2 : 0.14)))
         .onHover { hover = $0 }
         .animation(.easeOut(duration: 0.14), value: hover)
     }
@@ -146,23 +148,25 @@ private struct ArtifactCard: View {
                         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 164, alignment: .top)
                 } else if a.kind != .image, let text = try? String(contentsOf: a.url, encoding: .utf8) {
                     // начало текста — как превью; книзу тает
-                    Text(String(text.prefix(500))).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(p.mutedFg)
+                    Text(String(text.prefix(500))).font(.system(size: 11, design: .monospaced)).foregroundStyle(p.textSoft)
                         .lineSpacing(2)
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                         .padding(.horizontal, 12).padding(.top, 36)
                         .frame(height: 164, alignment: .top)
-                        .mask(LinearGradient(colors: [.black, .black, .clear], startPoint: .top, endPoint: .bottom))
+                        .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.8), .init(color: .black.opacity(0.35), location: 1)], startPoint: .top, endPoint: .bottom))
                 } else {
                     Icon(a.kind == .pdf ? "file-text" : "file", 28).foregroundStyle(p.faint).frame(maxWidth: .infinity).frame(height: 164)
                 }
             }
             .background(p.isLight ? p.secondary : Color.black.opacity(0.25))
             .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(p.borderBase.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(p.borderBase.opacity(0.1)))
             .overlay(alignment: .topLeading) {
-                Text(kindLabel).font(.geist(11, .semibold)).foregroundStyle(.white.opacity(0.92))
-                    .padding(.horizontal, 7).frame(height: 20)
-                    .background(.black.opacity(0.55), in: Capsule())
+                // метка не должна съедать картинку: мелкая, на сплошной подложке с тонким светом по краю
+                Text(kindLabel).font(.geist(10.5, .semibold)).foregroundStyle(.white)
+                    .padding(.horizontal, 6).frame(height: 18)
+                    .background(.black.opacity(0.78), in: Capsule())
+                    .overlay(Capsule().strokeBorder(.white.opacity(0.18)))
                     .padding(8)
             }
             .padding(6)

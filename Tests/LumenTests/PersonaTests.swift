@@ -1,5 +1,5 @@
-import Foundation
 import Testing
+import Foundation
 @testable import LumenCore
 @testable import LumenStorage
 @testable import LumenProviders
@@ -83,4 +83,35 @@ import Testing
         #expect(prompt.contains("github.com/romankandeevy/lumen"))
         #expect(prompt.contains("Космический фон"))
     }
+}
+
+/// .docx и .xlsx собираются сами и открываются как настоящие архивы с XML (25.10: «почему он docx не умеет делать?»)
+@Test func docxAndXlsxAreRealArchives() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-docs-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let docx = try #require(Documents.data(forName: "privet.docx", content: "# Привет\n\nЭто **жирный** и *курсив* & <тег>.\n- пункт\n1. шаг"))
+    let xlsx = try #require(Documents.data(forName: "t.xlsx", content: "имя,сумма\nЧай,12,5\n\"Кофе, большой\",300"))
+    #expect(Documents.data(forName: "a.md", content: "x") == nil)
+    for (name, data) in [("privet.docx", docx), ("t.xlsx", xlsx)] {
+        let f = dir.appendingPathComponent(name)
+        try data.write(to: f)
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        p.arguments = ["-t", f.path]
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        try p.run(); p.waitUntilExit()
+        let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        #expect(p.terminationStatus == 0, "unzip -t \(name): \(out)")
+    }
+    // содержимое читается обратно
+    let read = Process()
+    read.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+    read.arguments = ["-p", dir.appendingPathComponent("privet.docx").path, "word/document.xml"]
+    let pipe = Pipe()
+    read.standardOutput = pipe
+    try read.run(); read.waitUntilExit()
+    let xml = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    #expect(xml.contains("Привет") && xml.contains("Heading1") && xml.contains("&amp;") && xml.contains("&lt;тег&gt;"))
 }

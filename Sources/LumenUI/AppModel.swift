@@ -209,7 +209,14 @@ public final class AppModel {
         self.paths = paths
         store = try Store(path: paths.database)
         profile = store.profile
-        prefs = store.preferences
+        var loaded = store.preferences
+        // аварийный выход из сломанных цветов: запуск с зажатым ⌥ сбрасывает свои цвета и контраст к стандартным
+        if NSEvent.modifierFlags.contains(.option) && ProcessInfo.processInfo.environment["LUMEN_SELFSHOT"] == nil {
+            loaded.themeOverrides = [:]
+            loaded.contrast = 50
+            try? store.set("preferences", loaded)
+        }
+        prefs = loaded
         persona = (try? store.value("persona", as: Persona.self)) ?? Persona()
         savedLinks = (try? store.value("browser.links", as: [SavedLink].self)) ?? []
         sidebarWidth = prefs.sidebarWidth

@@ -76,7 +76,7 @@ struct SkillsView: View {
                     .tw(13, lh: 18).foregroundStyle(p.mutedFg).multilineTextAlignment(.center).frame(maxWidth: 460)
             }
             .frame(maxWidth: .infinity).padding(.vertical, 48)
-            .background(p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xl))
+            .background(p.card.opacity(0.85), in: RoundedRectangle(cornerRadius: R.xl))
             .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
         }
         // две карточки в ряд (Рома, 21.10)
@@ -122,12 +122,12 @@ private struct SkillRow: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(skill.name).font(.geist(15, .semibold)).lineLimit(1).truncationMode(.tail)
                         .foregroundStyle(on ? p.foreground : p.textSoft)
-                    Text(on ? origin : origin + " · выключен").font(.geist(12.5)).foregroundStyle(p.faint).lineLimit(1)
+                    Text(on ? origin : origin + " · выключен").font(.geist(12.5)).foregroundStyle(p.mutedFg).lineLimit(1)
                 }
                 Spacer(minLength: 0)
             }
             Text(skill.description.isEmpty ? "Без описания" : skill.description)
-                .tw(13, lh: 19).foregroundStyle(p.mutedFg).lineLimit(2)
+                .tw(13, lh: 19).foregroundStyle(p.textSoft).lineLimit(2)
                 // всегда место под две строки: карточки в ряду одной высоты
                 .frame(maxWidth: .infinity, minHeight: 38, alignment: .topLeading)
                 .padding(.top, 12)
@@ -145,9 +145,9 @@ private struct SkillRow: View {
             .padding(.top, 14)
         }
         .padding(16)
-        .background(shape.fill(LinearGradient(colors: [p.borderBase.opacity(hover ? 0.06 : 0.045), p.borderBase.opacity(hover ? 0.035 : 0.02)],
+        .background(shape.fill(LinearGradient(colors: [p.borderBase.opacity(hover ? 0.09 : 0.07), p.borderBase.opacity(hover ? 0.06 : 0.045)],
                                               startPoint: .top, endPoint: .bottom)))
-        .overlay(shape.strokeBorder(p.borderBase.opacity(hover ? 0.12 : 0.07)))
+        .overlay(shape.strokeBorder(p.borderBase.opacity(hover ? 0.2 : 0.14)))
         .contentShape(shape)
         .onTapGesture { app.page = .skillEditor(skill.name) }
         .onHover { hover = $0 }
@@ -173,9 +173,9 @@ private struct SkillRow: View {
     }
 
     private func chip(_ t: String) -> some View {
-        Text(t).tw(11.5, lh: 14).foregroundStyle(p.mutedFg)
+        Text(t).tw(11.5, lh: 14).foregroundStyle(p.textSoft)
             .padding(.horizontal, 8).padding(.vertical, 3)
-            .background(p.hover, in: Capsule())
+            .background(p.foreground.opacity(0.09), in: Capsule())
     }
 }
 

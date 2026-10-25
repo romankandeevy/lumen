@@ -142,7 +142,7 @@ struct GroupEditor: View {
                 Icon(on ? "circle-check" : "plus", 16).foregroundStyle(on ? BotColor.accent(b.hue) : p.mutedFg)
             }
             .padding(12)
-            .background(on ? BotColor.faint(b.hue) : p.card.opacity(0.4), in: RoundedRectangle(cornerRadius: R.xl))
+            .background(on ? BotColor.faint(b.hue) : p.card.opacity(0.85), in: RoundedRectangle(cornerRadius: R.xl))
             .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(on ? BotColor.soft(b.hue) : p.border))
             .contentShape(Rectangle())
             .opacity(full ? 0.5 : 1)

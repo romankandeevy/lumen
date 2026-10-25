@@ -9,9 +9,9 @@ public struct Palette: Sendable {
     /// Свет Люмена: акцент — не заливка, а свечение
     let glow, glowCore, glowSoftBase, borderBase: Color
 
-    var border: Color { borderBase.opacity(0.08 * borderScale) }
-    var input: Color { borderBase.opacity(0.11 * borderScale) }
-    var sidebarBorder: Color { borderBase.opacity(0.07 * borderScale) }
+    var border: Color { borderBase.opacity((isLight ? 0.12 : 0.13) * borderScale) }
+    var input: Color { borderBase.opacity(0.14 * borderScale) }
+    var sidebarBorder: Color { borderBase.opacity(0.1 * borderScale) }
     var glowSoft: Color { glowSoftBase.opacity(isMono ? 0.12 : 0.18) }
     var glowFaint: Color { glowSoftBase.opacity(isMono ? 0.04 : 0.07) }
     let isMono: Bool
@@ -35,7 +35,7 @@ public struct Palette: Sendable {
     /// Модель и «сколько думать» под полем
     var textControl: Color { foreground.mixed(with: background, 0.2) }
     /// Даты, подсказка в поле, клавиши, стрелки
-    var faint: Color { mutedFg.mixed(with: background, 0.13) }
+    var faint: Color { mutedFg.mixed(with: background, 0.05) }
     /// Акцент заливкой; `glow` — акцент значков, курсора и рамки фокуса
     var accent: Color { glowSoftBase }
     /// Текст на акцентной подложке
@@ -43,9 +43,9 @@ public struct Palette: Sendable {
     var accentSoft: Color { isLight ? glow : glow.mixed(with: .white, 0.25) }
     var accentTint: Color { glowSoftBase.opacity(0.12) }
     /// Подложка под курсором у всех «призрачных» кнопок
-    var hover: Color { borderBase.opacity(0.045) }
+    var hover: Color { borderBase.opacity(0.06) }
     /// Линия справа у панели и разделители
-    var line: Color { borderBase.opacity(0.06 * borderScale) }
+    var line: Color { borderBase.opacity(0.09 * borderScale) }
     /// Выбранная строка: мягкая подложка сверху вниз и тонкое кольцо внутри — без цветной черты
     var activeFill: LinearGradient {
         // светлый «Люмен»: белая «карточка» (--active-bg)
@@ -84,8 +84,8 @@ public struct Palette: Sendable {
     /// «Люмен»: почти чёрный, звёзды и лучи короны, знак-затмение; синий — единственный акцент
     static let lumen: Palette = {
         var p = Palette(
-            background: Color(hex: 0x0A0B0F), foreground: Color(hex: 0xF1F3F8), card: Color(hex: 0x121318),
-            secondary: Color(hex: 0x1B1D23), muted: Color(hex: 0x16181D), mutedFg: Color(hex: 0x8D93A3),
+            background: Color(hex: 0x0A0B0F), foreground: Color(hex: 0xF1F3F8), card: Color(hex: 0x181A21),
+            secondary: Color(hex: 0x1F2128), muted: Color(hex: 0x1A1C22), mutedFg: Color(hex: 0xA6ACBC),
             sidebar: Color(hex: 0x101116), sidebarAccent: Color(hex: 0x191B21),
             primary: Color(hex: 0xF1F3F8), primaryFg: Color(hex: 0x0A0B0F), popover: Color(hex: 0x14161C),
             glow: Color(hex: 0x7FA0FF), glowCore: Color(hex: 0xDCE5FF), glowSoftBase: Color(hex: 0x5B86FF),
@@ -95,8 +95,8 @@ public struct Palette: Sendable {
     }()
 
     static let mono = Palette(
-        background: Color(hex: 0x0C0C0C), foreground: Color(hex: 0xF5F5F5), card: Color(hex: 0x141414),
-        secondary: Color(hex: 0x222222), muted: Color(hex: 0x1F1F1F), mutedFg: Color(hex: 0x929292),
+        background: Color(hex: 0x0C0C0C), foreground: Color(hex: 0xF5F5F5), card: Color(hex: 0x1A1A1A),
+        secondary: Color(hex: 0x262626), muted: Color(hex: 0x222222), mutedFg: Color(hex: 0xABABAB),
         sidebar: Color(hex: 0x060606), sidebarAccent: Color(hex: 0x181818),
         primary: Color(hex: 0xF5F5F5), primaryFg: Color(hex: 0x0D0D0D), popover: Color(hex: 0x161616),
         glow: Color(hex: 0xE4E4E4), glowCore: Color(hex: 0xFFFFFF), glowSoftBase: Color(hex: 0xFFFFFF),
@@ -107,7 +107,7 @@ public struct Palette: Sendable {
     static let light: Palette = {
         var p = Palette(
             background: Color(hex: 0xF7F7F4), foreground: Color(hex: 0x15171C), card: Color(hex: 0xFFFFFF),
-            secondary: Color(hex: 0xE9E9E4), muted: Color(hex: 0xEFEFEB), mutedFg: Color(hex: 0x686D7A),
+            secondary: Color(hex: 0xE9E9E4), muted: Color(hex: 0xEFEFEB), mutedFg: Color(hex: 0x555A67),
             sidebar: Color(hex: 0xEFEFEB), sidebarAccent: Color(hex: 0xFFFFFF),
             primary: Color(hex: 0x15171C), primaryFg: Color(hex: 0xFFFFFF), popover: Color(hex: 0xFFFFFF),
             glow: Color(hex: 0x2F5BEA), glowCore: Color(hex: 0xE4EBFF), glowSoftBase: Color(hex: 0x2F5BEA),
@@ -125,8 +125,8 @@ public struct Palette: Sendable {
             // тёмная: цвет темы виден в фоне, панелях и поле — не просто «чуть теплее чёрного»
             let d = 0.12 + 0.55 * c.tint
             return Palette(
-                background: hsb(d, 0.075), foreground: hsb(0.04, 0.95), card: hsb(d * 0.9, 0.105),
-                secondary: hsb(d * 0.8, 0.17), muted: hsb(d * 0.8, 0.145), mutedFg: hsb(0.1, 0.63),
+                background: hsb(d, 0.075), foreground: hsb(0.04, 0.95), card: hsb(d * 0.9, 0.13),
+                secondary: hsb(d * 0.8, 0.2), muted: hsb(d * 0.8, 0.17), mutedFg: hsb(0.1, 0.74),
                 sidebar: hsb(d, 0.05), sidebarAccent: hsb(d * 0.8, 0.14),
                 primary: hsb(0.22, 0.98), primaryFg: hsb(0.6, 0.1), popover: hsb(d * 0.8, 0.13),
                 glow: hsb(0.62, 1), glowCore: hsb(0.14, 1), glowSoftBase: hsb(0.68, 0.96),
@@ -134,7 +134,7 @@ public struct Palette: Sendable {
         }
         return Palette(
             background: hsb(s * 0.25, 0.985), foreground: hsb(0.18, 0.12), card: hsb(0, 1),
-            secondary: hsb(s * 0.3, 0.94), muted: hsb(s * 0.25, 0.955), mutedFg: hsb(0.1, 0.45),
+            secondary: hsb(s * 0.3, 0.94), muted: hsb(s * 0.25, 0.955), mutedFg: hsb(0.1, 0.38),
             sidebar: hsb(s * 0.3, 0.96), sidebarAccent: hsb(s * 0.4, 0.91),
             primary: hsb(0.18, 0.12), primaryFg: hsb(0, 1), popover: hsb(0, 1),
             glow: hsb(0.82, 0.76), glowCore: hsb(0.2, 1), glowSoftBase: hsb(0.72, 0.9),
@@ -144,7 +144,7 @@ public struct Palette: Sendable {
     /// Монохром при свете: белая бумага, чёрные чернила, «свет» — графит
     static let monoLight = Palette(
         background: Color(hex: 0xFAFAFA), foreground: Color(hex: 0x111111), card: Color(hex: 0xFFFFFF),
-        secondary: Color(hex: 0xECECEC), muted: Color(hex: 0xF1F1F1), mutedFg: Color(hex: 0x6B6B6B),
+        secondary: Color(hex: 0xECECEC), muted: Color(hex: 0xF1F1F1), mutedFg: Color(hex: 0x575757),
         sidebar: Color(hex: 0xF3F3F3), sidebarAccent: Color(hex: 0xE4E4E4),
         primary: Color(hex: 0x111111), primaryFg: Color(hex: 0xFFFFFF), popover: Color(hex: 0xFFFFFF),
         glow: Color(hex: 0x1C1C1C), glowCore: Color(hex: 0x555555), glowSoftBase: Color(hex: 0x000000),
@@ -206,22 +206,29 @@ public struct Palette: Sendable {
     /// Свои цвета: акцент — свет; фон — фон, а карточки и панели выводятся из него; текст — текст и подписи
     func with(_ o: ThemeOverrides) -> Palette {
         let bg = o.background.flatMap(Color.init(hexString:)) ?? background
-        let fg = o.foreground.flatMap(Color.init(hexString:)) ?? foreground
         let glowC = o.accent.flatMap(Color.init(hexString:)) ?? glow
         let newBg = o.background != nil, newFg = o.foreground != nil
+        // Светлая она или тёмная — решает яркость фона (25.10: светлый фон у тёмной темы давал белое на белом и «слетало»)
+        let light = newBg ? bg.luminance > 0.4 : isLight
+        var fg = o.foreground.flatMap(Color.init(hexString:)) ?? foreground
+        // Текст обязан читаться на фоне, какие бы цвета ни выбрали: иначе берём чернила под яркость фона
+        if (!newFg && light != isLight) || fg.contrast(with: bg) < 3 {
+            fg = light ? Color(hex: 0x15171C) : Color(hex: 0xF1F3F8)
+        }
+        let newFgEffective = newFg || fg.hexString != foreground.hexString
         var p = Palette(
             background: bg, foreground: fg,
             card: newBg ? bg.mixed(with: fg, 0.035) : card,
             secondary: newBg ? bg.mixed(with: fg, 0.1) : secondary,
             muted: newBg ? bg.mixed(with: fg, 0.08) : muted,
-            mutedFg: newFg || newBg ? fg.mixed(with: bg, 0.42) : mutedFg,
-            sidebar: newBg ? bg.mixed(with: isLight ? .white : .black, isLight ? 0.4 : 0.35) : sidebar,
+            mutedFg: newFgEffective || newBg ? fg.mixed(with: bg, 0.38) : mutedFg,
+            sidebar: newBg ? bg.mixed(with: light ? .white : .black, light ? 0.4 : 0.35) : sidebar,
             sidebarAccent: newBg ? bg.mixed(with: fg, 0.07) : sidebarAccent,
-            primary: newFg ? fg : primary, primaryFg: newBg ? bg : primaryFg,
+            primary: newFgEffective ? fg : primary, primaryFg: newBg ? bg : primaryFg,
             popover: newBg ? bg.mixed(with: fg, 0.05) : popover,
             glow: glowC, glowCore: o.accent != nil ? glowC.mixed(with: .white, 0.7) : glowCore,
             glowSoftBase: o.accent != nil ? glowC : glowSoftBase,
-            borderBase: newFg ? fg : borderBase, isMono: isMono, isLight: isLight)
+            borderBase: newFgEffective ? fg : borderBase, isMono: isMono, isLight: light)
         p.borderScale = borderScale
         p.diffSigns = diffSigns
         // свой акцент — и шар из него
@@ -266,6 +273,19 @@ extension Color {
         let c = NSColor(self).usingColorSpace(.sRGB) ?? .black
         return String(format: "#%02X%02X%02X", Int((c.redComponent * 255).rounded()), Int((c.greenComponent * 255).rounded()),
                       Int((c.blueComponent * 255).rounded()))
+    }
+
+    /// Относительная яркость по WCAG: 0 — чёрный, 1 — белый
+    var luminance: Double {
+        let c = NSColor(self).usingColorSpace(.sRGB) ?? .black
+        func lin(_ v: CGFloat) -> Double { let x = Double(v); return x <= 0.03928 ? x / 12.92 : pow((x + 0.055) / 1.055, 2.4) }
+        return 0.2126 * lin(c.redComponent) + 0.7152 * lin(c.greenComponent) + 0.0722 * lin(c.blueComponent)
+    }
+
+    /// Контраст двух цветов по WCAG: 1 — одинаковые, 21 — чёрный с белым; читаемый текст — от 4,5
+    func contrast(with other: Color) -> Double {
+        let a = luminance, b = other.luminance
+        return (max(a, b) + 0.05) / (min(a, b) + 0.05)
     }
 
     /// Смесь: t = 0 — этот цвет, 1 — другой

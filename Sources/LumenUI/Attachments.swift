@@ -258,8 +258,26 @@ struct AttachmentThumbs: View {
         let files = items.filter { $0.kind != .image }
         VStack(alignment: .leading, spacing: 8) {
             // файлы от агента (make_file, show_in_chat): карточка — открыть сбоку, скачать
+            // как у Claude (25.10): широкая карточка на файл и одна кнопка «Скачать все»
             if !files.isEmpty {
-                FlowWrap(spacing: 6) { ForEach(files) { a in FileChip(attachment: a, app: app) } }
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(files) { a in FileChip(attachment: a, app: app) }
+                    if files.count > 1, let app {
+                        Button { files.forEach { app.download($0) } } label: {
+                            HStack(spacing: 8) {
+                                Icon("download", 15)
+                                Text("Скачать все").font(.geist(13.5, .medium))
+                            }
+                            .foregroundStyle(p.textBody)
+                            .padding(.horizontal, 14).frame(height: 36)
+                            .background(p.foreground.opacity(0.07), in: RoundedRectangle(cornerRadius: R.lg))
+                            .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Скачать все файлы в «Загрузки»")
+                    }
+                }
             }
             if !images.isEmpty { thumbs(images) }
         }
@@ -355,7 +373,8 @@ enum ThumbCache {
 }
 
 
-/// Файл под ответом агента: значок, имя, размер; щелчок — открыть сбоку, «Скачать» — в «Загрузки»
+/// Файл под ответом — широкая карточка как у Claude: листок, название без расширения, «Документ · DOCX»,
+/// справа «Открыть» (сбоку) и скачать
 struct FileChip: View {
     let attachment: Attachment
     let app: AppModel?
@@ -363,38 +382,71 @@ struct FileChip: View {
     @Environment(\.palette) private var p
     @State private var hover = false
 
+    private var ext: String { (attachment.name as NSString).pathExtension.uppercased() }
+    private var title: String {
+        let base = (attachment.name as NSString).deletingPathExtension
+        return base.isEmpty ? attachment.name : base
+    }
+    /// «Документ», «Таблица», «Код»… — по расширению
+    private var kindWord: String {
+        if attachment.isVideo { return "Видео" }
+        if attachment.isAudio { return "Аудио" }
+        switch ext.lowercased() {
+        case "docx", "doc", "rtf", "md", "markdown", "txt", "pages": return "Документ"
+        case "xlsx", "xls", "csv", "tsv", "numbers": return "Таблица"
+        case "pptx", "ppt", "key": return "Презентация"
+        case "pdf": return "PDF"
+        case "zip", "tar", "gz", "7z", "rar": return "Архив"
+        case "html", "htm": return "Страница"
+        case "json", "swift", "py", "js", "ts", "css", "sh", "yaml", "yml", "xml": return "Код"
+        default: return attachment.kind == .text ? "Документ" : "Файл"
+        }
+    }
+    private var glyph: String { attachment.kind == .pdf || attachment.kind == .text || kindWord == "Документ" ? "file-text" : "file" }
+
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 14) {
             Button { if let app { app.preview(attachment) } else { NSWorkspace.shared.open(attachment.url) } } label: {
-                HStack(spacing: 10) {
+                HStack(spacing: 14) {
                     Group {
-                        if attachment.isVideo { Image(systemName: "film").font(.system(size: 15)) }
-                        else if attachment.isAudio { Image(systemName: "waveform").font(.system(size: 15)) }
-                        else { Icon(attachment.kind == .pdf ? "file-text" : (attachment.kind == .text ? "file-text" : "file"), 18) }
+                        if attachment.isVideo { Image(systemName: "film").font(.system(size: 18)) }
+                        else if attachment.isAudio { Image(systemName: "waveform").font(.system(size: 18)) }
+                        else { Icon(glyph, 20) }
                     }
-                    .foregroundStyle(p.glow).frame(width: 18)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(attachment.name).tw(13, .medium, lh: 18).lineLimit(1)
-                        Text(attachment.sizeText + (attachment.isVideo || attachment.isAudio ? " · проиграть сбоку" : " · открыть сбоку"))
-                            .tw(11, lh: 14).foregroundStyle(p.mutedFg)
+                    .foregroundStyle(p.textSoft)
+                    .frame(width: 44, height: 48)
+                    .background(p.foreground.opacity(0.07), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(p.border))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title).tw(15, .medium, lh: 20).lineLimit(1).truncationMode(.middle).foregroundStyle(p.foreground)
+                        Text(ext.isEmpty ? kindWord : "\(kindWord) · \(ext)").tw(13, lh: 18).foregroundStyle(p.mutedFg)
                     }
+                    Spacer(minLength: 8)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help("Открыть сбоку")
+            Button { if let app { app.preview(attachment) } else { NSWorkspace.shared.open(attachment.url) } } label: {
+                Text("Открыть").font(.geist(13.5, .medium)).foregroundStyle(p.textBody)
+                    .padding(.horizontal, 14).frame(height: 34)
+                    .background(p.foreground.opacity(hover ? 0.12 : 0.08), in: RoundedRectangle(cornerRadius: R.md))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
             Button { if let app { app.download(attachment) } } label: {
-                Icon("download", 14).foregroundStyle(hover ? p.foreground : p.mutedFg)
-                    .frame(width: 28, height: 28)
-                    .background(p.foreground.opacity(hover ? 0.1 : 0.05), in: RoundedRectangle(cornerRadius: R.md))
+                Icon("download", 15).foregroundStyle(hover ? p.foreground : p.textSoft)
+                    .frame(width: 34, height: 34)
+                    .background(p.foreground.opacity(hover ? 0.12 : 0.08), in: RoundedRectangle(cornerRadius: R.md))
             }
             .buttonStyle(.plain)
             .help("Скачать в «Загрузки»")
             .disabled(app == nil)
         }
-        .padding(.leading, 12).padding(.trailing, 6).padding(.vertical, 6)
-        .background(p.card.opacity(0.6), in: RoundedRectangle(cornerRadius: R.lg))
-        .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
+        .padding(.leading, 12).padding(.trailing, 12).padding(.vertical, 10)
+        .frame(maxWidth: .infinity)
+        .background(p.card.opacity(0.85), in: RoundedRectangle(cornerRadius: R.xl))
+        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
         .onHover { hover = $0 }
     }
 }
