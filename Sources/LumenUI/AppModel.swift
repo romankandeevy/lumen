@@ -215,9 +215,10 @@ public final class AppModel {
         store = try Store(path: paths.database)
         profile = store.profile
         var loaded = store.preferences
-        // аварийный выход из сломанных цветов: запуск с зажатым ⌥ сбрасывает свои цвета и контраст к стандартным
+        // аварийный выход из сломанных цветов: запуск с зажатым ⌥ — готовый «Люмен» и обычный контраст (свои темы остаются)
         if NSEvent.modifierFlags.contains(.option) && ProcessInfo.processInfo.environment["LUMEN_SELFSHOT"] == nil {
-            loaded.themeOverrides = [:]
+            loaded.themeID = "lumen"
+            loaded.darkThemeID = nil
             loaded.contrast = 50
             try? store.set("preferences", loaded)
         }

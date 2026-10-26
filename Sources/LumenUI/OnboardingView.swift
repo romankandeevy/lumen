@@ -233,6 +233,8 @@ struct ThemeCard: View {
     let family: Palette.Family
     var note: String?
     var compact = false
+    /// Готовая тема в настройках: замок у названия — она не меняется
+    var locked = false
 
     @Environment(\.palette) private var current
     @State private var hover = false
@@ -262,7 +264,10 @@ struct ThemeCard: View {
                         preview(t)
                         HStack {
                             VStack(alignment: .leading, spacing: 0) {
-                                Text(name).font(.geist(14, .medium))
+                                HStack(spacing: 6) {
+                                    Text(name).font(.geist(14, .medium))
+                                    if locked { Icon("lock", 11).foregroundStyle(current.mutedFg).help("Готовая тема — не меняется") }
+                                }
                                 Text(note).font(.geist(12)).foregroundStyle(current.mutedFg)
                             }
                             Spacer()

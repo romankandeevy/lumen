@@ -71,11 +71,11 @@ import Testing
     #expect(f?.source == "Claude Code")
 }
 
-/// Свои цвета ложатся поверх темы только для своего света; контраст меняет линии
+/// Свои цвета — у своей темы и только для своего света; готовые темы не меняются; контраст меняет линии
 @MainActor @Test func overridesApplyPerLight() {
     var p = Preferences()
-    p.themeID = "lumen"
-    p.themeOverrides[Palette.overridesKey("lumen", dark: true)] = ThemeOverrides(background: "#102030")
+    p.userThemes = [UserTheme(id: "user-a", name: "Своя", base: "lumen", darkColors: ThemeOverrides(background: "#102030"))]
+    p.themeID = "user-a"
     let dark = Palette.resolve(p, systemDark: false)
     p.appearance = .light
     let light = Palette.resolve(p, systemDark: false)

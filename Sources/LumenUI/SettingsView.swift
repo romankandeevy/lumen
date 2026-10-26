@@ -576,9 +576,9 @@ struct LightSwitch: View {
 
 // MARK: тема
 
-/// «Тема» (как «Визуальный стиль» в ChatGPT): режим карточками; тема списком с выгрузкой и загрузкой;
-/// свои акцент, фон и текст поверх темы; все темы карточками и «Новая тема»; «Расширенные» — шрифты, движение,
-/// раздельные темы для света и тьмы, контраст, маркеры различий
+/// «Тема» (26.10, mockups/themes): свет карточками и космический фон; тема списком; четыре готовые темы карточками —
+/// с замком, не меняются; своя тема — копия готовой, правится в редакторе ниже и применяется по «Сохранить».
+/// «Расширенные» — шрифты, движение, раздельные темы для света и тьмы, контраст, маркеры различий
 struct ThemeSettings: View {
     @Bindable var app: AppModel
 
@@ -587,36 +587,14 @@ struct ThemeSettings: View {
     @State private var note: String?
 
     private var dark: Bool { app.isDarkMode }
-    private var themeID: String { Palette.themeID(app.prefs, dark: dark) }
-    private var key: String { Palette.overridesKey(themeID, dark: dark) }
-    private var overrides: ThemeOverrides { app.prefs.themeOverrides[key] ?? ThemeOverrides() }
-    /// Цвета темы без своих — от них поля показывают значения по умолчанию
-    private var base: Palette { Palette.Family.find(themeID, app.prefs).palette(dark: dark) }
-    /// Что выбрал человек (а не что получилось после подстройки под читаемость): поле и колодец показывают это
-    private var chosenBackground: Color { overrides.background.flatMap(Color.init(hexString:)) ?? base.background }
-    private var chosenForeground: Color { overrides.foreground.flatMap(Color.init(hexString:)) ?? base.foreground }
-    private var chosenAccent: Color { overrides.accent.flatMap(Color.init(hexString:)) ?? base.glow }
-    /// Что Lumen подстроил, чтобы читалось: подпись под цветами
-    private var adjusted: String? {
-        var parts: [String] = []
-        if p.foreground.hexString != chosenForeground.hexString { parts.append("текст") }
-        if p.glow.hexString != chosenAccent.hexString { parts.append("акцент") }
-        guard !parts.isEmpty else { return nil }
-        return "На этом фоне " + parts.joined(separator: " и ") + " не читался бы — Lumen подстроил " + (parts.count > 1 ? "их" : "его") + " сам"
-    }
-
-    private func setOverride(_ f: @escaping (inout ThemeOverrides) -> Void) {
-        let k = key
-        app.update { prefs in
-            var o = prefs.themeOverrides[k] ?? ThemeOverrides()
-            f(&o)
-            prefs.themeOverrides[k] = o.isEmpty ? nil : o
-        }
-    }
+    /// Тема, которая сейчас у окна (при раздельных режимах — своя у темноты)
+    private var themeID: String { Palette.Family.find(Palette.themeID(app.prefs, dark: dark), app.prefs).id }
+    private var family: Palette.Family { Palette.Family.find(themeID, app.prefs) }
+    private var userTheme: UserTheme? { app.prefs.userThemes.first { $0.id == themeID } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SettingsHeader(icon: "palette", title: "Тема", lead: "Свет, цвета и шрифты. У каждой темы есть светлые и тёмные цвета — режим выбирает, какие сейчас.").padding(.bottom, 4)
+            SettingsHeader(icon: "palette", title: "Тема", lead: "Свет и тема. Четыре готовые темы не меняются — свои цвета у своей темы: сделай её на основе любой готовой.")
 
             card {
                 line("Режим", divider: true) {
@@ -636,9 +614,9 @@ struct ThemeSettings: View {
             card {
                 if app.prefs.separateModes {
                     line("Тема при свете", divider: true) { themeMenu(dark: false) }
-                    line("Тема в темноте", divider: true) { themeMenu(dark: true) }
+                    line("Тема в темноте", divider: userTheme == nil) { themeMenu(dark: true) }
                 } else {
-                    line("Тема", divider: true) {
+                    line("Тема", divider: userTheme == nil) {
                         HStack(spacing: 4) {
                             IconButton(icon: "download", help: "Загрузить тему из буфера обмена") { importTheme() }
                             IconButton(icon: "copy", help: "Скопировать тему — можно отдать другу") { exportTheme() }
@@ -646,40 +624,28 @@ struct ThemeSettings: View {
                         }
                     }
                 }
-                line("Акцентный цвет", divider: true) { accentMenu }
-                line("Фон", divider: true) {
-                    ColorField(color: chosenBackground) { c in setOverride { $0.background = c?.hexString } }
-                }
-                line("Цвет текста", divider: adjusted != nil) {
-                    ColorField(color: chosenForeground) { c in setOverride { $0.foreground = c?.hexString } }
-                }
-                if let adjusted {
-                    IconLabel(text: adjusted, icon: "info", size: 13).tw(12, lh: 16).foregroundStyle(p.mutedFg)
-                        .padding(.vertical, 10)
-                }
-                if !overrides.isEmpty {
-                    HStack {
-                        Text("Свои цвета — только для «\(Palette.Family.find(themeID, app.prefs).name)» \(dark ? "в темноте" : "при свете")")
-                            .tw(12, lh: 16).foregroundStyle(p.mutedFg)
-                        Spacer()
-                        LButton(title: "Вернуть цвета темы", icon: "rotate-ccw", kind: .ghost, small: true) {
-                            let k = key
-                            app.update { $0.themeOverrides[k] = nil }
-                        }
+                if userTheme == nil {
+                    // готовая тема: только выбрать; менять — в своей
+                    HStack(spacing: 10) {
+                        Icon("lock", 14).foregroundStyle(p.mutedFg)
+                        Text("«\(family.name)» — готовая тема, она не меняется").tw(13, lh: 18).foregroundStyle(p.textSoft)
+                        Spacer(minLength: 12)
+                        LButton(title: "Своя на основе «\(family.name)»", icon: "plus", kind: .outline, small: true) { createTheme() }.fixedSize()
                     }
-                    .padding(.bottom, 10)
+                    .padding(.vertical, 14)
                 }
             }
             .padding(.top, 12)
             if let note { Text(note).tw(12, lh: 16).foregroundStyle(p.mutedFg).padding(.top, 8) }
 
+            if let t = userTheme {
+                CustomThemeEditor(app: app, theme: t, dark: dark).id(t.id).padding(.top, 12)
+            }
+
             GroupTitle(text: "Все темы", aside: "щелчок — выбрать").padding(.top, 28)
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
-                ForEach(Palette.Family.all(app.prefs)) { f in ThemeCard(app: app, family: f) }
-                NewThemeCard { createTheme() }
-            }
-            if let i = app.prefs.userThemes.firstIndex(where: { $0.id == app.prefs.themeID }) {
-                UserThemeEditor(app: app, index: i).padding(.top, 16)
+                ForEach(Palette.Family.all(app.prefs)) { f in ThemeCard(app: app, family: f, locked: !f.user) }
+                NewThemeCard(base: family.name) { createTheme() }
             }
 
             Button { withAnimation(.easeOut(duration: 0.15)) { advanced.toggle() } } label: {
@@ -743,33 +709,6 @@ struct ThemeSettings: View {
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
     }
 
-    /// Готовые акценты и свой цвет
-    private var accentMenu: some View {
-        let presets: [(String, UInt32?)] = [("Цвет темы", nil), ("Янтарный", 0xFEC766), ("Красный", 0xE5484D), ("Оранжевый", 0xF76B15),
-                                             ("Зелёный", 0x30A46C), ("Бирюзовый", 0x12A594), ("Синий", 0x3E63DD), ("Розовый", 0xD6409F),
-                                             ("Белый", 0xEDEDED), ("Чёрный", 0x1A1A1A)]
-        let name = overrides.accent.flatMap { hex in presets.first { $0.1.map { Color(hex: $0).hexString } == hex }?.0 } ?? (overrides.accent == nil ? "Цвет темы" : "Свой")
-        return HStack(spacing: 8) {
-            Menu {
-                ForEach(presets, id: \.0) { n, v in
-                    Button(n) { setOverride { $0.accent = v.map { Color(hex: $0).hexString } } }
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    Circle().fill(p.glow).frame(width: 16, height: 16).overlay(Circle().strokeBorder(p.foreground.opacity(0.2)))
-                    Text(name).tw(14, lh: 20)
-                    Icon("chevron-down", 13).foregroundStyle(p.mutedFg)
-                }
-                .padding(.horizontal, 12).frame(height: 34)
-                .overlay(Capsule().strokeBorder(p.border))
-                .contentShape(Capsule())
-            }
-            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-            ColorField(color: chosenAccent) { c in setOverride { $0.accent = c?.hexString } }
-                .help("Свой цвет")
-        }
-    }
-
     private var advancedCards: some View {
         VStack(spacing: 12) {
             card {
@@ -811,23 +750,21 @@ struct ThemeSettings: View {
 
     // MARK: выгрузка и загрузка
 
-    /// Тема в буфер обмена: название, оттенок, окраска и свои цвета — текстом JSON
+    /// Тема в буфер обмена текстом JSON: своя — целиком, готовая — её название
     private func exportTheme() {
-        let f = Palette.Family.find(app.prefs.themeID, app.prefs)
-        let user = app.prefs.userThemes.first { $0.id == f.id }
-        var o: [String: Any] = ["lumenTheme": 1, "name": f.name]
-        if let user { o["hue"] = user.hue; o["tint"] = user.tint } else { o["base"] = f.id }
-        for d in [false, true] {
-            if let ov = app.prefs.themeOverrides[Palette.overridesKey(f.id, dark: d)],
-               let data = try? JSONEncoder().encode(ov), let j = try? JSONSerialization.jsonObject(with: data) { o[d ? "dark" : "light"] = j }
+        var o: [String: Any] = ["lumenTheme": 2, "name": family.name]
+        if let t = userTheme, let data = try? JSONEncoder().encode(t), let j = try? JSONSerialization.jsonObject(with: data) {
+            o["theme"] = j
+        } else {
+            o["base"] = family.id
         }
         guard let data = try? JSONSerialization.data(withJSONObject: o, options: [.prettyPrinted, .sortedKeys]) else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(String(decoding: data, as: UTF8.self), forType: .string)
-        flash("Тема «\(f.name)» скопирована")
+        flash("Тема «\(family.name)» скопирована")
     }
 
-    /// Тема из буфера обмена (то, что скопировал «Скопировать тему»)
+    /// Тема из буфера обмена (то, что скопировал «Скопировать тему»). Своя — новой своей темой; готовая — просто выбрать
     private func importTheme() {
         guard let s = NSPasteboard.general.string(forType: .string),
               let o = try? JSONSerialization.jsonObject(with: Data(s.utf8)) as? [String: Any], o["lumenTheme"] != nil else {
@@ -835,21 +772,27 @@ struct ThemeSettings: View {
             return
         }
         let name = (o["name"] as? String) ?? "Тема"
-        var id = (o["base"] as? String).flatMap { b in Palette.Family.builtIn.first { $0.id == b }?.id }
-        app.update { prefs in
-            if id == nil {
-                let t = UserTheme(name: name, hue: o["hue"] as? Double ?? 205, tint: o["tint"] as? Double ?? 0.4)
-                prefs.userThemes.append(t)
-                id = t.id
+        var theme: UserTheme?
+        if let j = o["theme"], let data = try? JSONSerialization.data(withJSONObject: j), var t = try? JSONDecoder().decode(UserTheme.self, from: data) {
+            t.id = "user-" + UUID().uuidString.lowercased().prefix(8)
+            theme = t
+        } else if let base = (o["base"] as? String).map({ Preferences.renamedThemes[$0] ?? $0 }), Palette.Family.isBuiltIn(base), o["dark"] == nil, o["light"] == nil {
+            select(base)
+            flash("Выбрана тема «\(name)»")
+            return
+        } else {
+            // формат до 26.10: оттенок и свои цвета
+            func colors(_ k: String) -> ThemeOverrides? {
+                o[k].flatMap { try? JSONSerialization.data(withJSONObject: $0) }.flatMap { try? JSONDecoder().decode(ThemeOverrides.self, from: $0) }
             }
-            guard let id else { return }
-            prefs.themeID = id
-            for d in [false, true] {
-                if let j = o[d ? "dark" : "light"], let data = try? JSONSerialization.data(withJSONObject: j),
-                   let ov = try? JSONDecoder().decode(ThemeOverrides.self, from: data) { prefs.themeOverrides[Palette.overridesKey(id, dark: d)] = ov }
-            }
+            let base = (o["base"] as? String).map { Preferences.renamedThemes[$0] ?? $0 }
+            theme = UserTheme(name: name, hue: o["hue"] as? Double ?? 205, tint: o["tint"] as? Double ?? 0.4,
+                              base: base.flatMap { Palette.Family.isBuiltIn($0) ? $0 : nil }, darkColors: colors("dark"), lightColors: colors("light"))
         }
-        flash("Тема «\(name)» загружена")
+        guard let theme else { return }
+        app.update { $0.userThemes.append(theme) }
+        select(theme.id)
+        flash("Тема «\(theme.name)» загружена — она своя, её можно менять")
     }
 
     private func flash(_ s: String) {
@@ -857,11 +800,23 @@ struct ThemeSettings: View {
         Task { try? await Task.sleep(for: .seconds(3)); if note == s { note = nil } }
     }
 
-    /// Новая тема — сразу выбрана, дальше правится ниже
+    /// Выбрать тему для того света, что сейчас (при раздельных режимах в темноте — своя)
+    private func select(_ id: String) {
+        let d = dark
+        app.update { if d && $0.separateModes { $0.darkThemeID = id } else { $0.themeID = id } }
+    }
+
+    /// Своя тема на основе той, что сейчас: копия готовой (или копия своей) — сразу выбрана, правится ниже
     private func createTheme() {
-        let n = app.prefs.userThemes.count + 1
-        let t = UserTheme(name: n == 1 ? "Моя тема" : "Моя тема \(n)", hue: 205, tint: 0.4)
-        app.update { $0.userThemes.append(t); $0.themeID = t.id }
+        let names = Set(app.prefs.userThemes.map(\.name))
+        var n = 1
+        while names.contains(n == 1 ? "Моя тема" : "Моя тема \(n)") { n += 1 }
+        var t = userTheme ?? UserTheme(name: "", base: family.id)
+        t.id = "user-" + UUID().uuidString.lowercased().prefix(8)
+        t.name = n == 1 ? "Моя тема" : "Моя тема \(n)"
+        let theme = t
+        app.update { $0.userThemes.append(theme) }
+        select(theme.id)
     }
 }
 
@@ -1043,6 +998,8 @@ struct PillPicker<T: Hashable>: View {
 
 /// Пустая карточка «Новая тема»: пунктир и плюс
 private struct NewThemeCard: View {
+    /// На основе какой темы будет своя
+    let base: String
     let action: () -> Void
 
     @Environment(\.palette) private var p
@@ -1052,12 +1009,13 @@ private struct NewThemeCard: View {
         Button(action: action) {
             VStack(spacing: 8) {
                 Icon("plus", 20)
-                Text("Новая тема").tw(14, .medium, lh: 20)
-                Text("Свой цвет — светлая и тёмная версии сами").tw(12, lh: 16).foregroundStyle(p.mutedFg)
+                Text("Своя тема").tw(14, .medium, lh: 20)
+                Text("На основе «\(base)» — свои фон, карточки, текст и акцент").tw(12, lh: 16).foregroundStyle(p.mutedFg)
+                    .multilineTextAlignment(.center).padding(.horizontal, 16)
             }
-            .foregroundStyle(hover ? p.foreground : p.foreground.opacity(0.8))
+            .foregroundStyle(hover ? p.foreground : p.foreground.opacity(0.85))
             .frame(maxWidth: .infinity).frame(height: 168)
-            .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(hover ? p.foreground.opacity(0.3) : p.foreground.opacity(0.15),
+            .overlay(RoundedRectangle(cornerRadius: R.xxl).strokeBorder(hover ? p.foreground.opacity(0.35) : p.foreground.opacity(0.2),
                                                                        style: StrokeStyle(lineWidth: 1.2, dash: [5, 4])))
             .contentShape(RoundedRectangle(cornerRadius: R.xxl))
         }
@@ -1066,67 +1024,201 @@ private struct NewThemeCard: View {
     }
 }
 
-/// Правка своей темы: имя, оттенок (готовые и ползунок), окраска фона, удалить
-private struct UserThemeEditor: View {
+/// Своя тема (26.10): название, цвета для темноты и для света — фон, карточки, текст, акцент — с контрастом и образцом.
+/// Пока не нажали «Сохранить», меняется только образец: Lumen остаётся в прежних цветах, «Отменить» возвращает как было
+private struct CustomThemeEditor: View {
     @Bindable var app: AppModel
-    let index: Int
+    /// Как тема сохранена сейчас
+    let theme: UserTheme
 
     @Environment(\.palette) private var p
-    @State private var name = ""
+    @State private var draft: UserTheme
+    @State private var darkTab: Bool
+    @State private var confirmDelete = false
 
-    private var theme: UserTheme { app.prefs.userThemes[index] }
+    init(app: AppModel, theme: UserTheme, dark: Bool) {
+        self.app = app
+        self.theme = theme
+        _draft = State(initialValue: theme)
+        _darkTab = State(initialValue: dark)
+    }
 
-    private func set(_ f: @escaping (inout UserTheme) -> Void) {
-        app.update { prefs in
-            guard index < prefs.userThemes.count else { return }
-            f(&prefs.userThemes[index])
-        }
+    private var changed: Bool { draft != theme }
+    private var base: Palette { Palette.Family.base(of: draft).palette(dark: darkTab) }
+    private var preview: Palette { Palette.Family.of(draft).palette(dark: darkTab) }
+    private var colors: ThemeOverrides { draft.colors(dark: darkTab) }
+
+    /// Что выбрано у поля: свой цвет или цвет основы
+    private func value(_ k: WritableKeyPath<ThemeOverrides, String?>, _ fallback: Color) -> Color {
+        colors[keyPath: k].flatMap(Color.init(hexString:)) ?? fallback
+    }
+
+    private func set(_ k: WritableKeyPath<ThemeOverrides, String?>, _ c: Color?) {
+        var o = colors
+        o[keyPath: k] = c?.hexString
+        if darkTab { draft.darkColors = o.isEmpty ? nil : o } else { draft.lightColors = o.isEmpty ? nil : o }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 16) {
-                Text("Название").font(.geist(13, .medium)).frame(width: 110, alignment: .leading)
-                TextField("", text: $name).textFieldStyle(.plain).font(.geist(14))
-                    .padding(.horizontal, 10).frame(width: 260, height: 32)
-                    .background(p.input.opacity(0.3), in: RoundedRectangle(cornerRadius: R.lg))
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                Icon("pencil", 14).foregroundStyle(p.glow)
+                TextField("Название темы", text: $draft.name).textFieldStyle(.plain).tw(15, .medium, lh: 20)
+                    .padding(.horizontal, 10).frame(height: 32).frame(maxWidth: 280)
+                    .background(p.input.opacity(0.35), in: RoundedRectangle(cornerRadius: R.lg))
                     .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
-                    .onSubmit { set { $0.name = name } }
-                    .onChange(of: name) { _, n in set { $0.name = n } }
-                Spacer()
-                LButton(title: "Удалить тему", icon: "trash", kind: .ghost, small: true) {
-                    let id = theme.id
-                    app.update { prefs in
-                        prefs.userThemes.removeAll { $0.id == id }
-                        prefs.themeID = "lumen"
-                    }
+                if let b = draft.base.flatMap({ id in Palette.Family.builtIn.first { $0.id == id }?.name }) {
+                    Text("на основе «\(b)»").tw(12.5, lh: 16).foregroundStyle(p.mutedFg)
                 }
-            }
-            HStack(spacing: 16) {
-                Text("Цвет").font(.geist(13, .medium)).frame(width: 110, alignment: .leading)
-                HStack(spacing: 8) {
-                    ForEach([0.0, 16, 38, 85, 140, 175, 205, 230, 330], id: \.self) { h in
-                        Button { set { $0.hue = h } } label: {
-                            Circle().fill(Color(hue: h / 360, saturation: 0.62, brightness: 1)).frame(width: 20, height: 20)
-                                .overlay(Circle().strokeBorder(p.foreground.opacity(abs(theme.hue - h) < 1 ? 0.9 : 0), lineWidth: 2))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    HueSlider(hue: Binding(get: { theme.hue }, set: { v in set { $0.hue = v } })).frame(width: 160).padding(.leading, 6)
+                Spacer(minLength: 8)
+                LButton(title: confirmDelete ? "Точно удалить?" : "Удалить тему", icon: "trash", kind: .ghost, small: true) {
+                    if confirmDelete { delete() } else { confirmDelete = true }
                 }
+                .fixedSize()
             }
-            HStack(spacing: 16) {
-                Text("Окраска фона").font(.geist(13, .medium)).frame(width: 110, alignment: .leading)
-                Slider(value: Binding(get: { theme.tint }, set: { v in set { $0.tint = v } }), in: 0...1).frame(maxWidth: 320)
-                Text(theme.tint < 0.2 ? "почти нейтральный" : theme.tint < 0.65 ? "лёгкий оттенок" : "насыщенный")
-                    .font(.geist(12)).foregroundStyle(p.mutedFg)
+            Segmented(value: $darkTab, options: [(true, "В темноте"), (false, "При свете")]).frame(width: 300)
+            HStack(alignment: .top, spacing: 18) {
+                VStack(spacing: 0) {
+                    colorRow("Фон", nil, \.background, base.background, divider: true)
+                    colorRow("Карточки", "Шаги, файлы, поле ввода", \.surface, base.card, divider: true)
+                    colorRow("Текст", contrastNote(value(\.foreground, base.foreground), need: 4.5), \.foreground, base.foreground, divider: true)
+                    colorRow("Акцент", contrastNote(value(\.accent, base.glow), need: 3), \.accent, base.glow, divider: false)
+                }
+                .frame(maxWidth: .infinity)
+                ThemePreview(palette: preview).frame(width: 250, height: 214)
             }
+            HStack(spacing: 10) {
+                if changed {
+                    Circle().fill(p.glow).frame(width: 7, height: 7)
+                    Text("Изменено — Lumen пока в прежних цветах").tw(13, lh: 18).foregroundStyle(p.textSoft)
+                } else {
+                    Icon("check", 13).foregroundStyle(p.mutedFg)
+                    Text("Сохранено").tw(13, lh: 18).foregroundStyle(p.mutedFg)
+                }
+                Spacer(minLength: 8)
+                LButton(title: "Отменить", kind: .ghost, small: true) { draft = theme }.disabled(!changed).fixedSize()
+                LButton(title: "Сохранить", icon: "check", kind: .primary, small: true) { save() }.disabled(!changed).fixedSize()
+            }
+            .padding(.horizontal, 12).padding(.vertical, 10)
+            .background(changed ? p.glow.opacity(0.09) : p.foreground.opacity(0.03), in: RoundedRectangle(cornerRadius: R.lg))
+            .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(changed ? p.glow.opacity(0.3) : p.border))
         }
-        .padding(16)
-        .background(p.card.opacity(0.5), in: RoundedRectangle(cornerRadius: R.xl))
+        .padding(18)
+        .background(p.card.opacity(0.85), in: RoundedRectangle(cornerRadius: R.xl))
         .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
-        .onAppear { name = theme.name }
-        .onChange(of: index) { name = theme.name }
+        .onChange(of: theme) { _, saved in if !changed { draft = saved } }
+    }
+
+    private func colorRow(_ title: String, _ note: String?, _ k: WritableKeyPath<ThemeOverrides, String?>, _ fallback: Color, divider: Bool) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).tw(14, .medium, lh: 20)
+                if let note { Text(note).tw(12, lh: 16).foregroundStyle(note.contains("✓") || !note.contains("·") ? p.mutedFg : Color(hex: 0xE8A33D)) }
+            }
+            Spacer(minLength: 12)
+            if colors[keyPath: k] != nil {
+                IconButton(icon: "rotate-ccw", help: "Как у основы") { set(k, nil) }
+            }
+            ColorField(color: value(k, fallback)) { c in set(k, c) }
+        }
+        .padding(.vertical, 10)
+        .overlay(alignment: .bottom) { if divider { p.border.frame(height: 1) } }
+    }
+
+    /// «Контраст 15,8 ✓» или «Контраст 2,1 · бледно — Lumen подсветит сам»
+    private func contrastNote(_ c: Color, need: Double) -> String {
+        let bg = value(\.background, base.background)
+        let r = c.contrast(with: bg)
+        let n = String(format: "%.1f", r).replacingOccurrences(of: ".", with: ",")
+        return r >= need ? "Контраст \(n) ✓" : "Контраст \(n) · бледно — Lumen подсветит сам"
+    }
+
+    private func save() {
+        var t = draft
+        if t.name.trimmingCharacters(in: .whitespaces).isEmpty { t.name = "Моя тема" }
+        let saved = t
+        app.update { prefs in
+            if let i = prefs.userThemes.firstIndex(where: { $0.id == saved.id }) { prefs.userThemes[i] = saved }
+        }
+        draft = saved
+    }
+
+    private func delete() {
+        let id = theme.id
+        let fallback = theme.base ?? "lumen"
+        app.update { prefs in
+            prefs.userThemes.removeAll { $0.id == id }
+            if prefs.themeID == id { prefs.themeID = fallback }
+            if prefs.darkThemeID == id { prefs.darkThemeID = fallback }
+        }
+    }
+}
+
+/// Образец своей темы: окно Lumen в миниатюре — панель, вопрос, ответ со знаком, файл, поле ввода
+struct ThemePreview: View {
+    let palette: Palette
+
+    var body: some View {
+        let p = palette
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 3) { ForEach(0..<3, id: \.self) { _ in Circle().fill(p.secondary).frame(width: 5, height: 5) } }.padding(.bottom, 4)
+                RoundedRectangle(cornerRadius: 4).fill(p.secondary).frame(height: 12)
+                ForEach(0..<4, id: \.self) { i in
+                    RoundedRectangle(cornerRadius: 3).fill(i == 1 ? p.secondary : .clear).frame(height: 11)
+                        .overlay(alignment: .leading) {
+                            HStack(spacing: 3) {
+                                if i == 1 { Circle().fill(p.glow).frame(width: 4, height: 4) }
+                                Capsule().fill(i == 1 ? p.foreground.opacity(0.8) : p.mutedFg.opacity(0.7)).frame(width: [30, 34, 26, 30][i], height: 3)
+                            }
+                            .padding(.leading, 4)
+                        }
+                }
+                Spacer()
+            }
+            .padding(7).frame(width: 64).background(p.sidebar)
+            .overlay(alignment: .trailing) { p.border.frame(width: 1) }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack { Spacer(); Text("Сделай план").font(.system(size: 9)).foregroundStyle(p.foreground)
+                    .padding(.horizontal, 7).padding(.vertical, 4).background(p.secondary, in: RoundedRectangle(cornerRadius: 7)) }
+                HStack(alignment: .top, spacing: 5) {
+                    Circle().fill(p.background).frame(width: 10, height: 10)
+                        .overlay(Circle().strokeBorder(p.glow, lineWidth: 1.3)).shadow(color: p.glow.opacity(0.6), radius: 3)
+                    (Text("Готово — ").foregroundColor(p.foreground) + Text("план ниже").foregroundColor(p.glow).underline()
+                        + Text(", открой сбоку.").foregroundColor(p.foreground)).font(.system(size: 9))
+                }
+                Text("Создан 1 файл · 2 с").font(.system(size: 8)).foregroundStyle(p.mutedFg)
+                    .padding(.horizontal, 6).padding(.vertical, 4).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(p.card, in: RoundedRectangle(cornerRadius: 5)).overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(p.border))
+                    .padding(.leading, 15)
+                HStack(spacing: 5) {
+                    RoundedRectangle(cornerRadius: 2).fill(p.secondary).frame(width: 10, height: 13)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("План").font(.system(size: 8.5, weight: .semibold)).foregroundStyle(p.foreground)
+                        Text("Документ · DOCX").font(.system(size: 7)).foregroundStyle(p.mutedFg)
+                    }
+                    Spacer()
+                    Text("Открыть").font(.system(size: 7.5)).foregroundStyle(p.foreground).padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(p.secondary, in: RoundedRectangle(cornerRadius: 4))
+                }
+                .padding(5).background(p.card, in: RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(p.border))
+                .padding(.leading, 15)
+                Spacer(minLength: 0)
+                HStack {
+                    Text("Просто напиши…").font(.system(size: 8)).foregroundStyle(p.faint)
+                    Spacer()
+                    Text("Sonnet").font(.system(size: 8)).foregroundStyle(p.mutedFg)
+                    Circle().fill(p.accent).frame(width: 12, height: 12)
+                        .overlay(Image(systemName: "arrow.up").font(.system(size: 6, weight: .bold)).foregroundStyle(p.onGlow))
+                }
+                .padding(.horizontal, 7).frame(height: 22)
+                .background(p.composerFill, in: RoundedRectangle(cornerRadius: 7)).overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(p.border))
+            }
+            .padding(9)
+        }
+        .background(p.background)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(p.border))
     }
 }
 

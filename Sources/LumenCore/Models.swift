@@ -38,19 +38,31 @@ public enum Appearance: String, Codable, Sendable, CaseIterable {
     case light, dark, system
 }
 
-/// Своя тема, созданная человеком: имя, оттенок 0…360 и насколько им окрашен фон 0…1. Светлая и тёмная версии — сами
+/// Своя тема (26.10): копия готовой (`base`) со своими цветами для темноты и для света. Готовые темы не меняются —
+/// цвета правятся только у своих. Старые свои темы (до 26.10) без основы считаются от оттенка `hue` и окраски `tint`
 public struct UserTheme: Codable, Sendable, Equatable, Identifiable, Hashable {
     public var id: String
     public var name: String
     public var hue: Double
     public var tint: Double
+    /// Готовая тема, от которой сделана: «lumen», «mono», «corona», «aurora»
+    public var base: String?
+    /// Свои цвета поверх основы
+    public var darkColors: ThemeOverrides?
+    public var lightColors: ThemeOverrides?
 
-    public init(id: String = "user-" + UUID().uuidString.lowercased().prefix(8), name: String, hue: Double, tint: Double) {
+    public init(id: String = "user-" + UUID().uuidString.lowercased().prefix(8), name: String, hue: Double = 210, tint: Double = 0.4,
+                base: String? = nil, darkColors: ThemeOverrides? = nil, lightColors: ThemeOverrides? = nil) {
         self.id = id
         self.name = name
         self.hue = hue
         self.tint = tint
+        self.base = base
+        self.darkColors = darkColors
+        self.lightColors = lightColors
     }
+
+    public func colors(dark: Bool) -> ThemeOverrides { (dark ? darkColors : lightColors) ?? ThemeOverrides() }
 }
 
 /// Свои цвета поверх темы (hex «#RRGGBB»): акцент, фон, текст. Свои для светлого и тёмного света
@@ -58,12 +70,15 @@ public struct ThemeOverrides: Codable, Sendable, Equatable, Hashable {
     public var accent: String?
     public var background: String?
     public var foreground: String?
-    public init(accent: String? = nil, background: String? = nil, foreground: String? = nil) {
+    /// Карточки, шаги, файлы — «поверхность» над фоном
+    public var surface: String?
+    public init(accent: String? = nil, background: String? = nil, foreground: String? = nil, surface: String? = nil) {
         self.accent = accent
         self.background = background
         self.foreground = foreground
+        self.surface = surface
     }
-    public var isEmpty: Bool { accent == nil && background == nil && foreground == nil }
+    public var isEmpty: Bool { accent == nil && background == nil && foreground == nil && surface == nil }
 }
 
 /// «Меньше движения»: как в системе, всегда или никогда
@@ -288,6 +303,7 @@ public struct Preferences: Codable, Sendable, Equatable {
         autoModel = (try? c.decodeIfPresent(Bool.self, forKey: .autoModel)) ?? true
         autoCompact = (try? c.decodeIfPresent(Bool.self, forKey: .autoCompact)) ?? true
         compactAt = (try? c.decodeIfPresent(Int.self, forKey: .compactAt)) ?? Handoff.defaultPercent
+        Self.migrateThemes(&self)
     }
 }
 
@@ -305,5 +321,24 @@ public struct ApiKeyEntry: Codable, Sendable, Equatable, Identifiable, Hashable 
         self.name = name
         self.tail = tail
         self.addedAt = addedAt
+    }
+}
+
+extension Preferences {
+    /// Готовые темы 26.10: «Люмен», «Монохром», «Корона», «Сияние». Прежние «Закат» и «Луна» — их ближайшие
+    public static let renamedThemes = ["sunset": "corona", "moon": "lumen"]
+
+    /// 26.10: готовые темы больше не меняются. Свои цвета у своих тем переезжают в саму тему,
+    /// свои цвета поверх готовых тем отбрасываются; старые названия тем — на новые
+    static func migrateThemes(_ p: inout Preferences) {
+        if let to = renamedThemes[p.themeID] { p.themeID = to }
+        if let d = p.darkThemeID, let to = renamedThemes[d] { p.darkThemeID = to }
+        guard !p.themeOverrides.isEmpty else { return }
+        for i in p.userThemes.indices {
+            let id = p.userThemes[i].id
+            if p.userThemes[i].darkColors == nil, let o = p.themeOverrides[id + "|dark"], !o.isEmpty { p.userThemes[i].darkColors = o }
+            if p.userThemes[i].lightColors == nil, let o = p.themeOverrides[id + "|light"], !o.isEmpty { p.userThemes[i].lightColors = o }
+        }
+        p.themeOverrides = [:]
     }
 }

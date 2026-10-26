@@ -2,7 +2,8 @@ import AppKit
 import LumenCore
 import SwiftUI
 
-/// Цвета тем: «Люмен» и «Монохром» — из макета (`ui/src/index.css`, OKLCH → sRGB), «Светлая» и своя — от них.
+/// Цвета тем (26.10, mockups/themes): четыре готовые — «Люмен», «Монохром», «Корона», «Сияние», у каждой свет и темнота.
+/// Готовые не меняются; своя тема — копия готовой со своими фоном, карточками, текстом и акцентом.
 public struct Palette: Sendable {
     let background, foreground, card, secondary, muted, mutedFg, sidebar, sidebarAccent: Color
     let primary, primaryFg, popover: Color
@@ -20,6 +21,8 @@ public struct Palette: Sendable {
     var borderScale = 1.0
     /// Разница правок — только знаками +/−, без цвета строк
     var diffSigns = false
+    /// Тихий текст (даты, подсказки) — задан темой; nil — выводится из второстепенного
+    var faintBase: Color?
 
     /// Текст и значки на светящейся заливке (кнопка отправки, отметка): на тёмной теме — чёрные, на светлой — белые
     var onGlow: Color { isLight ? .white : .black }
@@ -35,7 +38,7 @@ public struct Palette: Sendable {
     /// Модель и «сколько думать» под полем
     var textControl: Color { foreground.mixed(with: background, 0.2) }
     /// Даты, подсказка в поле, клавиши, стрелки
-    var faint: Color { mutedFg.mixed(with: background, 0.05) }
+    var faint: Color { faintBase ?? mutedFg.mixed(with: background, 0.3) }
     /// Акцент заливкой; `glow` — акцент значков, курсора и рамки фокуса
     var accent: Color { glowSoftBase }
     /// Текст на акцентной подложке
@@ -81,48 +84,61 @@ public struct Palette: Sendable {
     static let destructive = Color(hex: 0xFF6467)
     static let ok = Color(hex: 0x34D399)
 
-    /// «Люмен»: почти чёрный, звёзды и лучи короны, знак-затмение; синий — единственный акцент
+    /// Готовая тема из токенов макета (mockups/themes/themes.html): фон, карточки, выше, текст, второстепенный, тихий, акцент
+    static func make(bg: UInt32, surface: UInt32, raised: UInt32, text: UInt32, text2: UInt32, faint: UInt32,
+                     accent: UInt32, accentFill: UInt32, accentCore: UInt32, sidebar: UInt32, line: UInt32,
+                     light: Bool, mono: Bool = false) -> Palette {
+        var p = Palette(
+            background: Color(hex: bg), foreground: Color(hex: text), card: Color(hex: surface),
+            secondary: Color(hex: raised), muted: Color(hex: surface).mixed(with: Color(hex: raised), 0.5), mutedFg: Color(hex: text2),
+            sidebar: Color(hex: sidebar), sidebarAccent: Color(hex: raised),
+            primary: Color(hex: text), primaryFg: Color(hex: bg), popover: Color(hex: light ? 0xFFFFFF : surface),
+            glow: Color(hex: accent), glowCore: Color(hex: accentCore), glowSoftBase: Color(hex: accentFill),
+            borderBase: Color(hex: line), isMono: mono, isLight: light)
+        p.faintBase = Color(hex: faint)
+        return p
+    }
+
+    /// «Люмен»: затмение — чёрное небо и синяя корона; знак и небо из lumen-theme.css
     static let lumen: Palette = {
-        var p = Palette(
-            background: Color(hex: 0x0A0B0F), foreground: Color(hex: 0xF1F3F8), card: Color(hex: 0x181A21),
-            secondary: Color(hex: 0x1F2128), muted: Color(hex: 0x1A1C22), mutedFg: Color(hex: 0xA6ACBC),
-            sidebar: Color(hex: 0x101116), sidebarAccent: Color(hex: 0x191B21),
-            primary: Color(hex: 0xF1F3F8), primaryFg: Color(hex: 0x0A0B0F), popover: Color(hex: 0x14161C),
-            glow: Color(hex: 0x7FA0FF), glowCore: Color(hex: 0xDCE5FF), glowSoftBase: Color(hex: 0x5B86FF),
-            borderBase: Color(hex: 0xFFFFFF), isMono: false)
+        var p = make(bg: 0x0A0B0F, surface: 0x15171D, raised: 0x1E2129, text: 0xF1F3F8, text2: 0xB8BECE, faint: 0x8B91A3,
+                     accent: 0x7FA0FF, accentFill: 0x5B86FF, accentCore: 0xDCE5FF, sidebar: 0x101116, line: 0xFFFFFF, light: false)
         p.orbSpec = true
         return p
     }()
 
-    static let mono = Palette(
-        background: Color(hex: 0x0C0C0C), foreground: Color(hex: 0xF5F5F5), card: Color(hex: 0x1A1A1A),
-        secondary: Color(hex: 0x262626), muted: Color(hex: 0x222222), mutedFg: Color(hex: 0xABABAB),
-        sidebar: Color(hex: 0x060606), sidebarAccent: Color(hex: 0x181818),
-        primary: Color(hex: 0xF5F5F5), primaryFg: Color(hex: 0x0D0D0D), popover: Color(hex: 0x161616),
-        glow: Color(hex: 0xE4E4E4), glowCore: Color(hex: 0xFFFFFF), glowSoftBase: Color(hex: 0xFFFFFF),
-        borderBase: Color(hex: 0xFFFFFF), isMono: true)
-
-    /// Светлая (lumen-theme.css): тёплая бумага, тёмные чернила, акцент #2F5BEA — светлый синий из тёмной на белом не читается.
-    /// Луна в знаке чёрная и тут; корона нарисована тушью
+    /// «Люмен» при свете: тёплая бумага и синие чернила (#2F5BEA — светлый синий из тёмной на белом не читается)
     static let light: Palette = {
-        var p = Palette(
-            background: Color(hex: 0xF7F7F4), foreground: Color(hex: 0x15171C), card: Color(hex: 0xFFFFFF),
-            secondary: Color(hex: 0xE9E9E4), muted: Color(hex: 0xEFEFEB), mutedFg: Color(hex: 0x555A67),
-            sidebar: Color(hex: 0xEFEFEB), sidebarAccent: Color(hex: 0xFFFFFF),
-            primary: Color(hex: 0x15171C), primaryFg: Color(hex: 0xFFFFFF), popover: Color(hex: 0xFFFFFF),
-            glow: Color(hex: 0x2F5BEA), glowCore: Color(hex: 0xE4EBFF), glowSoftBase: Color(hex: 0x2F5BEA),
-            borderBase: Color(hex: 0x141826), isMono: false, isLight: true)
+        var p = make(bg: 0xF7F7F4, surface: 0xFFFFFF, raised: 0xEEEEE9, text: 0x15171C, text2: 0x474C59, faint: 0x686D7B,
+                     accent: 0x2F5BEA, accentFill: 0x2F5BEA, accentCore: 0xE4EBFF, sidebar: 0xEFEFEB, line: 0x141826, light: true)
         p.orbSpec = true
         return p
     }()
 
-    /// Своя тема: всё считается от оттенка; tint — насколько фон и панели окрашены этим оттенком
+    /// «Монохром»: чёрное и белое, как Пульт; акцент — сам свет
+    static let mono = make(bg: 0x0C0C0C, surface: 0x181818, raised: 0x222222, text: 0xF5F5F5, text2: 0xBDBDBD, faint: 0x919191,
+                           accent: 0xFFFFFF, accentFill: 0xF5F5F5, accentCore: 0xFFFFFF, sidebar: 0x060606, line: 0xFFFFFF, light: false, mono: true)
+    static let monoLight = make(bg: 0xFAFAFA, surface: 0xFFFFFF, raised: 0xEFEFEF, text: 0x111111, text2: 0x4A4A4A, faint: 0x6B6B6B,
+                                accent: 0x111111, accentFill: 0x111111, accentCore: 0x555555, sidebar: 0xF3F3F3, line: 0x000000, light: true, mono: true)
+
+    /// «Корона»: свет солнца из-за луны — золото на тёплом угле; при свете — песок и янтарь
+    static let corona = make(bg: 0x0E0B07, surface: 0x1A150E, raised: 0x251E14, text: 0xF7EFE3, text2: 0xD2C3AA, faint: 0xA0927C,
+                             accent: 0xF2B544, accentFill: 0xE9A62A, accentCore: 0xFFE9B8, sidebar: 0x0A0805, line: 0xFFECC8, light: false)
+    static let coronaLight = make(bg: 0xFBF7F0, surface: 0xFFFFFF, raised: 0xF2EADC, text: 0x1E1810, text2: 0x56493A, faint: 0x75685A,
+                                  accent: 0x9A5B07, accentFill: 0xB86F0B, accentCore: 0xFBE6C4, sidebar: 0xF5EEE3, line: 0x3C280A, light: true)
+
+    /// «Сияние»: северное небо — зелёный свет над тёмной водой; при свете — утро у моря
+    static let aurora = make(bg: 0x061110, surface: 0x0E1C1A, raised: 0x152724, text: 0xECF7F4, text2: 0xAFCBC4, faint: 0x82A59D,
+                             accent: 0x3DDC97, accentFill: 0x22C784, accentCore: 0xC9F7E1, sidebar: 0x040C0B, line: 0xC8FFEB, light: false)
+    static let auroraLight = make(bg: 0xF3F8F6, surface: 0xFFFFFF, raised: 0xE5EFEB, text: 0x0F1F1C, text2: 0x3D5852, faint: 0x5A7670,
+                                  accent: 0x0B7D55, accentFill: 0x0E8A5F, accentCore: 0xD2F2E4, sidebar: 0xEAF2EF, line: 0x0A3228, light: true)
+
+    /// Старая своя тема (до 26.10): всё считается от оттенка; tint — насколько фон и панели окрашены этим оттенком
     static func custom(_ c: CustomTheme) -> Palette {
         let h = c.hue / 360
         let s = 0.04 + 0.22 * c.tint
         func hsb(_ sat: Double, _ b: Double) -> Color { Color(hue: h, saturation: min(1, sat), brightness: min(1, b)) }
         if c.dark {
-            // тёмная: цвет темы виден в фоне, панелях и поле — не просто «чуть теплее чёрного»
             let d = 0.12 + 0.55 * c.tint
             return Palette(
                 background: hsb(d, 0.075), foreground: hsb(0.04, 0.95), card: hsb(d * 0.9, 0.13),
@@ -141,15 +157,6 @@ public struct Palette: Sendable {
             borderBase: hsb(0.3, 0.12), isMono: false, isLight: true)
     }
 
-    /// Монохром при свете: белая бумага, чёрные чернила, «свет» — графит
-    static let monoLight = Palette(
-        background: Color(hex: 0xFAFAFA), foreground: Color(hex: 0x111111), card: Color(hex: 0xFFFFFF),
-        secondary: Color(hex: 0xECECEC), muted: Color(hex: 0xF1F1F1), mutedFg: Color(hex: 0x575757),
-        sidebar: Color(hex: 0xF3F3F3), sidebarAccent: Color(hex: 0xE4E4E4),
-        primary: Color(hex: 0x111111), primaryFg: Color(hex: 0xFFFFFF), popover: Color(hex: 0xFFFFFF),
-        glow: Color(hex: 0x1C1C1C), glowCore: Color(hex: 0x555555), glowSoftBase: Color(hex: 0x000000),
-        borderBase: Color(hex: 0x000000), isMono: true, isLight: true)
-
     /// Тема целиком: цвета для светлого и тёмного. Свет (`Appearance`) выбирает, какие из них сейчас
     struct Family: Identifiable {
         let id: String
@@ -161,29 +168,37 @@ public struct Palette: Sendable {
 
         func palette(dark isDark: Bool) -> Palette { isDark ? dark : light }
 
-        /// Встроенные: у каждой — своя идея света (лампа, полдень и полночь, закат, северное сияние, луна)
+        /// Четыре готовые — про свет на небе, как знак Lumen. Не меняются
         static let builtIn: [Family] = [
-            Family(id: "lumen", name: "Люмен", note: "Затмение: корона и звёзды", dark: .lumen, light: .light),
+            Family(id: "lumen", name: "Люмен", note: "Затмение: чёрное небо, синяя корона", dark: .lumen, light: .light),
             Family(id: "mono", name: "Монохром", note: "Чёрное и белое, как Пульт", dark: .mono, light: .monoLight),
-            hue("sunset", "Закат", "Медь и угли вечернего неба", 16, 0.45),
-            hue("aurora", "Сияние", "Зелёный свет северной ночи", 162, 0.4),
-            hue("moon", "Луна", "Холодный ровный свет", 218, 0.22),
+            Family(id: "corona", name: "Корона", note: "Свет солнца из-за луны: золото и янтарь", dark: .corona, light: .coronaLight),
+            Family(id: "aurora", name: "Сияние", note: "Северное небо: зелёный свет над водой", dark: .aurora, light: .auroraLight),
         ]
 
-        static func hue(_ id: String, _ name: String, _ note: String, _ h: Double, _ tint: Double, user: Bool = false) -> Family {
-            Family(id: id, name: name, note: note,
-                   dark: .custom(CustomTheme(dark: true, hue: h, tint: tint)),
-                   light: .custom(CustomTheme(dark: false, hue: h, tint: tint)), user: user)
+        static func isBuiltIn(_ id: String) -> Bool { builtIn.contains { $0.id == id } }
+
+        /// Основа своей темы — без её своих цветов (от неё поля показывают значения по умолчанию)
+        static func base(of t: UserTheme) -> Family {
+            if let b = t.base, let f = builtIn.first(where: { $0.id == b }) { return f }
+            return Family(id: t.id, name: t.name, note: "Своя тема",
+                          dark: .custom(CustomTheme(dark: true, hue: t.hue, tint: t.tint)),
+                          light: .custom(CustomTheme(dark: false, hue: t.hue, tint: t.tint)), user: true)
         }
 
         static func of(_ t: UserTheme) -> Family {
-            hue(t.id, t.name.isEmpty ? "Без названия" : t.name, "Своя тема", t.hue, t.tint, user: true)
+            let b = base(of: t)
+            let baseName = t.base.flatMap { id in builtIn.first { $0.id == id }?.name }
+            return Family(id: t.id, name: t.name.isEmpty ? "Без названия" : t.name,
+                          note: baseName.map { "Своя · на основе «\($0)»" } ?? "Своя тема",
+                          dark: b.dark.with(t.colors(dark: true)), light: b.light.with(t.colors(dark: false)), user: true)
         }
 
         static func all(_ prefs: Preferences) -> [Family] { builtIn + prefs.userThemes.map(of) }
 
         static func find(_ id: String, _ prefs: Preferences) -> Family {
-            all(prefs).first { $0.id == id } ?? builtIn[0]
+            let id = Preferences.renamedThemes[id] ?? id
+            return all(prefs).first { $0.id == id } ?? builtIn[0]
         }
     }
 
@@ -197,14 +212,14 @@ public struct Palette: Sendable {
     /// Цвета окна: выбранная тема при выбранном свете (системный — как сейчас в macOS), поверх — свои цвета и контраст
     static func resolve(_ prefs: Preferences, systemDark: Bool) -> Palette {
         let dark = prefs.appearance == .system ? systemDark : prefs.appearance == .dark // то же, что AppModel.isDarkMode
-        let id = themeID(prefs, dark: dark)
-        var p = Family.find(id, prefs).palette(dark: dark)
-        if let o = prefs.themeOverrides[overridesKey(id, dark: dark)] { p = p.with(o) }
+        // свои цвета — только у своих тем, они уже внутри Family.of; готовые темы не меняются
+        let p = Family.find(themeID(prefs, dark: dark), prefs).palette(dark: dark)
         return p.with(contrast: prefs.contrast, diffSigns: prefs.diffMarkers == .signs)
     }
 
     /// Свои цвета: акцент — свет; фон — фон, а карточки и панели выводятся из него; текст — текст и подписи
     func with(_ o: ThemeOverrides) -> Palette {
+        guard !o.isEmpty else { return self }
         let bg = o.background.flatMap(Color.init(hexString:)) ?? background
         var glowC = o.accent.flatMap(Color.init(hexString:)) ?? glow
         let newBg = o.background != nil, newFg = o.foreground != nil
@@ -226,21 +241,24 @@ public struct Palette: Sendable {
             glowC = c
         }
         let accentChanged = o.accent != nil || glowC.hexString != glow.hexString
+        let surfaceC = o.surface.flatMap(Color.init(hexString:))
         var p = Palette(
             background: bg, foreground: fg,
-            card: newBg ? bg.mixed(with: fg, 0.035) : card,
-            secondary: newBg ? bg.mixed(with: fg, 0.1) : secondary,
-            muted: newBg ? bg.mixed(with: fg, 0.08) : muted,
+            card: surfaceC ?? (newBg ? bg.mixed(with: fg, 0.06) : card),
+            secondary: surfaceC.map { $0.mixed(with: fg, 0.07) } ?? (newBg ? bg.mixed(with: fg, 0.11) : secondary),
+            muted: surfaceC.map { $0.mixed(with: fg, 0.035) } ?? (newBg ? bg.mixed(with: fg, 0.08) : muted),
             mutedFg: newFgEffective || newBg ? fg.mixed(with: bg, 0.38) : mutedFg,
             sidebar: newBg ? bg.mixed(with: light ? .white : .black, light ? 0.4 : 0.35) : sidebar,
-            sidebarAccent: newBg ? bg.mixed(with: fg, 0.07) : sidebarAccent,
+            sidebarAccent: surfaceC.map { $0.mixed(with: fg, 0.07) } ?? (newBg ? bg.mixed(with: fg, 0.07) : sidebarAccent),
             primary: newFgEffective ? fg : primary, primaryFg: newBg ? bg : primaryFg,
-            popover: newBg ? bg.mixed(with: fg, 0.05) : popover,
+            popover: surfaceC ?? (newBg ? bg.mixed(with: fg, 0.05) : popover),
             glow: glowC, glowCore: accentChanged ? glowC.mixed(with: .white, 0.7) : glowCore,
             glowSoftBase: accentChanged ? glowC : glowSoftBase,
             borderBase: newFgEffective ? fg : borderBase, isMono: isMono, isLight: light)
         p.borderScale = borderScale
         p.diffSigns = diffSigns
+        // тихий текст: свой у темы, пока фон и текст её же; иначе — выводится из нового текста
+        p.faintBase = newFgEffective || newBg ? nil : faintBase
         // свой акцент — и шар из него
         p.orbSpec = orbSpec && o.accent == nil
         return p
@@ -257,6 +275,7 @@ public struct Palette: Sendable {
         p.borderScale = max(0.4, 1 + k * 1.2)
         p.diffSigns = diffSigns
         p.orbSpec = orbSpec
+        p.faintBase = faintBase.map { k > 0 ? $0.mixed(with: foreground, 0.45 * k) : $0.mixed(with: background, 0.3 * -k) }
         return p
     }
 

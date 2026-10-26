@@ -583,6 +583,16 @@ enum Snap {
         app.settingsSection = s
         try await Snap.save(RootView(app: app), "84-settings-sheet-\(s)")
     }
+    // 26.10: своя тема — редактор с образцом и «Сохранить»; готовые — с замком
+    app.update { $0.userThemes.append(UserTheme(id: "user-snap", name: "Ночной синий", base: "lumen",
+                                                 darkColors: ThemeOverrides(accent: "#7E9BFF", background: "#0B1020", surface: "#141B2E"))) ; $0.themeID = "user-snap" }
+    app.settingsSection = .theme
+    try await Snap.save(RootView(app: app), "86-theme-own", size: CGSize(width: 1300, height: 1500))
+    for id in ["corona", "aurora", "mono"] {
+        app.update { $0.themeID = id }
+        try await Snap.save(RootView(app: app), "86-theme-\(id)", size: CGSize(width: 1300, height: 1100))
+    }
+    app.update { $0.themeID = "lumen"; $0.userThemes.removeAll { $0.id == "user-snap" } }
     app.settingsOpen = false
     // кнопка «панель» не ездит: открыта панель или спрятана — она на том же месте
     app.update { $0.sidebarHidden = true }
