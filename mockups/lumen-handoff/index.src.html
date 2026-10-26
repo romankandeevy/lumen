@@ -1,0 +1,700 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lumen · иконки и шрифты из хендоффа</title>
+<link rel="stylesheet" href="lumen-theme.css">
+<style>
+/* =====================================================================
+   Нынешний Lumen (снимки-тесты 26.10, окно 1180×760), в котором поменяно:
+   — иконки: по таблице docs/design-system/redesign.md §7 (Claude → Lucide), линия 1.5, размеры 20/16/14/12;
+   — шрифты: роли из HANDOFF.md §4 (SF Pro, New York/Georgia, SF Mono);
+   — элементы, которые выглядели дёшево, — по деталям из хендоффа (меню, сегменты, тумблеры, шаги, карточки…).
+   Раскладка, кнопки и их места — как в Lumen сейчас. Цвета — только lumen-theme.css.
+   ===================================================================== */
+:root{
+  --ui:-apple-system,"SF Pro Text","SF Pro",system-ui,sans-serif;
+  --serif:"New York","Iowan Old Style",Georgia,serif;
+  --mono:ui-monospace,"SF Mono",Menlo,monospace;
+  --w-reg:400; --w-ctl:460; --w-head:560;
+  --t1:var(--text-body); --t2:var(--muted); --t3:var(--faint);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#050608}
+body{font-family:var(--ui);color:var(--t1);-webkit-font-smoothing:antialiased;font-size:14px;line-height:20px}
+button{font:inherit;color:inherit;background:none;border:0;cursor:default}
+.ic{flex:none;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.i12,.i14{stroke-width:1.75}
+
+/* ---------- панель макета ---------- */
+.bar{position:sticky;top:0;z-index:50;display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:10px 14px;background:#0b0c10;border-bottom:1px solid rgba(255,255,255,.08);font-size:13px}
+.bar b{font-weight:600;margin-right:8px;color:#fff}
+.bar button{height:28px;padding:0 11px;border-radius:8px;color:#C3C8D4;background:rgba(255,255,255,.05);cursor:pointer}
+.bar button.on{background:#F1F3F8;color:#0A0B0F}
+.bar .sp{flex:1}
+.bar label{display:flex;gap:6px;align-items:center;color:#C3C8D4;cursor:pointer}
+.wrap{display:flex;flex-direction:column;align-items:center;padding:18px 12px 40px;gap:14px}
+.stagebox{position:relative;width:1180px}
+.stage{width:1180px;height:760px;transform-origin:top left;position:relative}
+.screen{display:none;position:absolute;inset:0;overflow:hidden;border-radius:12px;background:var(--bg);box-shadow:0 0 0 1px rgba(255,255,255,.07),0 30px 80px rgba(0,0,0,.5)}
+.screen.on{display:flex}
+.notes{width:1180px;max-width:100%;color:#C3C8D4;font-size:13px;line-height:19px;background:#0b0c10;border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:14px 18px}
+.notes h3{font-size:13px;font-weight:600;color:#fff;margin-bottom:6px}
+.notes ul{padding-left:18px}.notes li{margin:3px 0}
+.notes b{color:#fff;font-weight:560}
+
+/* ---------- окно ---------- */
+.win{display:flex;width:100%;height:100%;position:relative}
+.lights{position:absolute;left:18px;top:14px;display:flex;gap:8px;z-index:9}.lights i{width:12px;height:12px;border-radius:50%;background:#2c2f38}
+.side{width:240px;flex:none;display:flex;flex-direction:column;padding:0 12px 10px;position:relative;
+  background:linear-gradient(180deg,#101116,#0C0D11);border-right:1px solid var(--line)}
+.side-top{height:40px;display:flex;align-items:center;justify-content:flex-end;gap:2px;padding-right:56px}
+.ib{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;color:var(--t2);flex:none}
+.ib:hover,.ib.on{background:var(--hover);color:var(--text)}
+.ib.sm{width:24px;height:24px;border-radius:6px}
+/* сегменты: один вид на всё приложение — обёртка h28 pad 1 r8, сегмент h26 r6 */
+.seg{display:flex;height:28px;padding:1px;border-radius:8px;background:var(--segment-bg);box-shadow:var(--segment-ring);gap:0}
+.seg button{height:26px;padding:0 10px;border-radius:6px;display:flex;align-items:center;justify-content:center;gap:6px;font-size:13px;line-height:17px;font-weight:var(--w-ctl);color:var(--t2);white-space:nowrap}
+.seg button.on{background:var(--segment-on-bg);box-shadow:var(--segment-on-ring);color:var(--text)}
+.seg.fill button{flex:1}
+.nav{display:flex;flex-direction:column;gap:2px;margin-top:10px}
+.it{height:32px;border-radius:8px;display:flex;align-items:center;gap:10px;padding:0 8px;font-size:14px;font-weight:var(--w-ctl);color:var(--text-row);white-space:nowrap}
+.it .ic{color:var(--t2)}
+.it .r{margin-left:auto;font-size:12px;font-weight:400;color:var(--t3);font-variant-numeric:tabular-nums}
+.it.on{background:var(--active-bg);box-shadow:var(--active-ring);color:var(--text)}
+.it.lead{color:var(--text)}.it.lead .ic{color:var(--accent-ink)}
+.sep{height:1px;background:var(--line);margin:8px 8px}
+.grp{height:24px;display:flex;align-items:center;padding:0 2px 0 8px;margin:14px 0 2px;font-size:13px;line-height:16px;font-weight:var(--w-head);color:var(--t2)}
+.grp .sp{flex:1}
+.rows{display:flex;flex-direction:column;gap:2px}
+.row{height:32px;border-radius:8px;display:flex;align-items:center;gap:8px;padding:0 4px 0 8px;font-size:14px;color:var(--text-row);white-space:nowrap}
+.row .t{flex:1;overflow:hidden;text-overflow:ellipsis}
+.row.on{background:var(--active-bg);box-shadow:var(--active-ring);color:var(--text)}
+.row.two{height:44px;align-items:center}
+.row.two .t small{display:block;font-size:12px;line-height:16px;color:var(--t2)}
+.row .ic{color:var(--t2)}
+.row.sub{padding-left:30px}
+.acct{margin-top:auto;border-top:1px solid var(--line);padding-top:8px}
+.acct .b{height:40px;border-radius:8px;display:flex;align-items:center;gap:10px;padding:0 8px;font-size:14px;font-weight:var(--w-ctl)}
+.avatar{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:600;color:var(--text-row);background:var(--avatar-bg);box-shadow:var(--avatar-ring)}
+.acct small{color:var(--t2);font-weight:400;font-size:14px}
+.acct .ic{margin-left:auto;color:var(--t3)}
+
+.main{flex:1;position:relative;isolation:isolate;display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.head{height:40px;flex:none;display:flex;align-items:center;padding:0 10px 0 12px;gap:2px;position:relative;z-index:3}
+.ttl{height:28px;padding:0 10px;border-radius:8px;display:flex;align-items:center;gap:6px;font-size:14px;font-weight:var(--w-ctl);color:var(--text)}
+.ttl .ic{color:var(--t3)}
+.head .sp{flex:1}
+.btn{height:28px;padding:0 10px;border-radius:8px;display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:var(--w-ctl);color:var(--text);background:var(--segment-bg);box-shadow:var(--segment-ring);white-space:nowrap}
+.btn.ghost{background:none;box-shadow:none;color:var(--text-row)}
+.btn.primary{background:var(--text);color:var(--bg);box-shadow:none}
+.btn.quiet{color:var(--t2)}
+.btn .ic{color:currentColor}
+
+/* ---------- переписка ---------- */
+.scroll{flex:1;overflow:hidden;position:relative}
+.col{width:600px;margin:0 auto;padding:20px 0 0;position:relative}
+.u{display:flex;justify-content:flex-end;margin-bottom:44px}
+.bubble{max-width:444px;padding:10px 16px;border-radius:18px 18px 6px 18px;background:var(--bubble-bg);box-shadow:var(--bubble-ring);font-size:15px;line-height:21px;color:var(--text)}
+.a{position:relative;margin-bottom:28px}
+.a .mark{position:absolute;left:-38px;top:-2px}
+.mark .ec{display:block}
+.prose{font-size:15px;line-height:21px;color:var(--t1)}
+.prose p{margin:0 0 10px}
+.prose h3{font-size:17px;line-height:24px;font-weight:var(--w-head);margin:16px 0 6px;color:var(--text)}
+.prose ul{padding-left:24px;margin:0 0 10px}.prose li{padding-left:4px;margin-top:6px}
+.prose strong{font-weight:590}
+.prose code{font-family:var(--mono);font-size:13.5px;padding:1px 5px;border-radius:5px;background:rgba(255,255,255,.07)}
+.prose a{color:var(--accent-ink);text-decoration:none}
+.cite{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;border-radius:8px;font-size:10px;line-height:16px;font-weight:600;color:var(--t2);background:rgba(255,255,255,.07);vertical-align:2px;margin-left:2px}
+/* строка шагов: свёрнутая — 15/21 приглушённо с шевроном; раскрытая — плашка r12 со строками */
+.stepline{display:flex;align-items:center;gap:6px;font-size:14px;line-height:20px;color:var(--t2);margin:0 0 10px;height:20px}
+.stepline .live{display:flex;gap:3px;margin-right:2px}.stepline .live i{width:4px;height:4px;border-radius:50%;background:var(--accent-ink);opacity:.4}.stepline .live i:nth-child(2){opacity:.9}
+.stepline time{color:var(--t3);font-variant-numeric:tabular-nums}
+.steps{border-radius:12px;background:rgba(255,255,255,.025);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.1);overflow:hidden;margin:-2px 0 14px}
+.steps .s{display:flex;align-items:center;gap:10px;min-height:36px;padding:8px 12px;font-size:14px;line-height:20px;color:var(--t2)}
+.steps .s+.s{border-top:1px solid var(--divider)}
+.steps .s b{font-weight:400;color:var(--t1)}
+.steps .s code{font-family:var(--mono);font-size:12.5px;color:var(--t1)}
+.steps .s .ic{color:var(--t3)}
+.steps .s.now .ic{color:var(--accent-ink)}
+.steps .s time{margin-left:auto;font-size:12px;color:var(--t3)}
+/* источники: пилюли 24, монохромные кружки вместо цветных букв */
+.srcs{margin:14px 0 6px}
+.srcs h6{font-size:13px;line-height:16px;font-weight:var(--w-head);color:var(--t2);margin-bottom:8px}
+.srcs .l{display:flex;flex-wrap:wrap;gap:6px}
+.chip{height:24px;padding:0 9px 0 4px;border-radius:12px;display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:17px;color:var(--t1);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.16);background:rgba(255,255,255,.03)}
+.chip .fav{width:16px;height:16px;border-radius:50%;display:grid;place-items:center;font-size:9px;font-weight:700;color:var(--text);background:rgba(255,255,255,.12)}
+.chip small{color:var(--t3);font-size:11px}
+.chip.more{padding:0 10px;color:var(--t2)}
+/* карточка файла — превью-лист, подпись, кнопки h28 */
+.fcard{display:flex;align-items:center;gap:12px;height:72px;padding:0 12px 0 0;border-radius:12px;box-shadow:inset 0 0 0 .5px rgba(255,255,255,.14);background:rgba(255,255,255,.025);overflow:hidden}
+.fcard .th{width:72px;height:72px;flex:none;display:grid;place-items:end center;overflow:hidden}
+.fcard .th i{width:44px;height:56px;border-radius:5px 5px 0 0;background:#14161C;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);transform:rotate(-4deg) translate(2px,10px);padding:9px 7px;display:flex;flex-direction:column;gap:4px}
+.fcard .th i b{display:block;height:2px;border-radius:1px;background:rgba(255,255,255,.18)}
+.fcard .nm{flex:1;min-width:0}.fcard .nm b{display:block;font-weight:var(--w-ctl);font-size:14px;line-height:18px;color:var(--text)}.fcard .nm small{display:block;font-size:12px;line-height:16px;color:var(--t2)}
+/* действия под ответом: 24×24 r6, иконка 16, время 11/17 */
+.acts{display:flex;align-items:center;gap:2px;margin-top:8px;color:var(--t2)}
+.acts time{font-size:11px;line-height:17px;color:var(--t3);margin-left:6px}
+/* изменения агента */
+.chg{border-radius:12px;box-shadow:inset 0 0 0 .5px rgba(255,255,255,.14);background:rgba(255,255,255,.025);overflow:hidden;margin-top:4px}
+.chg .h{display:flex;align-items:center;gap:8px;height:40px;padding:0 8px 0 12px;font-size:14px;font-weight:var(--w-ctl);color:var(--text)}
+.chg .h small{font-weight:400;color:var(--t2);font-size:13px}
+.badge{height:20px;padding:0 7px;border-radius:10px;font-size:11px;line-height:20px;font-weight:540;color:var(--t2);box-shadow:inset 0 0 0 1px rgba(255,255,255,.14)}
+.chg .f{display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-top:1px solid var(--divider);font:12.5px/18px var(--mono);color:var(--t1)}
+.chg .f .m{color:#E3B341;font-weight:600}.chg .f .p{margin-left:auto;color:#3FB950}.chg .f .n{color:#F85149}
+.chg .bt{display:flex;align-items:center;gap:6px;height:44px;padding:0 8px;border-top:1px solid var(--divider)}
+.chg .bt .sp{flex:1}
+
+/* ---------- поле ввода: r20, рамка 1px, без тяжёлого свечения ---------- */
+.dock{position:absolute;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;z-index:4;background:linear-gradient(180deg,transparent,var(--bg) 38%)}
+.comp{width:640px;border-radius:20px;background:var(--composer-bg);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1),0 18px 50px rgba(0,0,0,.4);padding:14px 10px 10px 16px;display:flex;flex-direction:column;gap:14px;position:relative}
+.comp.focus{box-shadow:inset 0 0 0 1px rgba(127,160,255,.38),0 0 0 3px rgba(91,134,255,.08),0 18px 50px rgba(0,0,0,.4)}
+.comp .ph{font-size:15px;line-height:20px;color:var(--placeholder);min-height:40px}
+.comp .tools{display:flex;align-items:center;gap:4px;margin-left:-6px}
+.comp .tools .sp{flex:1}
+.pick{height:28px;padding:0 8px;border-radius:8px;display:inline-flex;align-items:center;gap:5px;font-size:14px;font-weight:var(--w-ctl);color:var(--text-control);white-space:nowrap}
+.pick .ic{color:var(--t3)}
+.pick:hover{background:var(--hover)}
+.pick.box{box-shadow:inset 0 0 0 1px rgba(255,255,255,.1)}
+.pick.box .ic:first-child{color:var(--t2)}
+.send{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:rgba(255,255,255,.08);color:var(--t3);margin-left:4px}
+.send.on{background:var(--text);color:var(--bg)}
+.disc{font-size:12px;line-height:16px;color:var(--t3);padding:8px 0 10px}
+.comp.big{min-height:116px}
+
+/* ---------- главная ---------- */
+.home{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:110px;gap:34px;position:relative;z-index:2}
+.hello{display:flex;align-items:center;gap:22px}
+.hello h1{font-family:var(--serif);font-size:44px;line-height:52px;font-weight:330;letter-spacing:-.015em;color:var(--text-strong)}
+
+/* ---------- меню: r14, pad 6, пункт h28, клавиша справа, тень по формуле ---------- */
+.menu{position:absolute;z-index:30;background:var(--popover);border-radius:14px;padding:6px;
+  box-shadow:0 0 0 1px rgba(255,255,255,.09),0 8px 24px rgba(0,0,0,.42),0 2px 6px rgba(0,0,0,.3)}
+.menu .m{height:28px;padding:4px 10px;border-radius:8px;display:flex;align-items:center;gap:8px;font-size:14px;line-height:20px;font-weight:var(--w-ctl);color:var(--text);white-space:nowrap}
+.menu .m .ic{color:var(--t2)}
+.menu .m .sp{flex:1}
+.menu .m kbd{font:400 12px/16px var(--ui);color:var(--t3);min-width:12px;text-align:right}
+.menu .m .chev{color:var(--t3)}
+.menu .m.on{background:var(--hover)}
+.menu .m.red{color:#FF7B72}.menu .m.red .ic{color:#FF7B72}
+.menu .m .ck{color:var(--accent-ink)}
+.menu .m.off{color:var(--t2)}
+.menu hr{border:0;height:1px;background:var(--divider);margin:4px 10px}
+.menu .lbl{font-size:12px;line-height:17px;color:var(--t3);padding:6px 10px 2px}
+
+/* ---------- поиск ⌘K ---------- */
+.dim{position:absolute;inset:0;background:rgba(0,0,0,.45);z-index:20}
+.pal{position:absolute;left:50%;top:84px;width:600px;margin-left:-180px;z-index:25;background:var(--popover);border-radius:14px;overflow:hidden;
+  box-shadow:0 0 0 1px rgba(255,255,255,.09),0 24px 60px rgba(0,0,0,.55)}
+.pal .f{height:52px;display:flex;align-items:center;gap:10px;padding:0 10px 0 16px;border-bottom:1px solid var(--divider);font-size:15px;color:var(--text)}
+.pal .f .ph{color:var(--placeholder);flex:1}
+.pal .g{padding:6px}
+.pal .lbl{font-size:12px;line-height:17px;color:var(--t3);padding:8px 10px 4px}
+.pal .r{height:36px;border-radius:8px;display:flex;align-items:center;gap:10px;padding:0 10px;font-size:14px;color:var(--text-row)}
+.pal .r .ic{color:var(--t2)}
+.pal .r small{margin-left:auto;font-size:12px;color:var(--t3)}
+.pal .r.on{background:var(--hover);color:var(--text)}
+.pal .r mark{background:none;color:var(--text);font-weight:590}
+.pal .ft{display:flex;gap:16px;align-items:center;height:36px;padding:0 14px;border-top:1px solid var(--divider);font-size:12px;color:var(--t3)}
+.key{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border-radius:5px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.14);font-size:11px;color:var(--t2);margin-right:4px}
+
+/* ---------- страницы (настройки, кастомизация, проект) ---------- */
+.page{flex:1;overflow:hidden;padding:24px 28px 0;position:relative;z-index:2}
+.crumb{display:flex;align-items:center;gap:6px;font-size:13px;line-height:18px;color:var(--t2)}
+.crumb b{font-weight:400;color:var(--text-row)}
+.ptitle{font-family:var(--serif);font-size:28px;line-height:34px;font-weight:460;letter-spacing:-.01em;color:var(--text-strong)}
+.psub{font-size:14px;line-height:20px;color:var(--t2);margin-top:4px}
+.snav{width:200px;flex:none;padding:20px 10px 10px 14px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:2px;position:relative;z-index:2}
+.field{height:28px;border-radius:8px;display:flex;align-items:center;gap:8px;padding:0 10px;background:rgba(255,255,255,.05);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06);font-size:14px;color:var(--placeholder)}
+.snav .lbl{font-size:12px;line-height:17px;color:var(--t3);padding:14px 8px 4px}
+.snav .si{height:32px;border-radius:8px;display:flex;align-items:center;gap:10px;padding:0 8px;font-size:14px;font-weight:var(--w-ctl);color:var(--text-row);white-space:nowrap}
+.snav .si .ic{color:var(--t2)}
+.snav .si.on{background:var(--active-bg);box-shadow:var(--active-ring);color:var(--text)}
+.snav .si.on .ic{color:var(--accent-ink)}
+.beta{height:18px;padding:0 6px;border-radius:9px;font-size:10px;line-height:18px;font-weight:600;color:#E8C26A;box-shadow:inset 0 0 0 1px rgba(232,194,106,.35)}
+.sgh{font-size:13px;line-height:16px;font-weight:var(--w-head);color:var(--t2);margin:22px 0 8px 2px}
+.card{border-radius:12px;background:rgba(255,255,255,.025);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.12)}
+.srow{display:flex;align-items:center;gap:14px;min-height:56px;padding:10px 14px}
+.srow+.srow{border-top:1px solid var(--divider)}
+.srow>.ic{color:var(--t2);align-self:flex-start;margin-top:2px}
+.srow .l{flex:1;font-size:14px;line-height:20px;color:var(--text)}
+.srow .l small{display:block;color:var(--t2);font-size:13px;line-height:18px;margin-top:1px}
+.sw{width:36px;height:20px;border-radius:10px;background:rgba(255,255,255,.12);position:relative;flex:none}
+.sw::after{content:"";position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3)}
+.sw.on{background:var(--accent)}.sw.on::after{left:18px}
+.foot{font-size:13px;line-height:18px;color:var(--t2);margin:8px 2px}
+
+.tabs2{display:flex;gap:14px;align-items:center;margin:18px 0 14px}
+.skgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.sk{border-radius:12px;background:rgba(255,255,255,.025);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.12);padding:14px 14px 12px;display:flex;flex-direction:column;gap:10px}
+.sk .t{display:flex;gap:10px;align-items:center}
+.sk .tile{width:36px;height:36px;border-radius:8px;display:grid;place-items:center;color:var(--t2);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1)}
+.sk .t b{display:block;font-weight:var(--w-head);font-size:14px;line-height:20px;color:var(--text)}
+.sk .t small{display:block;font-size:12px;line-height:16px;color:var(--t2)}
+.sk p{font-size:13px;line-height:19px;color:var(--t1);min-height:38px}
+.sk .bt{display:flex;align-items:center;justify-content:space-between}
+.input{height:28px;flex:1;border-radius:8px;display:flex;align-items:center;gap:8px;padding:0 10px;background:rgba(255,255,255,.04);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);font-size:14px;color:var(--placeholder)}
+
+.pgrid{display:flex;gap:20px;margin-top:18px}
+.pl{flex:1;min-width:0}
+.pr{width:300px;flex:none;border-radius:14px;box-shadow:inset 0 0 0 .5px rgba(255,255,255,.12);background:rgba(255,255,255,.02)}
+.pr .sec{padding:14px 16px}.pr .sec+.sec{border-top:1px solid var(--divider)}
+.pr h4{display:flex;align-items:center;gap:8px;font-size:14px;line-height:20px;font-weight:var(--w-head);color:var(--text)}
+.pr h4 .sp{flex:1}
+.pr p{font-size:13px;line-height:18px;color:var(--t2);margin-top:4px}
+.meter{height:4px;border-radius:2px;background:rgba(255,255,255,.08);margin:10px 0 6px;overflow:hidden}.meter i{display:block;width:3%;height:100%;background:var(--accent)}
+.doc{display:flex;align-items:center;gap:10px;height:48px;padding:0 10px;border-radius:10px;box-shadow:inset 0 0 0 .5px rgba(255,255,255,.14);margin-top:10px}
+.doc .ic{color:var(--t2)}.doc b{display:block;font-weight:var(--w-ctl);font-size:13px;line-height:18px;color:var(--text)}.doc small{display:block;font-size:12px;line-height:16px;color:var(--t2)}
+.lrow{height:44px;display:flex;align-items:center;gap:10px;padding:0 8px;border-radius:8px;font-size:14px;color:var(--text-row)}
+.lrow .ic{color:var(--t2)}.lrow small{margin-left:auto;font-size:12px;color:var(--t3)}
+.lrow+.lrow{box-shadow:0 -1px 0 var(--divider)}
+.pcomp{border-radius:20px;background:var(--composer-bg);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1);padding:14px 10px 10px 16px}
+</style>
+</head>
+<body>
+<!--SPRITE-->
+
+<div class="bar" id="bar">
+  <b>Lumen · макет</b>
+  <button data-s="chat" class="on">Чат</button>
+  <button data-s="new">Новый чат</button>
+  <button data-s="agent">Агент</button>
+  <button data-s="plus">Меню «+»</button>
+  <button data-s="rowmenu">Меню разговора</button>
+  <button data-s="search">Поиск ⌘K</button>
+  <button data-s="settings">Настройки</button>
+  <button data-s="skills">Кастомизация</button>
+  <button data-s="project">Проект</button>
+</div>
+
+<div class="wrap">
+<div class="stagebox" id="box"><div class="stage" id="stage">
+
+<!-- ======================= ЧАТ ======================= -->
+<section class="screen on" id="s-chat">
+ <div class="win"><div class="lights"><i></i><i></i><i></i></div>
+  <aside class="side">
+   <div class="side-top"><span class="ib">[[panel-left|20]]</span><span class="ib">[[search|20]]</span></div>
+   <div class="seg fill"><button class="on">[[house|16]]Чат</button><button>[[code-xml|16]]Агент</button><button>[[bot|16]]Боты</button></div>
+   <nav class="nav">
+    <div class="it lead">[[plus|20]]Новый чат<span class="r">⌘N</span></div>
+    <div class="it">[[briefcase-business|20]]Кастомизация</div>
+    <div class="it">[[brain|20]]Память<span class="r">2</span></div>
+    <div class="it">[[copy|20]]Артефакты</div>
+    <div class="sep"></div>
+    <div class="it">[[layers|20]]Новый проект</div>
+   </nav>
+   <div class="grp">Недавние<span class="sp"></span><span class="ib sm">[[plus|16]]</span></div>
+   <div class="rows">
+    <div class="row"><span class="t">Тексты для блога</span></div>
+    <div class="row"><span class="t">Что поделаем сегодня?</span></div>
+    <div class="row on"><span class="t">Игры</span></div>
+   </div>
+   <div class="acct"><div class="b"><span class="avatar">Р</span>Рома <small>· Max</small>[[chevron-down|14]]</div></div>
+  </aside>
+  <main class="main grain">
+   <div class="sky" style="--cx:calc(50% - 336px);--cy:250px" aria-hidden="true"><div class="sky-stars"></div><div class="sky-rays" style="opacity:.45"></div></div>
+   <div class="head"><span class="ttl">Игры [[chevron-down|12]]</span><span class="sp"></span><span class="ib">[[globe|20]]</span><span class="ib">[[panel-right|20]]</span></div>
+   <div class="scroll">
+    <div class="col">
+     <div class="u"><div class="bubble">посмотри в интернете, как делают топовые браузерные игры</div></div>
+     <div class="a">
+      <span class="mark">{{ecs:24}}</span>
+      <div class="stepline">Искал в интернете «Vibe Jam 2026 winners» · 3 источника [[chevron-right|12]]</div>
+      <div class="prose">
+       <p>Победители джемов держатся на трёх вещах: понятно за десять секунд, мгновенный отклик, короткая сессия <a>Vibe Jam</a><span class="cite">1</span> <a>Game Developer</a><span class="cite">2</span>.</p>
+       <h3>Что повторяется у лучших</h3>
+       <ul>
+        <li><strong>Одна механика</strong>, доведённая до блеска — разбор на <a>itch.io</a><span class="cite">3</span></li>
+        <li>Звук и «сок» делают половину впечатления <a>youtube.com</a><span class="cite">4</span></li>
+        <li>Запуск без регистрации, меньше <code>5 МБ</code> <a>MDN</a><span class="cite">5</span></li>
+       </ul>
+      </div>
+      <div class="srcs"><h6>Источники</h6><div class="l">
+       <span class="chip"><span class="fav">V</span>vibej.am<small>1</small></span>
+       <span class="chip"><span class="fav">G</span>gamedeveloper.com<small>2</small></span>
+       <span class="chip"><span class="fav">I</span>itch.io<small>3</small></span>
+       <span class="chip"><span class="fav">Y</span>youtube.com<small>4</small></span>
+       <span class="chip more">ещё 1</span>
+      </div></div>
+      <div class="acts"><span class="ib sm">[[copy|16]]</span><span class="ib sm">[[rotate-cw|16]]</span><span class="ib sm">[[bookmark|16]]</span><time>сейчас</time></div>
+     </div>
+    </div>
+   </div>
+   <div class="dock">
+    <div class="comp">
+     <div class="ph">Просто напиши · / — команды и навыки</div>
+     <div class="tools"><span class="ib">[[plus|20]]</span><span class="sp"></span><span class="pick">Sonnet 5.5 [[chevron-down|12]]</span><span class="pick">Средний [[chevron-down|12]]</span><span class="send">[[arrow-up|16]]</span></div>
+    </div>
+    <div class="disc">Ответы могут быть неточными. Важное проверяй.</div>
+   </div>
+  </main>
+ </div>
+</section>
+
+<!-- ======================= НОВЫЙ ЧАТ ======================= -->
+<section class="screen" id="s-new">
+ <div class="win"><div class="lights"><i></i><i></i><i></i></div>
+  <aside class="side">
+   <div class="side-top"><span class="ib">[[panel-left|20]]</span><span class="ib">[[search|20]]</span></div>
+   <div class="seg fill"><button class="on">[[house|16]]Чат</button><button>[[code-xml|16]]Агент</button><button>[[bot|16]]Боты</button></div>
+   <nav class="nav">
+    <div class="it lead on">[[plus|20]]Новый чат<span class="r">⌘N</span></div>
+    <div class="it">[[briefcase-business|20]]Кастомизация</div>
+    <div class="it">[[brain|20]]Память<span class="r">2</span></div>
+    <div class="it">[[copy|20]]Артефакты</div>
+    <div class="sep"></div>
+    <div class="it">[[layers|20]]Новый проект</div>
+   </nav>
+   <div class="grp">Недавние<span class="sp"></span><span class="ib sm">[[plus|16]]</span></div>
+   <div class="acct"><div class="b"><span class="avatar">Р</span>Рома <small>· Max</small>[[chevron-down|14]]</div></div>
+  </aside>
+  <main class="main grain">
+   <div class="sky" style="--cx:calc(50% - 168px);--cy:300px" aria-hidden="true"><div class="sky-stars"></div><div class="sky-rays"></div></div>
+   <div class="head"><span class="sp"></span><span class="ib">[[globe|20]]</span><span class="ib">[[panel-right|20]]</span></div>
+   <div class="home">
+    <div class="hello">{{ec:64}}<h1>Привет, Рома</h1></div>
+    <div class="comp big focus">
+     <div class="ph">Просто напиши · / — команды и навыки</div>
+     <div class="tools"><span class="ib">[[plus|20]]</span><span class="sp"></span><span class="pick">Sonnet 5.5 [[chevron-down|12]]</span><span class="pick">Средний [[chevron-down|12]]</span><span class="send">[[arrow-up|16]]</span></div>
+    </div>
+   </div>
+  </main>
+ </div>
+</section>
+
+<!-- ======================= АГЕНТ ======================= -->
+<section class="screen" id="s-agent">
+ <div class="win"><div class="lights"><i></i><i></i><i></i></div>
+  <aside class="side">
+   <div class="side-top"><span class="ib">[[panel-left|20]]</span><span class="ib">[[search|20]]</span></div>
+   <div class="seg fill"><button>[[house|16]]Чат</button><button class="on">[[code-xml|16]]Агент</button><button>[[bot|16]]Боты</button></div>
+   <nav class="nav">
+    <div class="it lead">[[plus|20]]Новая задача<span class="r">⌘N</span></div>
+    <div class="it">[[briefcase-business|20]]Кастомизация</div>
+    <div class="it">[[brain|20]]Память<span class="r">2</span></div>
+    <div class="it">[[copy|20]]Артефакты</div>
+    <div class="sep"></div>
+    <div class="it">[[layers|20]]Новый проект</div>
+   </nav>
+   <div class="grp">Сессии<span class="sp"></span><span class="ib sm">[[plus|16]]</span></div>
+   <div class="rows">
+    <div class="row two on">[[laptop|16]]<span class="t">Почему падает Shelf?<small>shelf</small></span></div>
+    <div class="row two">[[laptop|16]]<span class="t">Проекты как в Claude<small>lumen-head</small></span></div>
+    <div class="row two">[[laptop|16]]<span class="t">Верх панели и меню «…»<small>lumen-head</small></span></div>
+   </div>
+   <div class="acct"><div class="b"><span class="avatar">Р</span>Рома <small>· Max</small>[[chevron-down|14]]</div></div>
+  </aside>
+  <main class="main grain">
+   <div class="sky" style="--cx:calc(50% - 336px);--cy:200px" aria-hidden="true"><div class="sky-stars"></div><div class="sky-rays" style="opacity:.45"></div></div>
+   <div class="head"><span class="ttl">Почему падает Shelf? [[chevron-down|12]]</span><span class="sp"></span><span class="ib">[[globe|20]]</span><span class="ib">[[panel-right|20]]</span></div>
+   <div class="scroll">
+    <div class="col">
+     <div class="u" style="margin-bottom:36px"><div class="bubble">Почему падает Shelf при двойном щелчке?</div></div>
+     <div class="a">
+      <span class="mark">{{ecs:24}}</span>
+      <div class="prose"><p>Смотрю, где Shelf обрабатывает двойной щелчок.</p></div>
+      <div class="stepline">Прочитано 2 файла, сделан 1 поиск [[chevron-down|12]]</div>
+      <div class="steps">
+       <div class="s">[[search|16]]Ищет<b>doubleClick</b><code>Sources/**</code></div>
+       <div class="s">[[file|16]]Читает<b>ShelfStorage.swift</b></div>
+       <div class="s">[[file|16]]Читает<b>ShelfView.swift</b><time>2 с</time></div>
+      </div>
+      <div class="prose"><p>Нашёл: <code>ShelfStorage.remove(at:)</code> вызывается дважды, второй раз — с индексом, которого уже нет. Добавляю проверку индекса.</p></div>
+      <div class="stepline">Выполнено 2 команды, изменён 1 файл [[chevron-right|12]]</div>
+      <div class="prose"><p>Собрал и проверил: двойной щелчок больше не роняет Shelf.</p></div>
+      <div class="chg">
+       <div class="h">[[git-commit-horizontal|16]]Изменения <small>1 файл · +2 −1</small><span style="flex:1"></span><span class="badge">применено</span></div>
+       <div class="f"><span class="m">M</span>Sources/ShelfStorage.swift<span class="p">+2</span><span class="n">−1</span></div>
+       <div class="bt"><span class="btn ghost">[[undo-2|16]]Откатить</span><span class="sp"></span><span class="btn">[[git-compare|16]]Разница</span><span class="btn primary">[[check|16]]Закоммитить</span></div>
+      </div>
+      <div class="acts"><span class="ib sm">[[copy|16]]</span><span class="ib sm">[[rotate-cw|16]]</span><span class="ib sm">[[bookmark|16]]</span><time>сейчас</time></div>
+     </div>
+    </div>
+   </div>
+   <div class="dock">
+    <div class="comp">
+     <div class="ph">Опиши задачу · / — навыки агента</div>
+     <div class="tools"><span class="ib">[[plus|20]]</span><span class="pick box">[[folder|16]]shelf [[chevron-down|12]]</span><span class="pick">[[sliders-horizontal|16]]Режим [[chevron-down|12]]</span><span class="sp"></span><span class="pick">Sonnet 5.5 [[chevron-down|12]]</span><span class="pick">Высокий [[chevron-down|12]]</span><span class="send">[[arrow-up|16]]</span></div>
+    </div>
+    <div class="disc">Ответы могут быть неточными. Важное проверяй.</div>
+   </div>
+  </main>
+ </div>
+</section>
+
+<!-- ======================= МЕНЮ + ======================= -->
+<section class="screen" id="s-plus">
+ <div class="win"><div class="lights"><i></i><i></i><i></i></div>
+  <aside class="side">
+   <div class="side-top"><span class="ib">[[panel-left|20]]</span><span class="ib">[[search|20]]</span></div>
+   <div class="seg fill"><button class="on">[[house|16]]Чат</button><button>[[code-xml|16]]Агент</button><button>[[bot|16]]Боты</button></div>
+   <nav class="nav"><div class="it lead on">[[plus|20]]Новый чат<span class="r">⌘N</span></div><div class="it">[[briefcase-business|20]]Кастомизация</div><div class="it">[[brain|20]]Память<span class="r">2</span></div><div class="it">[[copy|20]]Артефакты</div><div class="sep"></div><div class="it">[[layers|20]]Новый проект</div></nav>
+   <div class="grp">Недавние<span class="sp"></span><span class="ib sm">[[plus|16]]</span></div>
+   <div class="acct"><div class="b"><span class="avatar">Р</span>Рома <small>· Max</small>[[chevron-down|14]]</div></div>
+  </aside>
+  <main class="main grain">
+   <div class="sky" style="--cx:calc(50% - 168px);--cy:300px" aria-hidden="true"><div class="sky-stars"></div><div class="sky-rays"></div></div>
+   <div class="head"><span class="sp"></span><span class="ib">[[globe|20]]</span><span class="ib">[[panel-right|20]]</span></div>
+   <div class="home">
+    <div class="hello">{{ec:64}}<h1>Привет, Рома</h1></div>
+    <div class="comp big focus">
+     <div class="ph">Просто напиши · / — команды и навыки</div>
+     <div class="tools"><span class="ib on">[[plus|20]]</span><span class="sp"></span><span class="pick">Sonnet 5.5 [[chevron-down|12]]</span><span class="pick">Средний [[chevron-down|12]]</span><span class="send">[[arrow-up|16]]</span></div>
+     <div class="menu" style="left:4px;top:110px;width:300px">
+      <div class="m on">[[paperclip|20]]Добавить файлы или фото<span class="sp"></span><kbd>⌘U</kbd></div>
+      <div class="m">[[github|20]]Добавить из GitHub<span class="sp"></span>[[chevron-right|14]]</div>
+      <div class="m">[[layers|20]]Добавить в проект<span class="sp"></span>[[chevron-right|14]]</div>
+      <div class="m">[[copy|20]]Из артефактов<span class="sp"></span>[[chevron-right|14]]</div>
+      <div class="m">[[blocks|20]]Коннекторы<span class="sp"></span>[[chevron-right|14]]</div>
+      <hr>
+      <div class="m">[[globe|20]]Поиск в сети<span class="sp"></span><span class="ck">[[check|16]]</span></div>
+      <div class="m">[[brain|20]]Память о тебе<span class="sp"></span><span class="ck">[[check|16]]</span></div>
+      <div class="m off">[[file-search|20]]Ресерч</div>
+     </div>
+    </div>
+   </div>
+  </main>
+ </div>
+</section>
+
+<!-- ======================= МЕНЮ РАЗГОВОРА ======================= -->
+<section class="screen" id="s-rowmenu">
+ <div class="win"><div class="lights"><i></i><i></i><i></i></div>
+  <aside class="side">
+   <div class="side-top"><span class="ib">[[panel-left|20]]</span><span class="ib">[[search|20]]</span></div>
+   <div class="seg fill"><button class="on">[[house|16]]Чат</button><button>[[code-xml|16]]Агент</button><button>[[bot|16]]Боты</button></div>
+   <nav class="nav"><div class="it lead">[[plus|20]]Новый чат<span class="r">⌘N</span></div><div class="it">[[briefcase-business|20]]Кастомизация</div><div class="it">[[brain|20]]Память<span class="r">2</span></div><div class="it">[[copy|20]]Артефакты</div><div class="sep"></div><div class="it">[[layers|20]]Новый проект</div></nav>
+   <div class="grp">Закреплённые</div>
+   <div class="rows"><div class="row on"><span class="t">Lumen: замысел</span><span class="ib sm on">[[ellipsis|16]]</span></div></div>
+   <div class="grp">Недавние<span class="sp"></span><span class="ib sm">[[plus|16]]</span></div>
+   <div class="rows"><div class="row"><span class="t">Что поделаем сегодня?</span></div><div class="row"><span class="t">привет</span></div></div>
+   <div class="acct"><div class="b"><span class="avatar">Р</span>Рома <small>· Max</small>[[chevron-down|14]]</div></div>
+   <div class="menu" style="left:200px;top:268px;width:262px">
+    <div class="m">[[pin|20]]Закрепить<span class="sp"></span><kbd>P</kbd></div>
+    <div class="m on">[[pencil|20]]Переименовать<span class="sp"></span><kbd>R</kbd></div>
+    <div class="m">[[layers|20]]Переместить в проект<span class="sp"></span><kbd>M</kbd></div>
+    <div class="m">[[sparkles|20]]Сделать навык из разговора<span class="sp"></span><kbd>S</kbd></div>
+    <hr>
+    <div class="m red">[[trash|20]]Удалить<span class="sp"></span><kbd>D</kbd></div>
+   </div>
+  </aside>
+  <main class="main grain">
+   <div class="sky" style="--cx:calc(50% - 168px);--cy:300px" aria-hidden="true"><div class="sky-stars"></div><div class="sky-rays"></div></div>
+   <div class="head"><span class="sp"></span><span class="ib">[[globe|20]]</span><span class="ib">[[panel-right|20]]</span></div>
+   <div class="home">
+    <div class="hello">{{ec:64}}<h1>Привет, Роман</h1></div>
+    <div class="comp big"><div class="ph">Просто напиши · / — команды и навыки</div><div class="tools"><span class="ib">[[plus|20]]</span><span class="sp"></span><span class="pick">Sonnet 5.5 [[chevron-down|12]]</span><span class="pick">Средний [[chevron-down|12]]</span><span class="send">[[arrow-up|16]]</span></div></div>
+   </div>
+  </main>
+ </div>
+</section>
+
+<!-- ======================= ПОИСК ======================= -->
+<section class="screen" id="s-search">
+ <div class="win"><div class="lights"><i></i><i></i><i></i></div>
+  <aside class="side">
+   <div class="side-top"><span class="ib">[[panel-left|20]]</span><span class="ib on">[[search|20]]</span></div>
+   <div class="seg fill"><button class="on">[[house|16]]Чат</button><button>[[code-xml|16]]Агент</button><button>[[bot|16]]Боты</button></div>
+   <nav class="nav"><div class="it lead">[[plus|20]]Новый чат<span class="r">⌘N</span></div><div class="it">[[briefcase-business|20]]Кастомизация</div><div class="it">[[brain|20]]Память<span class="r">2</span></div><div class="it">[[copy|20]]Артефакты</div><div class="sep"></div><div class="it">[[layers|20]]Новый проект</div></nav>
+   <div class="grp">Закреплённые</div><div class="rows"><div class="row"><span class="t">Lumen: замысел</span></div></div>
+   <div class="grp">Недавние<span class="sp"></span><span class="ib sm">[[plus|16]]</span></div>
+   <div class="rows"><div class="row"><span class="t">Что поделаем сегодня?</span></div><div class="row"><span class="t">привет</span></div></div>
+   <div class="acct"><div class="b"><span class="avatar">Р</span>Роман <small>· Max</small>[[chevron-down|14]]</div></div>
+  </aside>
+  <main class="main grain">
+   <div class="sky" style="--cx:calc(50% - 168px);--cy:300px" aria-hidden="true"><div class="sky-stars"></div><div class="sky-rays"></div></div>
+   <div class="head"><span class="sp"></span><span class="ib">[[globe|20]]</span><span class="ib">[[panel-right|20]]</span></div>
+   <div class="home"><div class="hello">{{ec:64}}<h1>Привет, Роман</h1></div><div class="comp big"><div class="ph">Просто напиши · / — команды и навыки</div><div class="tools"><span class="ib">[[plus|20]]</span><span class="sp"></span><span class="pick">Sonnet 5.5 [[chevron-down|12]]</span><span class="pick">Средний [[chevron-down|12]]</span><span class="send">[[arrow-up|16]]</span></div></div></div>
+  </main>
+  <div class="dim"></div>
+  <div class="pal">
+   <div class="f">[[search|20]]<span class="ph">Найти в названиях и тексте всех разговоров</span><span class="key">esc</span></div>
+   <div class="g">
+    <div class="lbl">Действия</div>
+    <div class="r on">[[plus|20]]Новый чат<small><span class="key">⌘</span><span class="key">N</span></small></div>
+    <div class="r">[[code-xml|20]]Новая задача агенту</div>
+    <div class="lbl">Недавние</div>
+    <div class="r">[[message-square|20]]Что поделаем сегодня?<small>2 ч</small></div>
+    <div class="r">[[message-square|20]]привет<small>вчера</small></div>
+    <div class="r">[[pin|20]]Lumen: замысел<small>12 окт</small></div>
+   </div>
+   <div class="ft"><span><span class="key">↑</span><span class="key">↓</span>выбрать</span><span><span class="key">↵</span>открыть</span><span><span class="key">⌘</span><span class="key">K</span>закрыть</span></div>
+  </div>
+ </div>
+</section>
+
+<!-- ======================= НАСТРОЙКИ ======================= -->
+<section class="screen" id="s-settings">
+ <div class="win"><div class="lights"><i></i><i></i><i></i></div>
+  <aside class="side">
+   <div class="side-top"><span class="ib">[[panel-left|20]]</span><span class="ib">[[search|20]]</span></div>
+   <div class="seg fill"><button class="on">[[house|16]]Чат</button><button>[[code-xml|16]]Агент</button><button>[[bot|16]]Боты</button></div>
+   <nav class="nav"><div class="it lead">[[plus|20]]Новый чат<span class="r">⌘N</span></div><div class="it">[[briefcase-business|20]]Кастомизация</div><div class="it">[[brain|20]]Память<span class="r">2</span></div><div class="it">[[copy|20]]Артефакты</div><div class="sep"></div><div class="it">[[layers|20]]Новый проект</div></nav>
+   <div class="grp">Недавние<span class="sp"></span><span class="ib sm">[[plus|16]]</span></div>
+   <div class="rows"><div class="row"><span class="t">Тексты для блога</span></div><div class="row"><span class="t">Что поделаем сегодня?</span></div><div class="row"><span class="t">Lumen: замысел</span></div></div>
+   <div class="acct"><div class="b"><span class="avatar">Р</span>Рома <small>· Max</small>[[chevron-down|14]]</div></div>
+  </aside>
+  <main class="main grain" style="flex-direction:row">
+   <div class="sky" aria-hidden="true"><div class="sky-stars"></div></div>
+   <div class="snav">
+    <div class="field">[[search|16]]Поиск</div>
+    <div class="lbl">Внешний вид</div>
+    <div class="si on">[[settings|20]]Общие</div>
+    <div class="si">[[palette|20]]Тема</div>
+    <div class="si">[[type|20]]Шрифты и масштаб</div>
+    <div class="si">[[monitor-smartphone|20]]Окно и расположение</div>
+    <div class="si">[[message-square|20]]Отображение чата</div>
+    <div class="si">[[paw-print|20]]Питомцы <span class="beta">Бета</span></div>
+    <div class="lbl">Работа</div>
+    <div class="si">[[sparkles|20]]Характер</div>
+    <div class="si">[[key-round|20]]Модели и оплата</div>
+    <div class="si">[[database|20]]Данные</div>
+    <div class="lbl">О программе</div>
+    <div class="si">[[rotate-cw|20]]Версия и обновления</div>
+    <div class="si">[[trash|20]]Удаление</div>
+   </div>
+   <div class="page" style="padding:22px 26px 0">
+    <div class="crumb">Настройки [[chevron-right|12]] Внешний вид [[chevron-right|12]] <b>Общие</b></div>
+    <div class="ptitle" style="margin-top:8px">Общие</div>
+    <div class="psub">Как выглядит Lumen, когда он запускается и как сообщает, что ответ готов.</div>
+    <div class="sgh">Вид</div>
+    <div class="card">
+     <div class="srow">[[sparkles|20]]<div class="l">Космический фон<small>Звёзды и лучи из центра знака за перепиской</small></div><span class="sw on"></span></div>
+     <div class="srow">[[sun-moon|20]]<div class="l">Свет<small>У каждой темы есть светлые и тёмные цвета</small></div><div class="seg"><button>[[sun|16]]Светлая</button><button class="on">[[moon|16]]Тёмная</button><button>[[monitor|16]]Системная</button></div></div>
+     <div class="srow">[[palette|20]]<div class="l">Тема<small>Сейчас — «Люмен»</small></div><span class="btn">Выбрать</span></div>
+     <div class="srow">[[zap|20]]<div class="l">Меньше движения<small>Сфера не дышит, свет не мерцает, значки не крутятся</small></div><div class="seg"><button class="on">Системный</button><button>Вкл.</button><button>Выкл.</button></div></div>
+    </div>
+    <div class="sgh">Запуск</div>
+    <div class="card"><div class="srow">[[power|20]]<div class="l">Открывать при входе в систему<small>Lumen запускается сам, когда включаешь Мак</small></div><span class="sw"></span></div></div>
+    <div class="sgh">Когда ответ готов</div>
+    <div class="card">
+     <div class="srow">[[bell|20]]<div class="l">Уведомление<small>Название разговора и начало ответа</small></div><span class="sw"></span></div>
+     <div class="srow">[[volume-2|20]]<div class="l">Звук</div><div class="seg"><button class="on">Без звука</button><button>Стекло</button><button>Пинг</button><button>Хлопок</button><button>Тинь</button></div></div>
+    </div>
+   </div>
+  </main>
+ </div>
+</section>
+
+<!-- ======================= КАСТОМИЗАЦИЯ ======================= -->
+<section class="screen" id="s-skills">
+ <div class="win"><div class="lights"><i></i><i></i><i></i></div>
+  <aside class="side">
+   <div class="side-top"><span class="ib">[[panel-left|20]]</span><span class="ib">[[search|20]]</span></div>
+   <div class="seg fill"><button class="on">[[house|16]]Чат</button><button>[[code-xml|16]]Агент</button><button>[[bot|16]]Боты</button></div>
+   <nav class="nav"><div class="it lead">[[plus|20]]Новый чат<span class="r">⌘N</span></div><div class="it on">[[briefcase-business|20]]Кастомизация<span class="r">3</span></div><div class="it">[[brain|20]]Память<span class="r">2</span></div><div class="it">[[copy|20]]Артефакты</div><div class="sep"></div><div class="it">[[layers|20]]Новый проект</div></nav>
+   <div class="grp">Недавние<span class="sp"></span><span class="ib sm">[[plus|16]]</span></div>
+   <div class="acct"><div class="b"><span class="avatar">Р</span>Рома <small>· Подписка</small>[[chevron-down|14]]</div></div>
+  </aside>
+  <main class="main grain">
+   <div class="sky" aria-hidden="true"><div class="sky-stars"></div></div>
+   <div class="page" style="padding-top:40px">
+    <div style="display:flex;align-items:flex-start;gap:20px">
+     <div style="flex:1"><div class="ptitle">Кастомизация</div><div class="psub">Навыки, коннекторы и хуки — как в Claude Code, в одной папке. Lumen, агент и боты берут их сами.</div></div>
+     <span class="btn">[[folder-open|16]]Папка</span><span class="btn primary">[[plus|16]]Создать навык</span>
+    </div>
+    <div class="tabs2">
+     <div class="seg"><button class="on">Навыки <span style="color:var(--t3)">3</span></button><button>Коннекторы <span style="color:var(--t3)">0</span></button><button>Хуки <span style="color:var(--t3)">0</span></button></div>
+     <div class="seg"><button class="on">Мои</button><button>Каталог skills.sh</button></div>
+     <div class="input">[[link|16]]Ссылка на навык на GitHub</div>
+     <span class="btn quiet">[[download|16]]Поставить</span>
+    </div>
+    <div class="skgrid">
+     <div class="sk"><div class="t"><span class="tile">[[book-open-check|20]]</span><div><b>pdf</b><small>Из skills.sh</small></div></div><p>Работа с PDF: прочитать, заполнить формы, собрать. Используй, когда в задаче есть PDF.</p><div class="bt"><span class="badge">ещё не брали</span><span class="btn">Выключить</span></div></div>
+     <div class="sk"><div class="t"><span class="tile">[[book-open-check|20]]</span><div><b>release-notes</b><small>Свой</small></div></div><p>Готовит заметки к релизу из git log: разделы «Новое» и «Исправлено». Используй, когда просят changelog.</p><div class="bt"><span class="badge">брали 7 раз</span><span class="btn">Выключить</span></div></div>
+     <div class="sk"><div class="t"><span class="tile">[[lightbulb|20]]</span><div><b>shelf-build</b><small>Сам научился</small></div></div><p>Сборка Shelf после смены ветки: сначала swift package resolve, потом ./build.sh.</p><div class="bt"><span class="badge">брали 1 раз</span><span class="btn">Выключить</span></div></div>
+    </div>
+   </div>
+  </main>
+ </div>
+</section>
+
+<!-- ======================= ПРОЕКТ ======================= -->
+<section class="screen" id="s-project">
+ <div class="win"><div class="lights"><i></i><i></i><i></i></div>
+  <aside class="side">
+   <div class="side-top"><span class="ib">[[panel-left|20]]</span><span class="ib">[[search|20]]</span></div>
+   <div class="seg fill"><button class="on">[[house|16]]Чат</button><button>[[code-xml|16]]Агент</button><button>[[bot|16]]Боты</button></div>
+   <nav class="nav"><div class="it lead">[[plus|20]]Новый чат<span class="r">⌘N</span></div><div class="it">[[briefcase-business|20]]Кастомизация</div><div class="it">[[brain|20]]Память<span class="r">2</span></div><div class="it">[[copy|20]]Артефакты</div><div class="sep"></div><div class="it">[[layers|20]]Новый проект</div></nav>
+   <div class="grp">Проекты<span class="sp"></span><span class="ib sm">[[plus|16]]</span></div>
+   <div class="rows">
+    <div class="row on">[[chevron-down|14]][[layers|16]]<span class="t">Блог kandeev.com</span><span class="r" style="font-size:12px;color:var(--t3);padding-right:6px">2</span></div>
+    <div class="row sub"><span class="t">Заголовки для рассылки</span></div>
+    <div class="row sub"><span class="t">Пост про новый сайт</span></div>
+   </div>
+   <div class="grp">Недавние<span class="sp"></span><span class="ib sm">[[plus|16]]</span></div>
+   <div class="rows"><div class="row"><span class="t">привет</span></div></div>
+   <div class="acct"><div class="b"><span class="avatar">Р</span>Роман <small>· Подписка</small>[[chevron-down|14]]</div></div>
+  </aside>
+  <main class="main grain">
+   <div class="sky" aria-hidden="true"><div class="sky-stars"></div></div>
+   <div class="page" style="padding-top:40px">
+    <div class="crumb">Проекты <span style="color:var(--t3)">/</span> <b>Блог kandeev.com</b></div>
+    <div style="display:flex;align-items:center;margin-top:8px"><div class="ptitle" style="flex:1">Блог kandeev.com</div><span class="ib">[[pin|20]]</span><span class="ib">[[ellipsis|20]]</span></div>
+    <div class="pgrid">
+     <div class="pl">
+      <div class="pcomp"><div class="ph" style="font-size:15px;line-height:20px;color:var(--placeholder);min-height:36px">Начни разговор в этом проекте…</div><div style="display:flex;align-items:center;gap:4px;margin-left:-6px"><span class="ib">[[plus|20]]</span><span style="flex:1"></span><span class="pick">Sonnet 5.5 [[chevron-down|12]]</span><span class="send">[[arrow-up|16]]</span></div></div>
+      <div class="sgh" style="margin-top:20px">Недавние</div>
+      <div class="lrow">[[message-square|16]]Заголовки для рассылки<small>2 ч</small></div>
+      <div class="lrow">[[message-square|16]]Пост про новый сайт<small>вчера</small></div>
+     </div>
+     <div class="pr">
+      <div class="sec"><h4>Инструкции<span class="sp"></span><span class="ib sm">[[pencil|16]]</span></h4><p>Пиши как редактор блога: коротко, без канцелярита. Цены и кейсы с цифрами не упоминать.</p></div>
+      <div class="sec"><h4>Память <span class="badge">пусто</span><span class="sp"></span><span class="btn ghost" style="height:24px;padding:0 6px">Посмотреть</span></h4><p>Что Lumen запомнил из разговоров этого проекта. Видно во всех его чатах и задачах.</p></div>
+      <div class="sec"><h4>Папка для агента<span class="sp"></span><span class="btn ghost" style="height:24px;padding:0 6px">Выбрать</span></h4><p style="display:flex;gap:6px;align-items:center">[[folder|14]]Не выбрана — задачи работают в папке из поля</p></div>
+      <div class="sec"><h4>Контекст<span class="sp"></span><span class="ib sm">[[plus|16]]</span></h4><div class="meter"><i></i></div><p style="margin:0">Занято 0 % места проекта</p>
+       <div class="doc">[[file-text|20]]<div style="flex:1;min-width:0"><b>PROJECT.md</b><small>Lumen ведёт сам: что это за проект</small></div><span class="btn ghost" style="height:24px;padding:0 6px">Открыть</span></div>
+       <div class="doc">[[file|20]]<div style="flex:1"><b>стиль-блога.md</b><small>24 знака · MD</small></div></div>
+      </div>
+     </div>
+    </div>
+   </div>
+  </main>
+ </div>
+</section>
+
+</div></div>
+<div class="notes" id="notes"></div>
+</div>
+
+<script>
+const NOTES={
+ chat:['Иконки — по таблице хендоффа, линия 1.5: «Новый чат» — плюс 20 (было «квадрат с карандашом»), «Кастомизация» — портфель, «Артефакты» — два листа, «Новый проект» и проекты — стопка, вкладки 16: дом / код / бот.',
+       'Шрифты по ролям: ответ и пузырь 15/21 (было 15.5/24), пункты и кнопки 14/20 полужирнее, подписи разделов 13/16, время 11/17.',
+       'Источники: цветные буквы-плашки (оранж/розовый/зелёный) → ровные пилюли 24 с серым кружком и тонкой рамкой. Сноски в тексте — маленькие серые кружки вместо синих верхних цифр.',
+       'Действия под ответом 24×24 с иконкой 16 (были 32 и крупные значки). Поле ввода r20 с тонкой рамкой — без тяжёлого синего ореола; «Sonnet 5.5» и «Средний» — кнопки h28 14/20, отправка — квадрат 28 r8.'],
+ new:['Приветствие — New York / Georgia (роль «приветствие» из хендоффа, тонкий вес), знак-затмение и лучи — как сейчас.',
+      'Поле в фокусе — тонкое синее кольцо 1px + еле заметный ореол 3px вместо толстой светящейся рамки.'],
+ agent:['Шаги: свёрнутая строка 14/20 серым с шевроном; раскрытые — плашка r12, строки 36 с линией между ними и иконкой 16 (без кругов-обводок).',
+        'Карточка «Изменения»: все кнопки одной высоты 28 и одного скругления 8; бейдж «применено» — пилюля 20 с рамкой, как бейджи Claude.',
+        'В поле агента папка — кнопка с рамкой, «Режим» — та же кнопка без рамки; все h28.'],
+ plus:['Меню по деталям хендоффа: r14, внутри 6, пункты 28, значки 20 одного серого цвета, клавиша справа 12, разделитель с отступами 10, тень «кольцо + мягкая».',
+       'Тумблеры в меню убраны: включённое отмечено синей галочкой справа (как у Claude), выключенное — серым текстом. Пункты и порядок — как сейчас.'],
+ rowmenu:['Меню разговора: у пунктов появились значки 20 (закрепить, переименовать, стопка, искры, корзина), строки 28 вместо 46, буква-клавиша справа серым.',
+          '«⋯» на строке — кнопка 24 с подложкой, пока меню открыто.'],
+ search:['Поиск ⌘K: шапка 52 с полем и клавишей esc, группы «Действия» / «Недавние» подписями 12/17, строки 36 r8 со значком 20 и временем справа, выбранная — подложкой.',
+         'Внизу — подсказки клавиш чипами (↑↓ выбрать, ↵ открыть, ⌘K закрыть). Раньше было просто три строки на пустом окне.'],
+ settings:['Один вид сегментов на всё (обёртка 28, сегмент 26 r6): «Свет», «Меньше движения» и «Звук» теперь одинаковые — раньше было три разных стиля.',
+           'Один вид тумблеров 36×20 (ручка 16, включён — синий). Раньше «Космический фон» был белым с чёрной ручкой, остальные — серыми.',
+           'Плитки-квадраты под иконками убраны: значок 20 серым у края строки, строки 56 ровной сеткой, карточки r12 с линиями между строками. Заголовок страницы — с засечками.'],
+ skills:['Вкладки «Навыки / Коннекторы / Хуки» и «Мои / Каталог» — один вид сегментов (раньше большой синий и маленький разные).',
+         'Поле ссылки — обычный шрифт вместо моноширинного, h28; «Поставить» — тихая кнопка, пока ссылки нет.',
+         'Карточки навыков r12, значок в рамке 36 r8, бейджи «брали N раз» — пилюли 20 с рамкой, кнопки h28.'],
+ project:['Проект — стопкой (значок проектов из хендоффа) вместо папки; папка осталась для «Папки агента».',
+          'Правая колонка — одна карточка r14 с секциями через линию; «Посмотреть», «Выбрать», «Открыть» — тихие кнопки одной высоты. Заголовок — с засечками 28.',
+          'Недавние — строки 44 со значком 16 и временем справа.']
+};
+const stage=document.getElementById('stage'),box=document.getElementById('box');
+function fit(){const k=Math.min(1,(innerWidth-24)/1180);stage.style.transform='scale('+k+')';box.style.width=1180*k+'px';box.style.height=760*k+'px'}
+addEventListener('resize',fit);fit();
+const btns=[...document.querySelectorAll('#bar [data-s]')];
+function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('on',s.id==='s-'+id));btns.forEach(b=>b.classList.toggle('on',b.dataset.s===id));
+ document.getElementById('notes').innerHTML='<h3>Что поменялось на этом экране</h3><ul>'+NOTES[id].map(n=>'<li>'+n+'</li>').join('')+'</ul>';try{history.replaceState(null,'','#'+id)}catch(e){}}
+btns.forEach(b=>b.onclick=()=>show(b.dataset.s));
+const h=location.hash.slice(1);show(NOTES[h]?h:'chat');
+</script>
+</body>
+</html>

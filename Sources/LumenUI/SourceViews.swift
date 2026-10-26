@@ -15,16 +15,16 @@ struct SourceStrip: View {
     var body: some View {
         let shown = all ? sources : Array(sources.prefix(Self.visible))
         VStack(alignment: .leading, spacing: 8) {
-            Text("Источники").font(.geist(12.5, .medium)).foregroundStyle(p.mutedFg)
-            FlowWrap(spacing: 8) {
+            Text("Источники").tw(13, .semibold, lh: 16).foregroundStyle(p.mutedFg)
+            FlowWrap(spacing: 6) {
                 ForEach(Array(shown.enumerated()), id: \.element.id) { i, s in
                     SourceChip(source: s, number: i + 1) { open(s) }
                 }
                 if sources.count > Self.visible {
                     Button { withAnimation(.easeOut(duration: 0.18)) { all.toggle() } } label: {
                         Text(all ? "Свернуть" : "ещё \(sources.count - Self.visible)")
-                            .font(.geist(13)).foregroundStyle(p.mutedFg)
-                            .padding(.horizontal, 14).frame(height: 32)
+                            .font(.geist(12)).foregroundStyle(p.mutedFg)
+                            .padding(.horizontal, 10).frame(height: 24)
                             .background(p.borderBase.opacity(0.04), in: Capsule())
                             .overlay(Capsule().strokeBorder(p.line))
                             .contentShape(Capsule())
@@ -47,14 +47,15 @@ private struct SourceChip: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 8) {
-                SiteTile(host: source.host)
-                Text(source.host).font(.geist(13)).lineLimit(1).truncationMode(.middle)
+            // пилюля хендоффа (1.7.4): h24, 12/17, кружок сайта 16 серым, номер тусклым
+            HStack(spacing: 6) {
+                SiteTile(host: source.host, size: 16)
+                Text(source.host).font(.geist(12)).lineLimit(1).truncationMode(.middle)
                     .foregroundStyle(hover ? p.foreground : p.textSoft)
                     .frame(maxWidth: 190, alignment: .leading)
-                Text("\(number)").font(.geist(12)).foregroundStyle(p.faint).monospacedDigit()
+                Text("\(number)").font(.geist(11)).foregroundStyle(p.faint).monospacedDigit()
             }
-            .padding(.leading, 7).padding(.trailing, 12).frame(height: 32)
+            .padding(.leading, 4).padding(.trailing, 9).frame(height: 24)
             .background(hover ? p.hover : p.borderBase.opacity(0.04), in: Capsule())
             .overlay(Capsule().strokeBorder(hover ? p.borderBase.opacity(0.14) : p.line))
             .contentShape(Capsule())
@@ -66,20 +67,19 @@ private struct SourceChip: View {
     }
 }
 
-/// Значок сайта: квадрат с первой буквой, цвет — от домена (без запросов в сеть за настоящими значками)
+/// Значок сайта: серый кружок с первой буквой (без запросов в сеть за настоящими значками).
+/// Раньше квадрат был цветным по домену — пёстро и дёшево рядом с текстом (1.7.4)
 struct SiteTile: View {
     let host: String
     var size: CGFloat = 18
 
-    private static let colors: [UInt32] = [0xE0533D, 0x2F6FE4, 0x2FA36B, 0x8A5CF5, 0xD99A1E, 0x3B3F4A, 0xE0447A, 0x1FA5B8]
+    @Environment(\.palette) private var p
 
     var body: some View {
-        // стабильный цвет: сумма кодов букв, а не hashValue (он меняется от запуска к запуску)
-        let sum = host.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
         Text(String(host.first.map(String.init)?.uppercased() ?? "·"))
-            .font(.system(size: size * 0.55, weight: .bold)).foregroundStyle(.white)
+            .font(.system(size: size * 0.56, weight: .bold)).foregroundStyle(p.foreground)
             .frame(width: size, height: size)
-            .background(Color(hex: Self.colors[sum % Self.colors.count]), in: RoundedRectangle(cornerRadius: size * 0.28, style: .continuous))
+            .background(p.foreground.opacity(0.12), in: Circle())
     }
 }
 

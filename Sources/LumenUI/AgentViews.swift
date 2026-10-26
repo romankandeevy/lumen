@@ -67,12 +67,12 @@ struct AgentHome: View {
     /// и только потом перенос: две строки по 60 стоят слишком широко
     private var headline: some View {
         let hot = composerFocused || !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let orb = LumenMark(state: app.orb, size: 78, hot: hot).skyAnchor()
+        let orb = LumenMark(state: app.orb, size: 64, hot: hot).skyAnchor()
         return ViewThatFits(in: .horizontal) {
-            HStack(spacing: 26) { orb; text(60).fixedSize() }
-            HStack(spacing: 26) { orb; text(48).fixedSize() }
+            HStack(spacing: 22) { orb; text(46).fixedSize() }
             HStack(spacing: 22) { orb; text(40).fixedSize() }
-            HStack(alignment: .top, spacing: 22) { orb; text(40).fixedSize(horizontal: false, vertical: true) }
+            HStack(spacing: 20) { orb; text(34).fixedSize() }
+            HStack(alignment: .top, spacing: 20) { orb; text(34).fixedSize(horizontal: false, vertical: true) }
         }
     }
 
@@ -80,7 +80,7 @@ struct AgentHome: View {
         Text(question)
             .font(.greeting(size)).tracking(-0.02 * size).foregroundStyle(p.textStrong)
             .tint(p.textStrong)
-            .lineLimit(size >= 48 ? 1 : 3)
+            .lineLimit(size >= 40 ? 1 : 3)
             .accessibilityAddTraits(.isHeader)
     }
 
@@ -287,17 +287,16 @@ struct StepsView: View {
         let list = VStack(alignment: .leading, spacing: 0) {
             ForEach(rows, id: \.offset) { i, s in
                 let current = live != nil && i == steps.count - 1
+                // строка шага хендоффа (1.7.4): значок 16 без кружка, текст 14/20, между строками линия
                 HStack(alignment: .top, spacing: 10) {
                     ZStack {
                         if current {
                             LiveDot(color: live?.tint ?? p.glow, size: 7)
                         } else {
-                            Icon(Self.icon(s.kind), 12).foregroundStyle(p.textSoft)
+                            Icon(Self.icon(s.kind), 16).foregroundStyle(p.faint)
                         }
                     }
-                    .frame(width: 22, height: 22)
-                    .background(p.background, in: Circle())
-                    .overlay(Circle().strokeBorder(current ? (live?.tint ?? p.glow).opacity(0.5) : p.border))
+                    .frame(width: 16, height: 20)
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(spacing: 6) {
                             Self.styled(s.text, p: p, current: current).lineLimit(2).textSelection(.enabled)
@@ -311,21 +310,17 @@ struct StepsView: View {
                                 .padding(8).background(p.foreground.opacity(0.04), in: RoundedRectangle(cornerRadius: R.md))
                         }
                     }
-                    .padding(.top, 2)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         guard s.detail != nil else { return }
                         withAnimation(.easeOut(duration: 0.15)) { detailRow = detailRow == i ? nil : i }
                     }
                 }
-                .padding(.vertical, 3)
-                .background(alignment: .topLeading) {
-                    // линия между значками
-                    if i < steps.count - 1 { p.border.frame(width: 1).padding(.top, 25).padding(.leading, 11) }
-                }
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .frame(minHeight: 36, alignment: .leading)
+                .overlay(alignment: .top) { if i > 0 { p.border.frame(height: 1) } }
             }
         }
-        .padding(.horizontal, 12).padding(.vertical, 10)
         // своя область прокрутки не выше 300 pt (Рома, 19.10): листаешь шаги — листаются они, а не вся переписка.
         // «Резинка» внутри всегда — так прокрутка у края не перескакивает на переписку
         return ScrollView {
@@ -335,20 +330,20 @@ struct StepsView: View {
         .scrollIndicators(.never)
         .frame(height: min(max(historyHeight, 1), 300))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(p.foreground.opacity(0.05), in: RoundedRectangle(cornerRadius: R.lg))
-        .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
+        .background(p.foreground.opacity(0.025), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(p.border))
     }
 
     /// «Читает 07 Проверь себя.png»: глагол — серым, что именно — ярче; пути и шаблоны — моноширинным
     static func styled(_ text: String, p: Palette, current: Bool) -> Text {
         let parts = text.split(separator: " ", maxSplits: 1).map(String.init)
         guard parts.count == 2, parts[0].first?.isUppercase == true else {
-            return Text(text).font(.geist(13)).foregroundColor(current ? p.foreground : p.textSoft)
+            return Text(text).font(.geist(14)).foregroundColor(current ? p.foreground : p.textSoft)
         }
         let object = parts[1]
         let code = object.contains("/") || object.contains("*") || object.contains("«") == false && object.contains("_")
-        let tail = code ? Text(object).font(.system(size: 12, design: .monospaced)) : Text(object).font(.geist(13))
-        return Text(parts[0] + " ").font(.geist(13)).foregroundColor(p.mutedFg)
+        let tail = code ? Text(object).font(.system(size: 12.5, design: .monospaced)) : Text(object).font(.geist(14))
+        return Text(parts[0] + " ").font(.geist(14)).foregroundColor(p.mutedFg)
             + tail.foregroundColor(current ? p.foreground : p.textSoft)
     }
 
@@ -377,7 +372,7 @@ struct StepsView: View {
 
     static func icon(_ k: AgentStep.Kind) -> String {
         switch k {
-        case .read: "eye"
+        case .read: "file"
         case .edit: "pencil"
         case .run: "terminal"
         case .search: "search"
@@ -412,9 +407,10 @@ struct ChangeCard: View {
                 Text("\(changes.files.count) " + Plural.form(changes.files.count, "файл", "файла", "файлов") + ", +\(added) −\(removed)")
                     .font(.geist(12)).foregroundStyle(p.mutedFg)
                 Spacer()
-                Text(stateName).font(.geist(12))
-                    .padding(.horizontal, 8).frame(height: 22)
-                    .overlay(RoundedRectangle(cornerRadius: R.md).strokeBorder(p.border))
+                // бейдж хендоффа: пилюля 20, 11 вес 540, рамка
+                Text(stateName).font(.geist(11, .semibold)).foregroundStyle(p.mutedFg)
+                    .padding(.horizontal, 7).frame(height: 20)
+                    .overlay(Capsule().strokeBorder(p.border))
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
             .overlay(alignment: .bottom) { p.border.frame(height: 1) }
@@ -443,20 +439,20 @@ struct ChangeCard: View {
                     .disabled(changes.state != .applied || busy)
                     .help("Вернуть файлы как были до этого хода. Новые файлы уйдут в Корзину.")
                 Spacer()
-                LButton(title: "Разница", icon: "eye", kind: .outline, size: .sm) {
+                LButton(title: "Разница", icon: "git-compare", kind: .outline, size: .sm) {
                     Task {
                         diffText = await chat.diff(message)
                         diffOpen = true
                     }
                 }
-                LButton(title: "Закоммитить", icon: "circle-check", kind: .primary, size: .sm) { act { await chat.commit(message) } }
+                LButton(title: "Закоммитить", icon: "check", kind: .primary, size: .sm) { act { await chat.commit(message) } }
                     .disabled(changes.state != .applied || busy)
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
             .overlay(alignment: .top) { p.border.frame(height: 1) }
         }
-        .background(p.card, in: RoundedRectangle(cornerRadius: R.xl))
-        .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
+        .background(p.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(p.border))
         .sheet(isPresented: $diffOpen) {
             DiffSheet(text: diffText) { diffOpen = false }.environment(\.palette, p)
         }

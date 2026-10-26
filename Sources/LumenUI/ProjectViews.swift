@@ -65,7 +65,7 @@ struct ProjectRow: View {
             .buttonStyle(.plain)
             Button { app.openProject(project) } label: {
                 HStack(spacing: 8) {
-                    Icon(open ? "folder-open" : "folder", 16).foregroundStyle(active ? p.glow : p.mutedFg)
+                    Icon("layers", 16).foregroundStyle(active ? p.glow : p.mutedFg)
                     Text(project.name).font(.geist(13.5)).lineLimit(1)
                         .foregroundStyle(active || hover ? p.foreground : p.foreground.opacity(0.8))
                     Spacer(minLength: 4)
@@ -149,12 +149,12 @@ struct ProjectView: View {
                         Text("/").foregroundStyle(p.mutedFg.opacity(0.6))
                         Text(pr.name).lineLimit(1)
                     }
-                    .tw(14, lh: 20)
+                    .tw(13, lh: 18)
                     HStack(alignment: .center, spacing: 8) {
-                        // название правится прямо здесь
+                        // название правится прямо здесь; с засечками — роль «заголовок страницы» хендоффа (1.7.4)
                         TextField("Название проекта", text: $name)
                             // без .tw: у поля ввода добавочные отступы строки обрезают буквы сверху
-                            .textFieldStyle(.plain).font(.geist(30, .semibold)).tracking(-0.6).frame(height: 42)
+                            .textFieldStyle(.plain).font(.greeting(28)).tracking(-0.3).frame(height: 40)
                             .focused($nameFocused)
                             .onSubmit { save(pr) }
                             .onChange(of: nameFocused) { _, f in if !f { save(pr) } }
@@ -168,7 +168,7 @@ struct ProjectView: View {
                         }
                         .frame(width: 26, height: 26)
                     }
-                    .padding(.top, 24)
+                    .padding(.top, 8)
 
                     ViewThatFits(in: .horizontal) {
                         HStack(alignment: .top, spacing: 32) {

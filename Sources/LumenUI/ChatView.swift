@@ -282,16 +282,16 @@ struct ChatView: View {
                 if !bot.role.isEmpty { Text(bot.role).tw(13, lh: 18).foregroundStyle(p.mutedFg) }
             }
         } else {
-            // шар 78 и «Привет, имя» — Literata 60, в узком окне шар встаёт над текстом. Без свечения сзади (Рома, 21.10)
+            // знак 64 и «Привет, имя» — New York 46 (1.7.4, шрифты хендоффа), в узком окне знак встаёт над текстом. Без свечения сзади (Рома, 21.10)
             let hot = composerFocused || !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             let text = Text(app.profile.name.isEmpty ? "Привет" : "Привет, \(app.profile.name)")
-                .font(.greeting(60)).tracking(-1.2).foregroundStyle(p.textStrong)
+                .font(.greeting(46)).tracking(-0.7).foregroundStyle(p.textStrong)
                 .lineLimit(1).fixedSize()
                 .accessibilityAddTraits(.isHeader)
-            let orb = LumenMark(state: app.orb, size: 78, hot: hot).skyAnchor()
+            let orb = LumenMark(state: app.orb, size: 64, hot: hot).skyAnchor()
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 26) { orb; text }
-                VStack(spacing: 26) { orb; text.minimumScaleFactor(0.5) }
+                HStack(spacing: 22) { orb; text }
+                VStack(spacing: 22) { orb; text.minimumScaleFactor(0.5) }
             }
             .padding(.horizontal, 28)
         }
@@ -415,7 +415,7 @@ struct ChatView: View {
                     // сбой связи: Lumen сам повторяет или ждёт сеть — видно, что не завис
                     if chat.busy, let c = chat.conversation, let note = chat.retryNote[c.id] {
                         HStack(spacing: 10) {
-                            Icon("refresh-cw", 14)
+                            Icon("rotate-cw", 14)
                             Text(note).tw(13, lh: 18)
                             Button("Стоп") { chat.stop() }.buttonStyle(.plain).foregroundStyle(p.glow)
                         }
@@ -657,12 +657,12 @@ struct MessageRow: View {
     private func userBubble(_ text: String) -> some View {
         HStack(spacing: 0) {
             Spacer(minLength: 0)
-            let bubble = UnevenRoundedRectangle(topLeadingRadius: 20, bottomLeadingRadius: 20, bottomTrailingRadius: 6, topTrailingRadius: 20,
+            let bubble = UnevenRoundedRectangle(topLeadingRadius: 18, bottomLeadingRadius: 18, bottomTrailingRadius: 6, topTrailingRadius: 18,
                                                 style: .continuous)
             Text(text)
-                .chatTw(15.5, lh: 24)
+                .chatTw(15, lh: 21)
                 .textSelection(.enabled)
-                .padding(.horizontal, 17).padding(.vertical, 11)
+                .padding(.horizontal, 16).padding(.vertical, 10)
                 .background(bubble.fill(p.bubbleFill))
                 .overlay(bubble.strokeBorder(p.bubbleRing))
                 // 74% колонки переписки, а не окна: иначе на широком окне пузырь вылезает к правому краю
@@ -898,7 +898,7 @@ struct MessageActions: View {
         HStack(spacing: 2) {
             if user {
                 time.padding(.trailing, 6)
-                act("refresh-cw", "Попробовать снова — прежний ответ останется вариантом") {
+                act("rotate-cw", "Попробовать снова — прежний ответ останется вариантом") {
                     // ответ на это сообщение есть — он станет вариантом нового, как в Claude
                     if let i = chat.messages.firstIndex(where: { $0.id == message.id }),
                        let answer = chat.messages[(i + 1)...].prefix(while: { $0.role != .user }).last(where: { $0.role == .assistant && $0.note == nil }) {
@@ -913,7 +913,7 @@ struct MessageActions: View {
                 chapter
             } else {
                 copy
-                act("refresh-cw", "Попробовать снова — этот ответ останется вариантом") { chat.retry(message) }.disabled(chat.busy)
+                act("rotate-cw", "Попробовать снова — этот ответ останется вариантом") { chat.retry(message) }.disabled(chat.busy)
                 chapter
                 variants
                 time.padding(.leading, 6)
@@ -945,7 +945,7 @@ struct MessageActions: View {
     }
 
     private var time: some View {
-        Text(Self.when(message.createdAt)).tw(12, lh: 16).foregroundStyle(p.mutedFg.opacity(0.8))
+        Text(Self.when(message.createdAt)).tw(11, lh: 17).foregroundStyle(p.faint).padding(.leading, 4)
             .help(message.createdAt.formatted(.dateTime.day().month(.wide).year().hour().minute()))
     }
 
@@ -995,8 +995,9 @@ private struct ActionIcon: View {
         Button(action: action) {
             Icon(on && Icon.image(icon + "-fill") != nil ? icon + "-fill" : icon, 16)
                 .foregroundStyle(on ? p.glow : hover && enabled ? p.foreground : p.mutedFg)
-                .frame(width: 32, height: 32)
-                .background(hover && enabled ? p.hover : .clear, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                // 24×24, r6, значок 16 — как действия под ответом в хендоффе (1.7.4)
+                .frame(width: 24, height: 24)
+                .background(hover && enabled ? p.hover : .clear, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1091,7 +1092,7 @@ struct RichText: View {
                 case .prose(let s):
                     // весь текст между блоками кода — одним выделяемым полем: заголовки, списки, цитаты и линии рисуются в нём же;
                     // ссылки кликаются без ⌘ и подчёркиваются под курсором (LinkText.swift)
-                    LinkText(source: s, size: 16, lineHeight: 26.9, caret: caret && i == parts.count - 1)
+                    LinkText(source: s, size: 15, lineHeight: 21, caret: caret && i == parts.count - 1)
                         .fixedSize(horizontal: false, vertical: true)
                 case .code(let s, let lang):
                     CodeBlock(code: s, lang: lang)
@@ -1311,7 +1312,7 @@ struct Composer: View {
         let q = draft.dropFirst().lowercased()
         var all: [SlashItem] = []
         if !inGroup {
-            all.append(SlashItem(id: agent ? "new" : "new", kind: .action, icon: "square-pen", note: agent ? "Новая задача" : "Новый чат"))
+            all.append(SlashItem(id: agent ? "new" : "new", kind: .action, icon: "plus", note: agent ? "Новая задача" : "Новый чат"))
             if chat.conversation?.usesCLI == true && !chat.busy {
                 all.append(SlashItem(id: "compact", kind: .action, icon: "layers", note: "Сжать разговор: пересказать старое и освободить место"))
             }
@@ -1570,20 +1571,21 @@ struct Composer: View {
                     Spacer(minLength: 8)
                     rightControls
                 }
-                .frame(height: 38)
+                .frame(height: 30)
                 HStack(spacing: 4) {
                     leftControls(compact: true)
                     Spacer(minLength: 8)
                     rightControls
                 }
-                .frame(height: 38)
+                .frame(height: 30)
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 4) { leftControls(compact: true); Spacer(minLength: 0) }.frame(height: 38)
-                    HStack(spacing: 4) { Spacer(minLength: 0); rightControls }.frame(height: 38)
+                    HStack(spacing: 4) { leftControls(compact: true); Spacer(minLength: 0) }.frame(height: 30)
+                    HStack(spacing: 4) { Spacer(minLength: 0); rightControls }.frame(height: 30)
                 }
             }
         }
-        .padding(.top, 18).padding(.leading, 20).padding(.trailing, 12).padding(.bottom, 12)
+        // поле хендоффа (1.7.4): r20, внутри 14 сверху и 16 слева, кнопки ряда h28
+        .padding(.top, 14).padding(.leading, 16).padding(.trailing, 10).padding(.bottom, 10)
         .background { glass }
         .animation(.easeOut(duration: 0.2), value: focused)
         // меню «/» — плавающим окном: над полем, а у большого поля новой задачи — под ним (сверху заголовок)
@@ -1638,17 +1640,18 @@ struct Composer: View {
     /// Тёмная: кольцо 1px .09, светлая кромка сверху, тень 0 24 70 .38; в фокусе кольцо синее .42 и ореол 4px .10.
     /// Светлая: кольцо снаружи .09 и две мягкие тени. У бота — его цвет вместо синего
     @ViewBuilder private var glass: some View {
-        let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
+        // r20, кольцо 1 pt; в фокусе — тонкое кольцо цвета света и ореол 3 pt, без тяжёлого свечения (1.7.4)
+        let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
         let tint = tintBot.map { BotColor.accent($0.hue) } ?? p.glow
-        let ring: Color = tintBot.map { focused ? BotColor.accent($0.hue).opacity(0.45) : BotColor.soft($0.hue) }
-            ?? (focused ? tint.opacity(0.42) : p.borderBase.opacity(p.isLight ? 0.09 : 0.09))
+        let ring: Color = tintBot.map { focused ? BotColor.accent($0.hue).opacity(0.4) : BotColor.soft($0.hue) }
+            ?? (focused ? tint.opacity(0.36) : p.borderBase.opacity(p.isLight ? 0.09 : 0.10))
         ZStack {
             shape.fill(p.composerFill)
-                .shadow(color: p.isLight ? p.borderBase.opacity(focused ? 0.08 : 0.06) : .black.opacity(focused ? 0.45 : 0.38),
-                        radius: p.isLight ? 15 : 35, y: p.isLight ? 10 : 24)
+                .shadow(color: p.isLight ? p.borderBase.opacity(focused ? 0.08 : 0.06) : .black.opacity(0.36),
+                        radius: p.isLight ? 12 : 22, y: p.isLight ? 8 : 16)
             if p.isLight { shape.fill(p.composerFill).shadow(color: p.borderBase.opacity(0.04), radius: 1, y: 1) }
-            // ореол 4px в фокусе (0 0 0 4px)
-            if focused { shape.inset(by: -2).stroke(tint.opacity(0.10), lineWidth: 4) }
+            // ореол 3 pt в фокусе
+            if focused { shape.inset(by: -1.5).stroke(tint.opacity(0.08), lineWidth: 3) }
             shape.strokeBorder(ring)
             if !p.isLight {
                 // inset 0 1px 0 rgba(255,255,255,.05): светлая кромка по верху
@@ -1786,7 +1789,7 @@ struct Composer: View {
         let extra = started ? (chat.conversation?.extraPaths ?? []).map { URL(fileURLWithPath: $0) } : app.agentExtraDirs
         return PickerButton(open: $folderOpen, bordered: true) {
             Icon("folder", 16).foregroundStyle(p.glow)
-            Text((current.map(AppModel.folderName) ?? "Мои файлы") + (extra.isEmpty ? "" : " +\(extra.count)")).font(.geist(14))
+            Text((current.map(AppModel.folderName) ?? "Мои файлы") + (extra.isEmpty ? "" : " +\(extra.count)")).font(.geist(14, .medium))
         } panel: {
             PopoverPanel(title: started ? "Где работает задача" : "Где работать", width: 280) {
                 if started {
@@ -1868,7 +1871,7 @@ struct Composer: View {
     /// `ModelPicker`: Sparkles text-glow + название text-xs medium + стрелка
     private var modelPicker: some View {
         PickerButton(open: $modelOpen, edge: .trailing) {
-            Text(model.name).font(.geist(14))
+            Text(model.name).font(.geist(14, .medium))
         } panel: {
             ListboxPanel(items: models.map { m in
                 ListboxPanel.Item(id: m, name: m.name, note: m.note, gap: m == ChatModel.gpt.first && models.contains(where: { !$0.isGPT }))
@@ -1889,7 +1892,7 @@ struct Composer: View {
     private var modeMenu: some View {
         PickerButton(open: $modeOpen) {
             Icon("sliders-horizontal", 16).foregroundStyle(p.mutedFg)
-            Text("Режим").font(.geist(14))
+            Text("Режим").font(.geist(14, .medium))
         } panel: {
             AgentModePanel(app: app, mode: mode, modes: app.prefs.visibleModes) { m in
                 chat.set(mode: m)
@@ -1915,7 +1918,7 @@ struct Composer: View {
     /// `EffortPicker`: столбики уровня + название text-xs
     private var effortPicker: some View {
         PickerButton(open: $effortOpen, edge: .trailing) {
-            Text(effort.name).font(.geist(14))
+            Text(effort.name).font(.geist(14, .medium))
         } panel: {
             ListboxPanel(items: Effort.allCases.map { ListboxPanel.Item(id: $0, name: $0.name, note: $0.note) }, selected: effort, width: 260) { e in
                 chat.set(effort: e)
@@ -1935,8 +1938,8 @@ struct Composer: View {
                     Text("В очередь").font(.geist(13, .medium))
                 }
                 .foregroundStyle(p.orbSpec ? .white : p.onGlow)
-                .padding(.horizontal, 14).frame(height: 38)
-                .background(p.accent, in: Capsule())
+                .padding(.horizontal, 10).frame(height: 28)
+                .background(p.accent, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -1946,11 +1949,11 @@ struct Composer: View {
         if chat.busy && !(inGroup && canSend) {
             // идёт ответ — круг цвета текста с тёмным квадратиком
             Button { chat.stop() } label: {
-                RoundedRectangle(cornerRadius: 3, style: .continuous).fill(p.background)
-                    .frame(width: 12, height: 12)
-                    .frame(width: 38, height: 38)
-                    .background(p.foreground, in: Circle())
-                    .contentShape(Circle())
+                RoundedRectangle(cornerRadius: 2.5, style: .continuous).fill(p.background)
+                    .frame(width: 10, height: 10)
+                    .frame(width: 28, height: 28)
+                    .background(p.foreground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .keyboardShortcut(".", modifiers: .command)
@@ -1958,27 +1961,28 @@ struct Composer: View {
             .accessibilityLabel("Остановить ответ")
         } else if !(app.claudeBusy(chat.conversation?.id) && canSend) {
             let on = canSend && ready
-            Button(action: send) {
-                Icon("arrow-up", 18)
-                    // у «Люмена» — белая стрелка на синем шаре из CSS; у других тем плоский круг цвета света, стрелка контрастная
+            // отправить — квадрат 28 со скруглением 8 (хендофф, 1.7.4); цвет «Люмена» и ботов тот же, что был у круга
+            let send = RoundedRectangle(cornerRadius: 8, style: .continuous)
+            Button(action: self.send) {
+                Icon("arrow-up", 16)
+                    // у «Люмена» — белая стрелка на синем шаре из CSS; у других тем плоская заливка цвета света, стрелка контрастная
                     .foregroundStyle(on ? (currentBot != nil || p.orbSpec ? .white : p.onGlow) : p.faint)
-                    .frame(width: 38, height: 38)
+                    .frame(width: 28, height: 28)
                     .background {
                         if on {
-                            // есть что отправить — маленький шар (у бота — его цвет)
                             if let b = currentBot {
-                                Circle().fill(BotColor.accent(b.hue))
+                                send.fill(BotColor.accent(b.hue))
                             } else if p.orbSpec {
-                                MiniOrbFill()
+                                MiniOrbFill().clipShape(send)
                             } else {
-                                Circle().fill(p.accent)
+                                send.fill(p.accent)
                             }
                         } else {
-                            Circle().fill(p.borderBase.opacity(0.06)).overlay(Circle().strokeBorder(p.borderBase.opacity(0.07)))
+                            send.fill(p.borderBase.opacity(0.07))
                         }
                     }
-                    .shadow(color: on && (currentBot != nil || p.orbSpec) ? (currentBot.map { BotColor.accent($0.hue) } ?? p.accent).opacity(0.38) : .clear, radius: 9, y: 6)
-                    .contentShape(Circle())
+                    .shadow(color: on && (currentBot != nil || p.orbSpec) ? (currentBot.map { BotColor.accent($0.hue) } ?? p.accent).opacity(0.3) : .clear, radius: 6, y: 3)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             // пустое поле — нечего отправлять: кнопка тихая и не нажимается
@@ -2013,13 +2017,14 @@ struct PickerButton<Label: View, Panel: View>: View {
         } label: {
             HStack(spacing: 6) {
                 label
-                Icon("chevron-down", 13).foregroundStyle(p.faint)
+                Icon("chevron-down", 12).foregroundStyle(p.faint)
             }
             // все подписи под полем одного цвета и веса; ярче — под курсором и пока открыто (минимализм, 19.10)
             .foregroundStyle(hover || open ? p.foreground : p.textControl)
-            .padding(.horizontal, 10).frame(height: 34)
-            .background(hover || open ? p.hover : .clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(bordered ? p.borderBase.opacity(0.10) : .clear))
+            // кнопка хендоффа: h28, по бокам 8, r8 (1.7.4)
+            .padding(.horizontal, 8).frame(height: 28)
+            .background(hover || open ? p.hover : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(bordered ? p.borderBase.opacity(0.10) : .clear))
             .contentShape(Rectangle())
             .opacity(enabled ? 1 : 0.5)
         }

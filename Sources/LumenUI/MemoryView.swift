@@ -196,22 +196,19 @@ struct MiniSegmented<T: Hashable>: View {
     @Environment(\.palette) private var p
 
     var body: some View {
+        // тот же вид, что у Segmented, только по ширине текста (1.7.4)
         HStack(spacing: 0) {
             ForEach(options, id: \.0) { id, name in
                 Button { value = id } label: {
-                    Text(name).font(.geist(12))
+                    Text(name).font(.geist(13, .medium))
                         .foregroundStyle(id == value ? p.foreground : p.mutedFg)
-                        .padding(.horizontal, 12).frame(height: 28)
-                        .background(id == value ? p.secondary : .clear, in: RoundedRectangle(cornerRadius: R.md))
-                        .overlay(RoundedRectangle(cornerRadius: R.md).strokeBorder(id == value ? p.borderBase.opacity(0.2) : .clear))
+                        .segmentPill(id == value)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(2)
-        .background(p.muted, in: RoundedRectangle(cornerRadius: R.lg))
-        .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
+        .segmentTrack()
     }
 }
 

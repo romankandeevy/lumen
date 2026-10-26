@@ -51,8 +51,8 @@ struct SkillsView: View {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 12) {
                     MiniSegmented(value: $app.skillsMode, options: [(.mine, "Мои, \(app.skills.count)"), (.catalog, "Каталог skills.sh")])
-                    GlowField(placeholder: "Ссылка на навык на GitHub", text: $link, mono: true, icon: "link") { install(link) }
-                    LButton(title: "Поставить", icon: "download", kind: .outline, small: true, busy: installing == link && !link.isEmpty) { install(link) }
+                    GlowField(placeholder: "Ссылка на навык на GitHub", text: $link, icon: "link", compact: true) { install(link) }
+                    LButton(title: "Поставить", icon: "download", kind: .ghost, small: true, busy: installing == link && !link.isEmpty) { install(link) }
                         .disabled(link.trimmingCharacters(in: .whitespaces).isEmpty || installing != nil)
                 }
                 if let note {
@@ -112,17 +112,18 @@ private struct SkillRow: View {
     private var on: Bool { skill.info.enabled }
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        // карточка хендоффа (1.7.4): r12, значок 20 в рамке 36 r8, название 14 полужирным, откуда — 12
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center, spacing: 12) {
-                Icon(skill.info.origin == .learned ? "lightbulb" : "book-open", 17)
+            HStack(alignment: .center, spacing: 10) {
+                Icon(skill.info.origin == .learned ? "lightbulb" : "book-open-check", 20)
                     .foregroundStyle(on ? p.glow : p.mutedFg)
                     .frame(width: 36, height: 36)
-                    .background(on ? p.accentTint : p.hover, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(skill.name).font(.geist(15, .semibold)).lineLimit(1).truncationMode(.tail)
+                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(p.borderBase.opacity(0.1)))
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(skill.name).font(.geist(14, .semibold)).lineLimit(1).truncationMode(.tail)
                         .foregroundStyle(on ? p.foreground : p.textSoft)
-                    Text(on ? origin : origin + " · выключен").font(.geist(12.5)).foregroundStyle(p.mutedFg).lineLimit(1)
+                    Text(on ? origin : origin + " · выключен").font(.geist(12)).foregroundStyle(p.mutedFg).lineLimit(1)
                 }
                 Spacer(minLength: 0)
             }
@@ -130,7 +131,7 @@ private struct SkillRow: View {
                 .tw(13, lh: 19).foregroundStyle(p.textSoft).lineLimit(2)
                 // всегда место под две строки: карточки в ряду одной высоты
                 .frame(maxWidth: .infinity, minHeight: 38, alignment: .topLeading)
-                .padding(.top, 12)
+                .padding(.top, 10)
             if !skill.info.warnings.isEmpty {
                 IconLabel(text: skill.info.warnings.joined(separator: ", "), icon: "triangle-alert", size: 11)
                     .tw(11.5, lh: 15).foregroundStyle(Palette.destructive).lineLimit(1).padding(.top, 6)
@@ -142,12 +143,11 @@ private struct SkillRow: View {
                 Spacer(minLength: 8)
                 ToggleButton(on: on) { app.setSkill(skill, enabled: !on) }
             }
-            .padding(.top, 14)
+            .padding(.top, 10)
         }
-        .padding(16)
-        .background(shape.fill(LinearGradient(colors: [p.borderBase.opacity(hover ? 0.09 : 0.07), p.borderBase.opacity(hover ? 0.06 : 0.045)],
-                                              startPoint: .top, endPoint: .bottom)))
-        .overlay(shape.strokeBorder(p.borderBase.opacity(hover ? 0.2 : 0.14)))
+        .padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 12)
+        .background(shape.fill(p.borderBase.opacity(hover ? 0.05 : 0.025)))
+        .overlay(shape.strokeBorder(p.borderBase.opacity(hover ? 0.18 : 0.12)))
         .contentShape(shape)
         .onTapGesture { app.page = .skillEditor(skill.name) }
         .onHover { hover = $0 }
@@ -172,10 +172,11 @@ private struct SkillRow: View {
         }
     }
 
+    /// Бейдж хендоффа: пилюля 20, 11 полужирным, тонкая рамка
     private func chip(_ t: String) -> some View {
-        Text(t).tw(11.5, lh: 14).foregroundStyle(p.textSoft)
-            .padding(.horizontal, 8).padding(.vertical, 3)
-            .background(p.foreground.opacity(0.09), in: Capsule())
+        Text(t).font(.geist(11, .semibold)).foregroundStyle(p.mutedFg)
+            .padding(.horizontal, 7).frame(height: 20)
+            .overlay(Capsule().strokeBorder(p.borderBase.opacity(0.14)))
     }
 }
 
@@ -188,12 +189,12 @@ private struct ToggleButton: View {
     @State private var hover = false
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
         Button(action: action) {
             Text(on ? "Выключить" : "Включить")
-                .font(.geist(13, .medium))
+                .font(.geist(14, .medium))
                 .foregroundStyle(on ? (hover ? p.foreground : p.textControl) : .white)
-                .padding(.horizontal, 12).frame(height: 30)
+                .padding(.horizontal, 10).frame(height: 28)
                 .background {
                     if on {
                         shape.fill(hover ? p.hover : .clear).overlay(shape.strokeBorder(p.borderBase.opacity(hover ? 0.16 : 0.1)))
@@ -530,7 +531,7 @@ struct SkillsCatalog: View {
                     if let error {
                         VStack(spacing: 8) {
                             IconLabel(text: error, icon: "triangle-alert", size: 14).tw(13, lh: 18).foregroundStyle(Palette.destructive)
-                            LButton(title: "Ещё раз", icon: "refresh-cw", kind: .outline, small: true) { load(view, force: true) }
+                            LButton(title: "Ещё раз", icon: "rotate-cw", kind: .outline, small: true) { load(view, force: true) }
                         }
                         .padding(.vertical, 24)
                     }

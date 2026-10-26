@@ -71,10 +71,10 @@ struct PlusMenu: View {
 
     private var button: some View {
         Button { page = .main; open.toggle() } label: {
-            // «+» 36, скругление 11; цвет чуть светлее подписей (#A3A9B8 у «Люмена»)
-            Icon("plus", 18).foregroundStyle(hover || open ? p.foreground : p.mutedFg.mixed(with: p.foreground, 0.2))
-                .frame(width: 36, height: 36)
-                .background(hover || open ? p.hover : .clear, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            // «+» 28, скругление 8, значок 20 (хендофф, 1.7.4)
+            Icon("plus", 20).foregroundStyle(hover || open ? p.foreground : p.mutedFg.mixed(with: p.foreground, 0.2))
+                .frame(width: 28, height: 28)
+                .background(hover || open ? p.hover : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -96,23 +96,23 @@ struct PlusMenu: View {
             page = .github
             Task { repos = await app.githubRepos() }
         }
-        Row(icon: "folder-plus", title: "Добавить в проект…", chevron: true) { note = nil; page = .project }
-        Row(icon: "layout-grid", title: "Из артефактов", chevron: true) { page = .artifacts }
+        Row(icon: "layers", title: "Добавить в проект…", chevron: true) { note = nil; page = .project }
+        Row(icon: "copy", title: "Из артефактов", chevron: true) { page = .artifacts }
         if agent && canPickFolder {
             Row(icon: "folder", title: "Выбрать папку") { open = false; app.chooseFolder() }
         }
         if !skills.isEmpty {
             Row(icon: "book-open", title: "Навыки", chevron: true) { page = .skills }
         }
-        Row(icon: "waypoints", title: "Коннекторы", chevron: true) { page = .connectors }
+        Row(icon: "blocks", title: "Коннекторы", chevron: true) { page = .connectors }
         if botsHere {
             Row(icon: "bot", title: "Позвать бота", chevron: true) { page = .bots }
         }
         if showsTools {
-            p.border.frame(height: 1).padding(.vertical, 4).padding(.horizontal, 4)
+            p.border.frame(height: 1).padding(.vertical, 4).padding(.horizontal, 10)
             ToggleRow(icon: "globe", title: "Поиск в сети", isOn: webBinding)
             ToggleRow(icon: "brain", title: "Память о тебе", isOn: memoryBinding)
-            ToggleRow(icon: "flask-conical", title: "Ресерч", isOn: researchBinding)
+            ToggleRow(icon: "file-search", title: "Ресерч", isOn: researchBinding)
         }
     }
 
@@ -386,18 +386,19 @@ struct PlusMenu: View {
 
         var body: some View {
             Button(action: action) {
-                HStack(spacing: 10) {
-                    Icon(icon, 15).foregroundStyle(accent ? p.glow : p.foreground.opacity(0.85)).frame(width: 18)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(title).font(.geist(13, accent ? .medium : .regular)).foregroundStyle(accent ? p.glow : p.foreground)
+                // пункт хендоффа: h28 (с пояснением выше), значок 20 серым, клавиша и шеврон справа тусклые
+                HStack(spacing: 8) {
+                    Icon(icon, 20).foregroundStyle(accent ? p.glow : p.mutedFg).frame(width: 20)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(title).font(.geist(14, .medium)).foregroundStyle(accent ? p.glow : p.foreground)
                             .lineLimit(1).truncationMode(.middle)
-                        if let note { Text(note).font(.geist(11.5)).foregroundStyle(p.mutedFg).lineLimit(1) }
+                        if let note { Text(note).font(.geist(13)).foregroundStyle(p.mutedFg).lineLimit(1) }
                     }
                     Spacer(minLength: 8)
-                    if let trailing { Text(trailing).font(.geist(12)).foregroundStyle(p.mutedFg) }
-                    if chevron { Icon("chevron-right", 13).foregroundStyle(p.mutedFg) }
+                    if let trailing { Text(trailing).font(.geist(12)).foregroundStyle(p.faint) }
+                    if chevron { Icon("chevron-right", 14).foregroundStyle(p.faint) }
                 }
-                .padding(.horizontal, 8).padding(.vertical, note == nil ? 0 : 4).frame(minHeight: 32)
+                .padding(.horizontal, 10).padding(.vertical, note == nil ? 0 : 4).frame(minHeight: 28)
                 .contentShape(Rectangle())
             }
             .buttonStyle(MenuRowStyle())
@@ -409,8 +410,8 @@ struct PlusMenu: View {
         let title: String
         @Environment(\.palette) private var p
         var body: some View {
-            Text(title).font(.geist(11.5, .medium)).foregroundStyle(p.mutedFg)
-                .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 2)
+            Text(title).font(.geist(12)).foregroundStyle(p.faint)
+                .padding(.horizontal, 10).padding(.top, 6).padding(.bottom, 2)
         }
     }
 
@@ -421,13 +422,14 @@ struct PlusMenu: View {
         @Environment(\.palette) private var p
 
         var body: some View {
-            HStack(spacing: 10) {
-                Icon(icon, 14).foregroundStyle(isOn ? p.glow : p.mutedFg).frame(width: 16)
-                Text(title).font(.geist(12.5))
+            // включённое — синяя галочка справа, выключенное — серым текстом; тумблеров в меню нет (хендофф, 1.7.4)
+            HStack(spacing: 8) {
+                Icon(icon, 20).foregroundStyle(p.mutedFg).frame(width: 20)
+                Text(title).font(.geist(14, .medium)).foregroundStyle(isOn ? p.foreground : p.mutedFg)
                 Spacer(minLength: 8)
-                LSwitch(isOn: $isOn)
+                if isOn { Icon("check", 16).foregroundStyle(p.glow) }
             }
-            .padding(.horizontal, 8).frame(height: 32)
+            .padding(.horizontal, 10).frame(height: 28)
             .contentShape(Rectangle())
             .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { isOn.toggle() } }
             .accessibilityElement(children: .combine)
@@ -469,7 +471,7 @@ struct MenuRowStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .foregroundStyle(p.foreground)
-                .background(hover || configuration.isPressed ? p.muted.opacity(0.8) : .clear, in: RoundedRectangle(cornerRadius: R.md))
+                .background(hover || configuration.isPressed ? p.foreground.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .onHover { hover = $0 }
         }
     }
@@ -491,7 +493,7 @@ struct ToolPills: View {
     var body: some View {
         HStack(spacing: 6) {
             if research {
-                ToolPill(icon: "flask-conical", title: "Ресерч", on: true, help: "Глубокое исследование на это сообщение — нажми, чтобы убрать") {
+                ToolPill(icon: "file-search", title: "Ресерч", on: true, help: "Глубокое исследование на это сообщение — нажми, чтобы убрать") {
                     research = false
                 }
             }

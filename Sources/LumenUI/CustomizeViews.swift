@@ -319,7 +319,7 @@ private struct ConnectorRow: View {
                  : "Видят: Lumen, агент и " + bots.map { "@\($0.id)" }.joined(separator: ", "))
                 .tw(12, lh: 16).foregroundStyle(p.mutedFg)
             HStack(spacing: 8) {
-                LButton(title: "Проверить", icon: "refresh-cw", kind: .outline, small: true, busy: app.connectorStatus[name] == .checking) {
+                LButton(title: "Проверить", icon: "rotate-cw", kind: .outline, small: true, busy: app.connectorStatus[name] == .checking) {
                     app.checkConnector(name)
                 }
                 LButton(title: "Изменить", icon: "pencil", kind: .outline, small: true, action: edit)
@@ -558,7 +558,7 @@ struct ConnectorEditor: View {
             case nil: EmptyView()
             }
             HStack(spacing: 8) {
-                LButton(title: "Проверить", icon: "refresh-cw", kind: .outline, small: true, busy: probing) { check() }
+                LButton(title: "Проверить", icon: "rotate-cw", kind: .outline, small: true, busy: probing) { check() }
                     .disabled(!valid || probing)
                 Spacer()
                 LButton(title: "Отмена", kind: .ghost, small: true, action: close)

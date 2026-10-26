@@ -29,7 +29,7 @@ struct ArtifactsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Артефакты").font(.geist(28, .semibold))
+                Text("Артефакты").font(.greeting(28))
                 Text("Файлы, которые выдали Lumen и боты: документы, видео. Открой сбоку, скачай или прикрепи к чату.")
                     .font(.geist(14)).foregroundStyle(p.mutedFg)
             }

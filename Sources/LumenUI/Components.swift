@@ -66,15 +66,16 @@ struct LButton: View {
         self.action = action
     }
 
+    /// Шкала кнопок хендоффа (1.7.4): 40 / 32 / 28 / 24, скругление 8 (у большой 10)
     private var height: CGFloat {
-        switch size { case .lg: 40; case .normal: 36; case .sm: 32; case .xs: 24 }
+        switch size { case .lg: 40; case .normal: 32; case .sm: 28; case .xs: 24 }
     }
 
     private var font: Font {
-        switch size { case .xs: .geist(12, .medium); case .sm: .geist(13, .medium); default: .geist(14, .medium) }
+        switch size { case .xs: .geist(12, .medium); default: .geist(14, .medium) }
     }
 
-    private var radius: CGFloat { size == .xs ? R.md : R.lg }
+    private var radius: CGFloat { size == .lg ? 10 : (size == .xs ? 6 : 8) }
 
     var body: some View {
         Button(action: action) {
@@ -87,12 +88,12 @@ struct LButton: View {
                 Text(title).font(font)
             }
             .foregroundStyle(enabled ? fg : p.mutedFg.opacity(0.7))
-            .padding(.horizontal, size == .lg ? 16 : (size == .xs ? 8 : (size == .sm ? 12 : 10)))
+            .padding(.horizontal, size == .lg ? 16 : (size == .xs ? 8 : 10))
             .frame(height: height)
             // неактивная — не бледный бежевый, а спокойная серая плашка: видно, что нажать пока нельзя
-            .background(enabled ? bg : (kind == .ghost ? .clear : p.foreground.opacity(0.06)), in: RoundedRectangle(cornerRadius: radius))
-            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(kind == .outline || (!enabled && kind != .ghost) ? p.input : .clear))
-            .contentShape(RoundedRectangle(cornerRadius: radius))
+            .background(enabled ? bg : (kind == .ghost ? .clear : p.foreground.opacity(0.06)), in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(kind == .outline || (!enabled && kind != .ghost) ? p.input : .clear))
+            .contentShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
@@ -119,8 +120,7 @@ struct LButton: View {
     }
 }
 
-/// Сегменты-переключатель («ты / вы»): равные половины, выбранная светится как карточки выбора.
-/// Здесь сознательно не как в макете: Рома попросил сделать этот выбор красивее (16.10).
+/// Сегменты-переключатель («ты / вы»): равные части во всю ширину, тот же вид, что у всех сегментов (1.7.4).
 struct Segmented<T: Hashable>: View {
     @Binding var value: T
     let options: [(T, String)]
@@ -129,38 +129,65 @@ struct Segmented<T: Hashable>: View {
     @Namespace private var pill
 
     var body: some View {
-        HStack(spacing: 4) {
+        // один вид сегментов на всё приложение (хендофф, 1.7.4): обёртка h28 с отступом 1 и r8, сегмент h26 r6
+        HStack(spacing: 0) {
             ForEach(options, id: \.0) { id, name in
                 let active = id == value
                 Button {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { value = id }
                 } label: {
                     Text(name)
-                        .font(.geist(14, active ? .medium : .regular))
+                        .font(.geist(13, .medium))
                         // узко — текст ужимается, но не переносится по слогам
                         .lineLimit(1).minimumScaleFactor(0.75)
-                        .padding(.horizontal, 6)
                         .foregroundStyle(active ? p.foreground : p.mutedFg)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 36)
-                        .background {
-                            if active {
-                                RoundedRectangle(cornerRadius: R.md)
-                                    .fill(p.glow.opacity(0.08))
-                                    .overlay(RoundedRectangle(cornerRadius: R.md).strokeBorder(p.glow.opacity(0.4)))
-                                    .shadow(color: p.glowSoft, radius: 10)
-                                    .matchedGeometryEffect(id: "pill", in: pill)
-                            }
-                        }
+                        .segmentPill(active, namespace: pill)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(4)
-        .background(p.input.opacity(0.3), in: RoundedRectangle(cornerRadius: R.lg))
-        .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
+        .segmentTrack()
     }
+}
+
+/// Обёртка сегментов: h28, отступ 1, r8, тонкая подложка и кольцо
+struct SegmentTrack: ViewModifier {
+    @Environment(\.palette) private var p
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        content.padding(1)
+            .background(p.foreground.opacity(p.isLight ? 0.05 : 0.04), in: shape)
+            .overlay(shape.strokeBorder(p.foreground.opacity(0.06)))
+    }
+}
+
+/// Сегмент: h26, по бокам 10, r6; выбранный — светлее, с тонким кольцом и тенью в 1 pt
+struct SegmentPill: ViewModifier {
+    let on: Bool
+    var namespace: Namespace.ID?
+
+    @Environment(\.palette) private var p
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+        content.padding(.horizontal, 10).frame(height: 26)
+            .background {
+                if on {
+                    let fill = shape.fill(p.isLight ? Color.white : p.foreground.opacity(0.1))
+                        .overlay(shape.strokeBorder(p.foreground.opacity(p.isLight ? 0.06 : 0.08)))
+                        .shadow(color: .black.opacity(p.isLight ? 0.08 : 0.3), radius: 1, y: 1)
+                    if let namespace { fill.matchedGeometryEffect(id: "pill", in: namespace) } else { fill }
+                }
+            }
+    }
+}
+
+extension View {
+    func segmentTrack() -> some View { modifier(SegmentTrack()) }
+    func segmentPill(_ on: Bool, namespace: Namespace.ID? = nil) -> some View { modifier(SegmentPill(on: on, namespace: namespace)) }
 }
 
 /// Карточка выбора (`Option` в знакомстве, «Через что отвечать» в настройках)
@@ -329,6 +356,8 @@ struct GlowField<Trailing: View>: View {
     var mono = false
     /// Значок слева (поиск, ссылка)
     var icon: String? = nil
+    /// Невысокое поле в ряд с кнопками h28 (хендофф, 1.7.4)
+    var compact = false
     var onSubmit: () -> Void = {}
     @ViewBuilder var trailing: Trailing
 
@@ -337,7 +366,7 @@ struct GlowField<Trailing: View>: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            if let icon { Icon(icon, 15).foregroundStyle(focused ? p.glow : p.faint) }
+            if let icon { Icon(icon, 16).foregroundStyle(focused ? p.glow : p.faint) }
             Group {
                 // подсказка приглушённая — чтобы не путалась с введённым текстом
                 if secure {
@@ -347,21 +376,21 @@ struct GlowField<Trailing: View>: View {
                 }
             }
             .textFieldStyle(.plain)
-            .font(mono ? .system(size: 12.5, design: .monospaced) : .geist(15))
+            .font(mono ? .system(size: 12.5, design: .monospaced) : .geist(compact ? 14 : 15))
             .focused($focused)
             .onSubmit(onSubmit)
             trailing
         }
-        .padding(.horizontal, 14)
-        .frame(height: mono ? 38 : 44)
+        .padding(.horizontal, compact ? 10 : 14)
+        .frame(height: compact ? 28 : (mono ? 38 : 44))
         .fieldGlass(focused: focused)
     }
 }
 
 extension GlowField where Trailing == EmptyView {
     init(placeholder: String, text: Binding<String>, secure: Bool = false, mono: Bool = false, icon: String? = nil,
-         onSubmit: @escaping () -> Void = {}) {
-        self.init(placeholder: placeholder, text: text, secure: secure, mono: mono, icon: icon, onSubmit: onSubmit) { EmptyView() }
+         compact: Bool = false, onSubmit: @escaping () -> Void = {}) {
+        self.init(placeholder: placeholder, text: text, secure: secure, mono: mono, icon: icon, compact: compact, onSubmit: onSubmit) { EmptyView() }
     }
 }
 
@@ -406,16 +435,15 @@ struct LSwitch: View {
     @Environment(\.palette) private var p
 
     var body: some View {
+        // один тумблер на всё приложение (хендофф, 1.7.4): 36×20, ручка 16 белая, включён — акцентный цвет темы
         Button { withAnimation(.easeOut(duration: 0.15)) { isOn.toggle() } } label: {
             Capsule()
-                .fill(isOn ? p.primary : (p.isLight ? p.foreground.opacity(0.18) : p.foreground.opacity(0.16)))
-                .frame(width: 32, height: 18)
-                .overlay(Capsule().strokeBorder(isOn ? .clear : p.foreground.opacity(0.28)))
+                .fill(isOn ? p.accent : p.foreground.opacity(p.isLight ? 0.16 : 0.14))
+                .frame(width: 36, height: 20)
                 .overlay(alignment: isOn ? .trailing : .leading) {
-                    // на светлой теме ручка белая с тенью, как в macOS
-                    Circle().fill(p.isLight ? Color.white : (isOn ? p.primaryFg : p.textBody))
-                        .shadow(color: .black.opacity(p.isLight ? 0.18 : 0), radius: 1.5, y: 0.5)
-                        .frame(width: 14, height: 14).padding(2)
+                    Circle().fill(Color.white)
+                        .shadow(color: .black.opacity(0.25), radius: 1, y: 0.5)
+                        .frame(width: 16, height: 16).padding(2)
                 }
                 .contentShape(Capsule())
         }
@@ -521,12 +549,14 @@ struct PopoverChrome: ViewModifier {
     @Environment(\.palette) private var p
 
     func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        // всплывашка хендоффа (1.7.4): r14, кольцо 1 pt и две мягкие тени — «0 8 24» и «0 2 6»
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
         content
             .background(p.popover)
             .clipShape(shape)
-            .overlay(shape.strokeBorder(p.borderBase.opacity(0.08)))
-            .shadow(color: .black.opacity(p.isLight ? 0.14 : 0.55), radius: 30, y: 24)
+            .overlay(shape.strokeBorder(p.borderBase.opacity(p.isLight ? 0.08 : 0.09)))
+            .shadow(color: .black.opacity(p.isLight ? 0.12 : 0.42), radius: 12, y: 8)
+            .shadow(color: .black.opacity(p.isLight ? 0.08 : 0.3), radius: 3, y: 2)
     }
 }
 

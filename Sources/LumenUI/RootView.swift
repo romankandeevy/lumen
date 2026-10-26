@@ -213,16 +213,16 @@ struct Sidebar: View {
                 // как в Claude: сверху — действия строками с иконками
                 VStack(spacing: 2) {
                     // открыт пустой новый чат (или новая задача) — пункт горит, как открытый разговор
-                    NavRow(title: app.tab == .agent ? "Новая задача" : "Новый чат", icon: "square-pen",
+                    NavRow(title: app.tab == .agent ? "Новая задача" : "Новый чат", icon: "plus",
                            active: app.page == .chat && app.chat.conversation == nil, hint: "⌘N", lead: true) {
                         app.tab == .agent ? app.newAgentTask() : app.newChat()
                     }
-                    NavRow(title: "Кастомизация", icon: "wrench", active: skillsActive,
+                    NavRow(title: "Кастомизация", icon: "briefcase-business", active: skillsActive,
                            trailing: customizeCount == 0 ? nil : "\(customizeCount)") { app.page = .skills }
                     NavRow(title: "Память", icon: "brain", active: app.page == .memory, trailing: "\(app.memoryCount)") { app.page = .memory }
-                    NavRow(title: "Артефакты", icon: "layout-grid", active: app.page == .artifacts) { app.page = .artifacts }
+                    NavRow(title: "Артефакты", icon: "copy", active: app.page == .artifacts) { app.page = .artifacts }
                     p.line.frame(height: 1).padding(.vertical, 8).padding(.horizontal, 11)
-                    NavRow(title: "Новый проект", icon: "folder-plus", active: false) {
+                    NavRow(title: "Новый проект", icon: "layers", active: false) {
                         app.createProject(folder: app.tab == .agent ? app.agentFolder : nil, kind: app.tab == .agent ? .agent : .chat)
                     }
                 }
@@ -371,7 +371,7 @@ struct SidebarSectionHeader: View {
         HStack(spacing: 4) {
             Button(action: toggle) {
                 HStack(spacing: 4) {
-                    Text(title).tw(12, .medium, lh: 16).lineLimit(1)
+                    Text(title).tw(13, .semibold, lh: 16).lineLimit(1)
                     if collapsed == true || (collapsed == false && hover) {
                         Icon(collapsed == true ? "chevron-right" : "chevron-down", 12)
                     }
@@ -393,7 +393,7 @@ struct SidebarSectionHeader: View {
             }
             if let plus { SmallPlus(help: project == nil ? "Новый разговор" : "Новый разговор в «\(title)»", side: 28, action: plus) }
         }
-        .padding(.leading, 11).padding(.trailing, 0).frame(height: 26)
+        .padding(.leading, 8).padding(.trailing, 0).frame(height: 26)
         .padding(.bottom, 4)
         .contentShape(Rectangle())
         .onHover { hover = $0 }
@@ -418,8 +418,8 @@ struct ProfileCard: View {
                                            startPoint: .top, endPoint: .bottom), in: Circle())
                 .overlay(Circle().strokeBorder(p.borderBase.opacity(0.08)))
             HStack(spacing: 0) {
-                Text(name.isEmpty ? "Без имени" : name).tw(13.5, .medium, lh: 18).lineLimit(1)
-                Text(" · " + plan).tw(13.5, lh: 18).foregroundStyle(p.mutedFg).lineLimit(1)
+                Text(name.isEmpty ? "Без имени" : name).tw(14, .medium, lh: 20).lineLimit(1)
+                Text(" · " + plan).tw(14, lh: 20).foregroundStyle(p.mutedFg).lineLimit(1)
             }
             Spacer(minLength: 0)
             Icon("chevron-down", 14).foregroundStyle(p.faint)
@@ -439,37 +439,28 @@ struct TabSwitch: View {
     @Environment(\.palette) private var p
 
     var body: some View {
-        HStack(spacing: 2) {
-            tab(.chat, "Чат", "message-square")
-            tab(.agent, "Агент", "square-terminal")
+        HStack(spacing: 0) {
+            tab(.chat, "Чат", "house")
+            tab(.agent, "Агент", "code-xml")
             tab(.bots, "Боты", "bot")
         }
-        .padding(3)
-        .background(p.borderBase.opacity(0.035), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(p.borderBase.opacity(0.055)))
+        .segmentTrack()
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Режим")
     }
 
     private func tab(_ t: AppModel.Tab, _ name: String, _ icon: String) -> some View {
         let active = app.tab == t
-        let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
         return Button {
             app.switchTab(t)
         } label: {
             HStack(spacing: 6) {
-                Icon(icon, 14).foregroundStyle(active ? p.glow : p.mutedFg)
-                Text(name).font(.geist(12.5, active ? .medium : .regular))
+                Icon(icon, 16).foregroundStyle(active ? p.foreground : p.mutedFg)
+                Text(name).font(.geist(13, .medium))
             }
             .foregroundStyle(active ? p.foreground : p.mutedFg)
-            .frame(maxWidth: .infinity).frame(height: 28)
-            .background {
-                if active {
-                    shape.fill(LinearGradient(colors: [p.borderBase.opacity(0.09), p.borderBase.opacity(0.055)], startPoint: .top, endPoint: .bottom))
-                        .overlay(shape.strokeBorder(p.borderBase.opacity(0.07)))
-                        .shadow(color: .black.opacity(p.isLight ? 0.12 : 0.4), radius: 1, y: 1)
-                }
-            }
+            .frame(maxWidth: .infinity)
+            .segmentPill(active)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -533,17 +524,17 @@ struct ChatRow: View {
                         if renaming {
                             renameField
                         } else {
-                            Text(c.title).font(.geist(13.5)).lineLimit(1)
+                            Text(c.title).font(.geist(14)).lineLimit(1)
                                 .foregroundStyle(active || hover ? p.foreground : p.textSoft)
                         }
-                        Text(AppModel.folderName(URL(fileURLWithPath: c.folder ?? ""))).font(.geist(11)).foregroundStyle(p.mutedFg).lineLimit(1)
+                        Text(AppModel.folderName(URL(fileURLWithPath: c.folder ?? ""))).font(.geist(12)).foregroundStyle(p.mutedFg).lineLimit(1)
                     }
                     Spacer(minLength: 4)
                 } else {
                     if renaming {
                         renameField
                     } else {
-                        Text(c.title).font(.geist(13.5)).lineLimit(1).truncationMode(.tail)
+                        Text(c.title).font(.geist(14)).lineLimit(1).truncationMode(.tail)
                             .foregroundStyle(active || hover ? p.foreground : p.textSoft)
                     }
                     Spacer(minLength: 4)
@@ -551,9 +542,9 @@ struct ChatRow: View {
                     if running { LiveDot(color: p.glow).opacity(hover || dotsHover ? 0 : 1) }
                 }
             }
-            .padding(.horizontal, 11).padding(.vertical, c.kind == .agent ? 5 : 0)
+            .padding(.horizontal, 8).padding(.vertical, c.kind == .agent ? 5 : 0)
             .frame(minHeight: 32)
-            .rowBackground(active: active, hover: hover, radius: 10)
+            .rowBackground(active: active, hover: hover, radius: 8)
             .contentShape(Rectangle())
         }
         .onHover { hover = $0 }
@@ -640,15 +631,15 @@ struct NavRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                Icon(icon, 16).foregroundStyle(active || lead ? p.glow : p.mutedFg).frame(width: 16)
-                Text(title).font(.geist(13.5, lead ? .medium : .regular)).lineLimit(1)
+                Icon(icon, 20).foregroundStyle(active || lead ? p.glow : p.mutedFg).frame(width: 20)
+                Text(title).font(.geist(14, .medium)).lineLimit(1)
                 Spacer(minLength: 0)
                 if let trailing { Text(trailing).font(.geist(12)).foregroundStyle(p.mutedFg).monospacedDigit() }
                 if let hint { Text(hint).font(.geist(12)).foregroundStyle(p.faint) }
             }
             .foregroundStyle(active || hover || lead ? p.foreground : p.textSoft)
-            .padding(.horizontal, 11).frame(height: 33)
-            .rowBackground(active: active, hover: hover, radius: 10)
+            .padding(.horizontal, 8).frame(height: 32)
+            .rowBackground(active: active, hover: hover, radius: 8)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

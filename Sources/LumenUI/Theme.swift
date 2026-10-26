@@ -378,9 +378,11 @@ extension Font {
     /// Масштаб шрифтов интерфейса (Настройки → Тема → Расширенные): 1 = базовые 14 pt
     nonisolated(unsafe) static var uiScale: CGFloat = 1
 
-    /// Шрифт интерфейса. Имя осталось от Geist: так он зовётся по всему коду
+    /// Шрифт интерфейса. Имя осталось от Geist: так он зовётся по всему коду.
+    /// `.medium` — вес «контрол» хендоффа (кнопки, пункты, меню): между обычным и средним SF Pro, как 435 у Claude (1.7.4)
     static func geist(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .system(size: size * uiScale, weight: weight)
+        if weight == .medium { return Font(NSFont.systemFont(ofSize: size * uiScale, weight: .control)) }
+        return .system(size: size * uiScale, weight: weight)
     }
 
     /// Geist для текста переписки («Шрифты и масштаб» → Geist)
@@ -390,7 +392,7 @@ extension Font {
         return NSFont(name: name, size: size) != nil ? .custom(name, size: size) : .system(size: size, weight: weight)
     }
 
-    /// Приветствие: Literata с оптическим размером под кегль (opsz 7…72), вес 400
+    /// Приветствие и заголовки страниц: системный шрифт с засечками (New York), тонкий — роль «приветствие» хендоффа (1.7.4)
     @MainActor static func greeting(_ size: CGFloat) -> Font {
         Font(Greeting.font(size * uiScale))
     }
@@ -413,18 +415,9 @@ enum Greeting {
     /// Оси variable-шрифта: «opsz» и «wght» по их 4-буквенным тегам
     @MainActor static func font(_ size: CGFloat) -> NSFont {
         if let f = cache[size] { return f }
-        func tag(_ s: String) -> NSNumber { NSNumber(value: s.utf8.reduce(UInt32(0)) { $0 << 8 | UInt32($1) }) }
-        let f: NSFont
-        if let base = NSFont(name: "Literata", size: size) {
-            let d = base.fontDescriptor.addingAttributes([
-                NSFontDescriptor.AttributeName(rawValue: kCTFontVariationAttribute as String): [tag("opsz"): min(72, max(7, size)), tag("wght"): 400],
-            ])
-            f = NSFont(descriptor: d, size: size) ?? base
-        } else {
-            // шрифта нет (swift run) — системный с засечками
-            let sys = NSFont.systemFont(ofSize: size)
-            f = sys.fontDescriptor.withDesign(.serif).flatMap { NSFont(descriptor: $0, size: size) } ?? sys
-        }
+        // New York: системный с засечками, есть кириллица; тонкий в крупном кегле, обычный в мелком
+        let sys = NSFont.systemFont(ofSize: size, weight: size >= 30 ? .light : .regular)
+        let f = sys.fontDescriptor.withDesign(.serif).flatMap { NSFont(descriptor: $0, size: size) } ?? sys
         cache[size] = f
         return f
     }
@@ -444,22 +437,29 @@ struct Icon: View {
 
     @MainActor private static var cache: [String: NSImage] = [:]
 
+    /// Линия как у иконок Claude (хендофф, 1.7.4): тонкая — 1.5 из 24 у иконок 16–20, у мелких 12–14 чуть толще, чтобы не таяли
+    static func stroke(for size: CGFloat) -> String { size <= 14 ? "1.75" : "1.5" }
+
     /// В бандле — Contents/Resources/Icons; в тестах и снимках — папка из LUMEN_ICONS
-    @MainActor static func image(_ name: String) -> NSImage? {
-        if let i = cache[name] { return i }
+    @MainActor static func image(_ name: String, size: CGFloat = 16) -> NSImage? {
+        let width = stroke(for: size)
+        let key = name + "@" + width
+        if let i = cache[key] { return i }
         var url = Bundle.main.url(forResource: name, withExtension: "svg", subdirectory: "Icons")
         if url == nil, let dir = ProcessInfo.processInfo.environment["LUMEN_ICONS"] {
             url = URL(fileURLWithPath: dir).appendingPathComponent("\(name).svg")
         }
-        guard let url, let img = NSImage(contentsOf: url) else { return nil }
+        guard let url, let svg = try? String(contentsOf: url, encoding: .utf8),
+              let data = svg.replacingOccurrences(of: "stroke-width=\"2\"", with: "stroke-width=\"\(width)\"").data(using: .utf8),
+              let img = NSImage(data: data) else { return nil }
         img.isTemplate = true
-        cache[name] = img
+        cache[key] = img
         return img
     }
 
     var body: some View {
         Group {
-            if let img = Self.image(name) {
+            if let img = Self.image(name, size: size) {
                 Image(nsImage: img).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
             } else {
                 Color.clear
@@ -526,13 +526,18 @@ enum LineMetrics {
     }
 }
 
+extension NSFont.Weight {
+    /// Вес «контрол» хендоффа: SF Pro между regular (0) и medium (0.23)
+    static let control = NSFont.Weight(0.12)
+}
+
 extension Font.Weight {
     var ns: NSFont.Weight {
         switch self {
         case .ultraLight: .ultraLight
         case .thin: .thin
         case .light: .light
-        case .medium: .medium
+        case .medium: .control
         case .semibold: .semibold
         case .bold: .bold
         case .heavy: .heavy

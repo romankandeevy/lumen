@@ -32,17 +32,17 @@ struct SettingsView: View {
 
         var icon: String {
             switch self {
-            case .general: "hexagon"
+            case .general: "settings"
             case .theme: "palette"
             case .fonts: "type"
-            case .window: "monitor"
-            case .chat: "message-circle"
+            case .window: "monitor-smartphone"
+            case .chat: "message-square"
             case .pet: "paw-print"
             case .persona: "sparkles"
             case .models: "key-round"
             case .importClaude: "download"
             case .data: "database"
-            case .about: "refresh-cw"
+            case .about: "rotate-cw"
             case .uninstall: "trash"
             }
         }
@@ -233,19 +233,18 @@ struct SettingsView: View {
     /// Строка настройки: значок, название и пояснение слева, управление справа, линия снизу
     private func row<C: View>(_ title: String, _ note: String? = nil, icon: String? = nil, @ViewBuilder control: () -> C) -> some View {
         HStack(alignment: .center, spacing: 12) {
+            // значок 20 серым у края, без плитки (1.7.4)
             if let icon {
-                Icon(icon, 15).foregroundStyle(p.foreground.opacity(0.75))
-                    .frame(width: 30, height: 30)
-                    .background(p.foreground.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                Icon(icon, 20).foregroundStyle(p.mutedFg).frame(width: 20)
             }
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 1) {
                 Text(title).tw(14, lh: 20)
-                if let note { Text(note).tw(12, lh: 16).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true) }
+                if let note { Text(note).tw(13, lh: 18).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true) }
             }
             Spacer(minLength: 16)
             control()
         }
-        .padding(.vertical, 12)
+        .padding(.vertical, 10).frame(minHeight: 56)
         .overlay(alignment: .bottom) { p.border.frame(height: 1) }
     }
 
@@ -458,7 +457,7 @@ struct SettingsView: View {
                 row("Спрашивать, только когда я рядом", "Отошёл больше чем на 5 минут или экран заблокирован — Lumen сам отвечает агенту «реши сам», а то, что ждёт твоего OK, агент пропускает и пишет об этом в отчёте.", icon: "user") {
                     LSwitch(isOn: Binding(get: { app.prefs.presence }, set: { on in app.update { $0.presence = on } }))
                 }
-                row("Автовыбор модели", "Модель перегружена — отвечает запасная. У выбранной кончился лимит на неделю — следующая по силе, у которой он есть.", icon: "refresh-cw") {
+                row("Автовыбор модели", "Модель перегружена — отвечает запасная. У выбранной кончился лимит на неделю — следующая по силе, у которой он есть.", icon: "rotate-cw") {
                     LSwitch(isOn: Binding(get: { app.prefs.autoModel }, set: { on in app.update { $0.autoModel = on } }))
                 }
                 row("Сжимать разговор сам", "Окно заполнено — агент пишет себе записку о главном, и разговор продолжается в свежей сессии. Не позже 400 тыс. токенов.", icon: "layers") {
@@ -540,16 +539,16 @@ struct SettingsNavRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                Icon(icon, 15).foregroundStyle(active ? p.glow : p.mutedFg).frame(width: 16)
-                Text(title).tw(14, lh: 20).lineLimit(1)
+                Icon(icon, 20).foregroundStyle(active ? p.glow : p.mutedFg).frame(width: 20)
+                Text(title).font(.geist(14, .medium)).lineLimit(1)
                 if beta { BetaBadge() }
                 Spacer(minLength: 4)
                 if let chevron { Icon(chevron, 13).foregroundStyle(p.mutedFg) }
             }
             .foregroundStyle(active || hover || framed ? p.foreground : p.foreground.opacity(0.75))
-            .padding(.leading, sub ? 22 : 10).padding(.trailing, 8).frame(height: 32)
-            .rowBackground(active: active, hover: hover, radius: 10)
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(framed && !active ? p.border : .clear))
+            .padding(.leading, sub ? 22 : 8).padding(.trailing, 8).frame(height: 32)
+            .rowBackground(active: active, hover: hover, radius: 8)
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(framed && !active ? p.border : .clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -564,27 +563,23 @@ struct LightSwitch: View {
     @Environment(\.palette) private var p
 
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 0) {
             item(.light, "Светлая", "sun")
             item(.dark, "Тёмная", "moon")
             item(.system, "Системная", "monitor")
         }
-        .padding(3)
-        .background(p.foreground.opacity(0.05), in: RoundedRectangle(cornerRadius: R.lg))
-        .overlay(RoundedRectangle(cornerRadius: R.lg).strokeBorder(p.border))
+        .segmentTrack()
     }
 
     private func item(_ a: Appearance, _ name: String, _ icon: String) -> some View {
         let on = value == a
         return Button { withAnimation(.easeOut(duration: 0.2)) { value = a } } label: {
             HStack(spacing: 6) {
-                Icon(icon, 14)
-                Text(name).tw(13, lh: 18)
+                Icon(icon, 16)
+                Text(name).font(.geist(13, .medium))
             }
             .foregroundStyle(on ? p.foreground : p.mutedFg)
-            .padding(.horizontal, 12).frame(height: 30)
-            .background(on ? p.background : .clear, in: RoundedRectangle(cornerRadius: R.md))
-            .overlay(RoundedRectangle(cornerRadius: R.md).strokeBorder(on ? p.border : .clear))
+            .segmentPill(on)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -998,18 +993,19 @@ struct PillPicker<T: Hashable>: View {
     @Environment(\.palette) private var p
 
     var body: some View {
-        HStack(spacing: 2) {
+        // тот же вид, что у остальных сегментов (1.7.4): раньше были пилюли без обёртки
+        HStack(spacing: 0) {
             ForEach(options, id: \.0) { v, name in
                 Button { value = v } label: {
-                    Text(name).tw(13, lh: 18)
+                    Text(name).font(.geist(13, .medium))
                         .foregroundStyle(value == v ? p.foreground : p.mutedFg)
-                        .padding(.horizontal, 12).frame(height: 28)
-                        .background(value == v ? p.foreground.opacity(0.09) : .clear, in: Capsule())
-                        .contentShape(Capsule())
+                        .segmentPill(value == v)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
+        .segmentTrack()
     }
 }
 
@@ -1289,7 +1285,7 @@ private struct DataSettings: View {
                 .padding(.top, 14)
                 HStack(spacing: 8) {
                     LButton(title: "Выбрать разговоры…", icon: "download", kind: .primary, small: true) { importing = true }
-                    LButton(title: "Обновить из Claude", icon: "refresh-cw", kind: .outline, small: true, busy: busy == "refresh") {
+                    LButton(title: "Обновить из Claude", icon: "rotate-cw", kind: .outline, small: true, busy: busy == "refresh") {
                         busy = "refresh"
                         Task {
                             let n = await app.refreshFromClaude()
@@ -1448,7 +1444,7 @@ private struct AboutSettings: View {
             Text("Версия " + versionText).tw(14, lh: 20).foregroundStyle(p.mutedFg)
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
-                    Icon("refresh-cw", 15)
+                    Icon("rotate-cw", 15)
                     Text("Обновления").tw(15, .medium, lh: 20)
                 }
                 .padding(.bottom, 12)
@@ -1478,7 +1474,7 @@ private struct AboutSettings: View {
                     }
                 }
                 HStack(spacing: 8) {
-                    LButton(title: "Проверить сейчас", icon: "refresh-cw", kind: .ghost, small: true) { u.check() }
+                    LButton(title: "Проверить сейчас", icon: "rotate-cw", kind: .ghost, small: true) { u.check() }
                         .disabled(!u.canCheck)
                     if u.available != nil {
                         LButton(title: "Обновить сейчас", kind: .primary, small: true) { u.check() }
@@ -1629,7 +1625,8 @@ struct PageFrame<Actions: View, Content: View>: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .bottom, spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(title).tw(26.4, .semibold, lh: 33).tracking(-0.53)
+                    // заголовок страницы — с засечками (роль хендоффа)
+                    Text(title).font(.greeting(28)).tracking(-0.3)
                     if let lead {
                         Text(lead).tw(14, lh: 20).foregroundStyle(p.mutedFg).frame(maxWidth: 560, alignment: .leading)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1764,7 +1761,7 @@ struct ChatGPTCard: View {
                         .font(.geist(13.5)).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
                     Text("npm install -g @openai/codex")
                         .font(.system(size: 12, design: .monospaced)).textSelection(.enabled).padding(.top, 8)
-                    LButton(title: "Проверить", icon: "refresh-cw", kind: .outline, small: true) { Task { await app.refreshCodex() } }
+                    LButton(title: "Проверить", icon: "rotate-cw", kind: .outline, small: true) { Task { await app.refreshCodex() } }
                         .padding(.top, 16)
                 case .signedOut, .signingIn:
                     signIn(signedIn: false)
@@ -1940,7 +1937,7 @@ struct SubscriptionCard: View {
 
     private func buttons(signedIn: Bool) -> some View {
         HStack(spacing: 8) {
-            LButton(title: "Проверить", icon: "refresh-cw", kind: .outline, small: true, busy: app.subscriptionBusy) {
+            LButton(title: "Проверить", icon: "rotate-cw", kind: .outline, small: true, busy: app.subscriptionBusy) {
                 Task { await app.checkSubscription() }
             }
             if signedIn {
@@ -2090,18 +2087,15 @@ struct SettingsHeader: View {
     @Environment(\.palette) private var p
 
     var body: some View {
+        // заголовок страницы с засечками, без плитки под значком (1.7.4)
         HStack(alignment: .center, spacing: 14) {
-            Icon(icon, 20).foregroundStyle(p.glow)
-                .frame(width: 44, height: 44)
-                .background(p.glow.opacity(0.1), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(p.glow.opacity(0.22)))
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
-                    Text(title).tw(20, .semibold, lh: 28).tracking(-0.2)
+                    Text(title).font(.greeting(28)).tracking(-0.3)
                     if beta { BetaBadge(large: true) }
                 }
                 if let lead {
-                    Text(lead).tw(13, lh: 18).foregroundStyle(p.mutedFg)
+                    Text(lead).tw(14, lh: 20).foregroundStyle(p.mutedFg)
                         .frame(maxWidth: 600, alignment: .leading).fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -2129,7 +2123,7 @@ struct SettingsGroup<Content: View>: View {
         VStack(alignment: .leading, spacing: 8) {
             if let title {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(title).tw(13, .medium, lh: 18).foregroundStyle(p.foreground.opacity(0.85))
+                    Text(title).tw(13, .semibold, lh: 16).foregroundStyle(p.mutedFg)
                     Spacer()
                     if let aside { Text(aside).tw(12, lh: 16).foregroundStyle(p.mutedFg) }
                 }
@@ -2139,10 +2133,10 @@ struct SettingsGroup<Content: View>: View {
                 // линия под последней строкой прячется: карточка на 1 pt короче и обрезает её
                 .padding(.bottom, -1)
                 .clipped()
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 14)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(p.card.opacity(0.85), in: RoundedRectangle(cornerRadius: R.xl))
-                .overlay(RoundedRectangle(cornerRadius: R.xl).strokeBorder(p.border))
+                .background(p.card.opacity(0.85), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(p.border))
             if let footer {
                 Text(footer).tw(12, lh: 16).foregroundStyle(p.mutedFg).padding(.horizontal, 4).fixedSize(horizontal: false, vertical: true)
             }
