@@ -36,6 +36,8 @@ public struct AppPaths: Sendable {
     public var designs: URL { root.appendingPathComponent("designs", isDirectory: true) }
     /// 3D-модели: проект редактора (.three.json — правится дальше) и GLB для Blender, игр и Quick Look
     public var models: URL { root.appendingPathComponent("models", isDirectory: true) }
+    /// Ролики HyperFrames: папка на каждый
+    public var videos: URL { root.appendingPathComponent("videos", isDirectory: true) }
     /// Сокет встроенного браузера: lumen-mcp передаёт сюда действия агентов
     public var browserSocket: URL { run.appendingPathComponent("browser.sock") }
     /// Плагины Claude Code (их навыки, агенты, хуки, коннекторы): Lumen выключает их в своих сессиях — список id

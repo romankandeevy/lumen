@@ -42,7 +42,7 @@ public final class DesignServer: @unchecked Sendable {
     }
 
     /// Свободен ли порт на 127.0.0.1 (NWListener узнаёт о занятом только после запуска)
-    static func free(_ port: UInt16) -> Bool {
+    public static func free(_ port: UInt16) -> Bool {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { return false }
         defer { close(fd) }

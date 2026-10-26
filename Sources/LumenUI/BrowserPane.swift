@@ -24,6 +24,7 @@ extension AppModel {
         browser.onTabsChange = { [weak self] in self?.scheduleTabsSave() }
         browser.designsDir = paths.designs
         browser.modelsDir = paths.models
+        browser.videosDir = paths.videos
         if let saved = try? store.value("browser.tabs", as: BrowserModel.SavedState.self) { browser.restore(saved) }
         browserOptionsFromPrefs()
     }
@@ -272,7 +273,7 @@ struct BrowserPane: View {
     private var blank: Bool { browser.url.isEmpty || browser.url == "about:blank" }
     /// Открыт макет или 3D: адрес у редактора не нужен — одна строка вкладок, всё место редактору (Рома, 26.10)
     private var editorTab: Bool {
-        browser.isDesign(browser.active) || browser.isModel(browser.active) || browser.pendingEditors[browser.active.id] != nil
+        browser.isDesign(browser.active) || browser.isModel(browser.active) || browser.isVideo(browser.active) || browser.pendingEditors[browser.active.id] != nil
     }
     /// Верхняя строка с адресом видна (не файл и не редактор)
     private var showsToolbar: Bool { browser.active.file == nil && !editorTab }
@@ -326,7 +327,7 @@ struct BrowserPane: View {
                     // вкладка макета или 3D после перезапуска: редактор открывается
                     VStack(spacing: 10) {
                         ProgressView().controlSize(.small)
-                        Text("Открываю \(browser.pendingEditors[browser.active.id]?.kind == "model3d" ? "3D-модель" : "макет") «\(browser.active.title)»…")
+                        Text("Открываю \(["model3d": "3D-модель", "video": "видео"][browser.pendingEditors[browser.active.id]?.kind ?? ""] ?? "макет") «\(browser.active.title)»…")
                             .tw(12.5, lh: 16).foregroundStyle(p.mutedFg)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -425,7 +426,7 @@ struct BrowserPane: View {
                 .buttonStyle(.plain)
                 .help("Подставить сохранённый вход — «Войти» нажмёшь сам")
             } else {
-                Icon(browser.isDesign(browser.active) ? "pen-line" : (browser.isModel(browser.active) ? "box" : (browser.url.hasPrefix("https") ? "lock" : "globe")), 11).foregroundStyle(p.mutedFg)
+                Icon(browser.isDesign(browser.active) ? "pen-line" : (browser.isModel(browser.active) ? "box" : (browser.isVideo(browser.active) ? "clapperboard" : (browser.url.hasPrefix("https") ? "lock" : "globe"))), 11).foregroundStyle(p.mutedFg)
             }
             ZStack(alignment: .leading) {
                 TextField("", text: $address, prompt: Text("Введите URL").foregroundStyle(p.mutedFg.opacity(0.7)))
@@ -485,10 +486,10 @@ struct BrowserPane: View {
     /// Адрес в строке, когда он не редактируется: ссылка — хост крупно и путь приглушённо, без «https://» и «www.»;
     /// файл — имя крупно и папка приглушённо. Курсор над строкой — полный адрес
     @ViewBuilder private var addressLabel: some View {
-        if browser.isDesign(browser.active) || browser.isModel(browser.active) {
-            // адрес редактора с ключом человеку ни к чему — название макета или модели
-            (Text(browser.isModel(browser.active) ? "3D  " : "Макет  ").foregroundStyle(p.mutedFg)
-                + Text(browser.modelDocs[browser.active.id] ?? (browser.active.title.isEmpty ? "без названия" : browser.active.title)).foregroundStyle(p.foreground))
+        if browser.isDesign(browser.active) || browser.isModel(browser.active) || browser.isVideo(browser.active) {
+            // адрес редактора с ключом человеку ни к чему — название макета, модели или ролика
+            (Text(browser.isModel(browser.active) ? "3D  " : (browser.isVideo(browser.active) ? "Видео  " : "Макет  ")).foregroundStyle(p.mutedFg)
+                + Text(browser.modelDocs[browser.active.id] ?? browser.videoDocs[browser.active.id] ?? (browser.active.title.isEmpty ? "без названия" : browser.active.title)).foregroundStyle(p.foreground))
         } else if blank {
             Text("Введите URL").foregroundStyle(p.mutedFg.opacity(0.7))
         } else if hoverAddress {
@@ -585,12 +586,13 @@ struct BrowserPane: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 2) {
                     ForEach(browser.tabs) { t in
-                        BrowserTabChip(title: t.file?.name ?? browser.modelDocs[t.id] ?? (t.title.isEmpty ? (URL(string: t.url)?.host ?? "Новая вкладка") : t.title),
+                        BrowserTabChip(title: t.file?.name ?? browser.modelDocs[t.id] ?? browser.videoDocs[t.id] ?? (t.title.isEmpty ? (URL(string: t.url)?.host ?? "Новая вкладка") : t.title),
                                        host: t.file == nil ? t.host : nil,
                                        revision: t.iconRevision,
                                        fileIcon: t.file.map { Self.icon(for: $0.kind) }
                                            ?? (browser.designDocs[t.id] != nil || browser.pendingEditors[t.id]?.kind == "design" ? "pen-line"
-                                               : (browser.modelDocs[t.id] != nil || browser.pendingEditors[t.id]?.kind == "model3d" ? "box" : nil)),
+                                               : (browser.modelDocs[t.id] != nil || browser.pendingEditors[t.id]?.kind == "model3d" ? "box"
+                                                  : (browser.videoDocs[t.id] != nil || browser.pendingEditors[t.id]?.kind == "video" ? "clapperboard" : nil))),
                                        agent: t.id == browser.agentTabID ? (t.owner ?? "Агент") : nil,
                                        on: t.id == browser.activeID,
                                        select: { browser.select(t.id) },
@@ -661,7 +663,11 @@ struct BrowserPane: View {
 
     /// В макете и 3D: выделенное одной кнопкой — в чат (с картинкой и id); значок, а не широкая плашка
     private var selectionSendButton: some View {
-        Button { if browser.isModel(browser.active) { app.sendModelSelection() } else { app.sendDesignSelection() } } label: {
+        Button {
+            if browser.isModel(browser.active) { app.sendModelSelection() }
+            else if browser.isVideo(browser.active) { app.sendVideoSelection() }
+            else { app.sendDesignSelection() }
+        } label: {
             ZStack(alignment: .topTrailing) {
                 Icon("message-square", 14).foregroundStyle(p.glow)
                 Image(systemName: "arrow.up").font(.system(size: 7, weight: .bold)).foregroundStyle(p.onGlow)
@@ -672,7 +678,7 @@ struct BrowserPane: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("Выделенное — в чат: выдели слой или деталь и нажми; останется написать, что поменять")
+        .help("Выделенное — в чат: выдели слой, деталь или элемент ролика и нажми; останется написать, что поменять")
         .padding(.trailing, 2)
     }
 
@@ -680,7 +686,8 @@ struct BrowserPane: View {
         Menu {
             if BrowserModel.designAvailable { Button("Новый макет") { app.newDesign() } }
             if BrowserModel.model3DAvailable { Button("Новая 3D-модель") { app.newModel() } }
-            if BrowserModel.designAvailable || BrowserModel.model3DAvailable { Divider() }
+            if BrowserModel.videoAvailable { Button("Новое видео") { app.newVideo() } }
+            if BrowserModel.designAvailable || BrowserModel.model3DAvailable || BrowserModel.videoAvailable { Divider() }
             Button("Найти на странице  ⌘F") { browser.openFind() }
             Divider()
             Button("Увеличить  ⌘+") { browser.zoom(by: 0.1) }
@@ -731,6 +738,7 @@ struct BrowserPane: View {
                 linksCard
                 if BrowserModel.designAvailable { designsCard }
                 if BrowserModel.model3DAvailable { modelsCard }
+                if BrowserModel.videoAvailable { videosCard }
                 if !browser.history.entries.isEmpty { recentCard }
             }
             .frame(width: 360)
@@ -777,6 +785,26 @@ struct BrowserPane: View {
                     Text("Новая 3D-модель").font(.geist(13))
                     Spacer(minLength: 0)
                     Text("как в Blender").font(.geist(12)).foregroundStyle(p.faint)
+                }
+                .foregroundStyle(p.mutedFg).padding(.horizontal, 8).frame(height: 36).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    /// Видео: новое и последние три
+    private var videosCard: some View {
+        card {
+            Text("Видео").tw(11.5, .medium, lh: 14).foregroundStyle(p.mutedFg).padding(.horizontal, 8).padding(.top, 6).padding(.bottom, 2)
+            ForEach(Array(browser.videoProjects().prefix(3)), id: \.self) { name in
+                openRow(icon: "clapperboard", title: name, detail: "ролик", onOpen: { app.openVideo(name) })
+            }
+            Button { app.newVideo() } label: {
+                HStack(spacing: 10) {
+                    Icon("plus", 14).frame(width: 18)
+                    Text("Новое видео").font(.geist(13))
+                    Spacer(minLength: 0)
+                    Text("анимация и монтаж").font(.geist(12)).foregroundStyle(p.faint)
                 }
                 .foregroundStyle(p.mutedFg).padding(.horizontal, 8).frame(height: 36).contentShape(Rectangle())
             }

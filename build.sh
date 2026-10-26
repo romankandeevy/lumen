@@ -49,6 +49,9 @@ if [ -f build/model3d/editor/index.html ]; then
 else
     echo "==> нет build/model3d — 3D не войдёт в сборку (tools/model3d/build.sh)"
 fi
+# видео (HyperFrames, Apache-2.0): сам движок берётся через npx при первом ролике, в сборку — только справочник для агента
+ditto tools/video/guide "$APP/Contents/Resources/VideoGuide"
+cp tools/video/LICENSE-HyperFrames.txt "$APP/Contents/Resources/VideoGuide/"
 # ресурсы пакетов (GRDB кладёт свой бандл с PrivacyInfo)
 for b in "$BIN"/*.bundle; do [ -e "$b" ] && cp -R "$b" "$APP/Contents/Resources/"; done
 # автообновление: Sparkle.framework рядом с программой (rpath @executable_path/../Frameworks)

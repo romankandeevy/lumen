@@ -111,6 +111,38 @@ extension AppModel {
         }
     }
 
+    /// Выделенное в Студии видео — в чат: миниатюра и строка с элементом, сценой и моментом
+    func sendVideoSelection() {
+        let b = browser
+        Task { @MainActor in
+            guard let pick = await b.videoSelection() else { b.say("Выдели элемент в превью видео — потом «В чат»"); return }
+            if let img = pick.image { attachImage(img, name: "Видео — \(pick.name) — выделенное.png") }
+            draftInbox += "Видео «\(pick.name)», выделено: \(pick.line).\nЧто поменять: "
+            b.say("Выделенное отправлено в поле ввода — напиши, что поменять")
+        }
+    }
+
+    func newVideo() {
+        let existing = Set(browser.videoProjects())
+        var n = 1
+        while existing.contains("Видео \(n)") { n += 1 }
+        openVideo("Видео \(n)")
+    }
+
+    func openVideo(_ name: String) {
+        let b = browser
+        browserOpen = true
+        Task { @MainActor in
+            do {
+                let blank = b.active.file == nil && b.blankPage && b.active.id != b.agentTabID
+                b.say("Запускаю Студию видео…")
+                _ = try await b.openVideo(name: name, in: blank ? b.active : nil, select: true)
+            } catch {
+                b.say(error.localizedDescription)
+            }
+        }
+    }
+
     func newModel() {
         let existing = Set(browser.modelFiles())
         var n = 1

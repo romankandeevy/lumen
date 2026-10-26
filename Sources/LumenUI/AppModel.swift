@@ -260,7 +260,10 @@ public final class AppModel {
         writeMemoryFiles()
         // выход из приложения: процессы claude не должны пережить Lumen
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.chat.closeAll() }
+            MainActor.assumeIsolated {
+                self?.chat.closeAll()
+                self?.browser.stopAllStudios()
+            }
         }
         // без выбранной папки агент работает во всех моих файлах (домашняя папка); папку можно выбрать потом
         agentFolder = prefs.recentFolders.lazy.map { URL(fileURLWithPath: $0) }

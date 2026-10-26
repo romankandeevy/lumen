@@ -86,6 +86,23 @@ public enum BrowserTools {
          obj(["view": ["type": "string", "enum": ["iso", "front", "back", "left", "right", "top", "current", "all"]], "target": str("Имя или uuid детали")])),
         ("model3d_select", "Выделить деталь в 3D-редакторе и показать её человеку крупно.", obj(["target": str("Имя или uuid")], required: ["target"])),
         ("model3d_save", "Сохранить 3D-модель: проект (.three.json — правится дальше) и GLB (Blender, игры, Quick Look). Сохраняется и сама раз в несколько секунд.", obj([:])),
+        ("video_open", "Открыть или создать анимированное видео в браузере сбоку (HyperFrames — ролик из HTML и GSAP-анимаций, рендерится в MP4): человек видит Студию с превью и таймлайном, сам монтирует — двигает и обрезает клипы, правит тексты, ключевые кадры, слои — и шлёт выделенное тебе в чат. name — название ролика (тот же name — та же папка). resolution — landscape (1920×1080, по умолчанию), portrait (1080×1920 — рилсы, сторис), square, или с -4k. Когда просят видео, ролик, анимацию, моушн, рилс, промо, заставку, титры, «как в After Effects» — начинай с этого. В первый раз придёт справочник.",
+         obj(["name": str("Название ролика, например «Промо кофейни»"), "resolution": ["type": "string", "enum": ["landscape", "portrait", "square", "landscape-4k", "portrait-4k", "square-4k"]]], required: ["name"])),
+        ("video_guide", "Справочник HyperFrames: без topic — главное (SKILL.md); topic — раздел: motion, look, film, composition, captions, audio, tts, transitions, catalog, data-viz, types/launch и др. (список придёт, если раздела нет).",
+         obj(["topic": str("Раздел справочника")])),
+        ("video_files", "Файлы открытого видео (папка проекта): сцены, ассеты, рендеры.", obj([:])),
+        ("video_read", "Прочитать файл открытого видео: path от папки проекта, например index.html или compositions/intro.html.",
+         obj(["path": str("Путь от папки проекта")], required: ["path"])),
+        ("video_write", "Записать файл открытого видео целиком (сцену HTML, CSS, JSON, SVG): path от папки проекта. Студия обновится сама. После — video_cli check.",
+         obj(["path": str("Путь от папки проекта"), "content": str("Содержимое файла целиком")], required: ["path", "content"])),
+        ("video_cli", "Команда HyperFrames в папке открытого видео (как «npx hyperframes <command> <args>» из справочника): check (ошибки и вёрстка — после каждой правки), timeline, compositions, add (готовый блок из каталога: add <имя>), catalog, tts (озвучка на этом Маке), beats, audio, keyframes, inspect, transcribe, docs, info, history.",
+         obj(["command": str("Команда: check, timeline, add, catalog, tts …"), "args": ["type": "array", "items": ["type": "string"], "description": "Аргументы команды"]], required: ["command"])),
+        ("video_shot", "Кадры открытого видео картинкой: at — моменты в секундах (до 6), без него — frames кадров равномерно. Посмотреть, как выглядит, и поправить. Человек видит кадры в чате.",
+         obj(["at": ["type": "array", "items": ["type": "number"]], "frames": ["type": "number"]])),
+        ("video_render", "Начать рендер открытого видео в файл (в фоне): quality — draft (быстро), looks (по умолчанию), delivery (лучшее); format — mp4 (по умолчанию), webm, mov (прозрачный фон), gif. Потом video_render_wait.",
+         obj(["quality": ["type": "string", "enum": ["draft", "looks", "delivery"]], "format": ["type": "string", "enum": ["mp4", "webm", "mov", "gif"]]])),
+        ("video_render_wait", "Дождаться рендера видео (до 80 с за вызов): вернёт путь к файлу — покажи его человеку через show_in_chat.",
+         obj(["seconds": ["type": "number"]])),
         ("make_file", "Выдать человеку файл вложением под ответом: код, Markdown, текст, CSV, JSON, HTML, а также настоящие документы Word (.docx) и таблицы Excel (.xlsx). Для .docx в content — обычный текст с разметкой: «# Заголовок», «## Подзаголовок», «- пункт», «1. шаг», **жирный**, *курсив*, `код`, «---» — новая страница. Для .xlsx в content — CSV (первая строка — заголовки; запятая, точка с запятой или табуляция). Презентации (.pptx) и PDF так не собрать: предложи вместо них .docx или HTML, но сначала сделай то, что просили, в доступном формате. В проект и на диск человека не пишется — он откроет файл сбоку и скачает, если нужен. Работает и без права править файлы.",
          obj(["name": str("Имя файла с расширением, например plan.md, App.swift, report.docx или budget.xlsx"), "content": str("Содержимое файла целиком (для .docx — текст с разметкой, для .xlsx — CSV)")], required: ["name", "content"])),
         ("show_in_chat", "Вложить человеку под твоим ответом любой файл с этого Мака: картинку, скриншот, рендер, PDF, документ, видео, аудио, архив. Он откроет его сбоку (видео и аудио проигрываются) и скачает.",
@@ -112,6 +129,9 @@ public enum BrowserTools {
         Человек правит макет сам и присылает выделенный слой в чат — тогда меняй именно его (id слоя в сообщении). \
         3D-модели (предметы, мебель, персонажи из фигур, сцены, детали для печати): model3d_open → model3d_run с кодом three.js по частям → \
         model3d_shot с view: all — посмотреть со всех сторон и поправить → model3d_save. Человек сам правит модель и шлёт выделенную деталь в чат. \
+        Видео и анимации (промо, рилсы, заставки, титры, объяснялки, ролики с данными): video_open → план сцен → video_write сцен → video_cli check → \
+        video_shot по ключевым моментам и поправить → человек смотрит и монтирует в Студии → video_render → video_render_wait → show_in_chat с MP4. \
+        Делай красиво и плавно: продуманные эйзы, нахлёсты, крупная типографика, одна палитра на ролик; справочник — video_guide. \
         Свой сайт отлаживай с browser_console и browser_network, вёрстку смотри через browser_resize и browser_screenshot. \
         Показать человеку макет, картинку, рендер Blender, PDF, вёрстку или локальный сайт — browser_show с путём к файлу или адресом localhost; \
         картинку или файл прямо в чате под ответом — show_in_chat (снимки browser_screenshot человек видит сам маленькими превью на строке шагов; \

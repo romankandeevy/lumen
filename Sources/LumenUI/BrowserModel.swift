@@ -202,6 +202,17 @@ final class BrowserModel: NSObject {
     @ObservationIgnored var designAutosave: Task<Void, Never>?
     /// Кому из агентов уже отдан справочник по рисованию (один раз за запуск)
     @ObservationIgnored var designGuideSent: Set<String> = []
+    // видео (BrowserVideo.swift)
+    /// Вкладка → название видео (папка проекта HyperFrames)
+    var videoDocs: [Int: String] = [:]
+    /// Видео → порт его Студии
+    @ObservationIgnored var videoPorts: [String: Int] = [:]
+    /// Видео → процесс его Студии (остановить сразу, без npx)
+    @ObservationIgnored var videoPIDs: [String: Int32] = [:]
+    @ObservationIgnored var videoRenders: [String: VideoRender] = [:]
+    @ObservationIgnored var videosDir = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-videos", isDirectory: true)
+    @ObservationIgnored var videoGuideSent: Set<String> = []
+    @ObservationIgnored var videoTelemetryOff = false
 
     /// Как Safari: иначе часть сайтов (Google) не пускает «встроенные браузеры»
     static let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15"
@@ -259,7 +270,7 @@ final class BrowserModel: NSObject {
             guard let self else { return false }
             return MainActor.assumeIsolated {
                 // макет и 3D принимают брошенные файлы сами (импорт моделей, картинок, .fig)
-                if let t = self.tabs.first(where: { $0.web === w }), self.isDesign(t) || self.isModel(t) || self.pendingEditors[t.id] != nil { return false }
+                if let t = self.tabs.first(where: { $0.web === w }), self.isDesign(t) || self.isModel(t) || self.isVideo(t) || self.pendingEditors[t.id] != nil { return false }
                 return self.onDropFiles?(urls) ?? false
             }
         }
@@ -313,6 +324,7 @@ final class BrowserModel: NSObject {
         if let pe = pendingEditors.removeValue(forKey: id), let tab = tabs.first(where: { $0.id == id }) {
             Task {
                 if pe.kind == "model3d" { _ = try? await openModel(name: pe.name, in: tab, select: false) }
+                else if pe.kind == "video" { _ = try? await openVideo(name: pe.name, in: tab, select: false) }
                 else { _ = try? await openDesign(name: pe.name, in: tab, select: false) }
             }
         }
@@ -358,6 +370,8 @@ final class BrowserModel: NSObject {
         } else {
             Self.unhook(gone)
         }
+        if let name = videoDocs[id] { stopStudio(name) }
+        videoDocs[id] = nil
         designDocs[id] = nil
         designDocIDs[id] = nil
         modelDocs[id] = nil
@@ -964,6 +978,7 @@ final class BrowserModel: NSObject {
         default:
             if tool.hasPrefix("design") { return await performDesign(tool: tool, args: args, who: who) }
             if tool.hasPrefix("model3d") { return await performModel3D(tool: tool, args: args, who: who) }
+            if tool.hasPrefix("video_") { return await performVideo(tool: tool, args: args, who: who) }
             return .init(text: "Нет такого действия браузера: \(tool)", error: true)
         }
     }
@@ -1384,6 +1399,7 @@ final class BrowserModel: NSObject {
             let before = s.tabs.count
             if let file = designDocs[t.id] { s.tabs.append(SavedTab(url: "", title: String(file.dropLast(4)), file: nil, kind: "design")) }
             else if let name = modelDocs[t.id] { s.tabs.append(SavedTab(url: "", title: name, file: nil, kind: "model3d")) }
+            else if let name = videoDocs[t.id] { s.tabs.append(SavedTab(url: "", title: name, file: nil, kind: "video")) }
             else if let pe = pendingEditors[t.id] { s.tabs.append(SavedTab(url: "", title: pe.name, file: nil, kind: pe.kind)) }
             else if let f = t.file { s.tabs.append(SavedTab(url: "", title: f.name, file: f.url.path, kind: f.kind.rawValue)) }
             else if let u = t.isLoaded ? t.url : t.pending, !u.isEmpty, u != "about:blank" {
@@ -1404,7 +1420,7 @@ final class BrowserModel: NSObject {
         for (i, st) in s.tabs.enumerated() {
             let count = made.count
             defer { if i == s.active, made.count > count { activeTab = made.last } }
-            if st.file == nil, st.kind == "design" || st.kind == "model3d" {
+            if st.file == nil, st.kind == "design" || st.kind == "model3d" || st.kind == "video" {
                 let t = Tab(id: nextTabID, model: self)
                 nextTabID += 1
                 t.title = st.title
@@ -1576,6 +1592,7 @@ extension BrowserModel: WKUIDelegate, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard let tab = tabs.first(where: { $0.web === webView }) else { return }
         applyZoom(to: tab)
+        if isVideo(tab) { tidyStudio(tab) }
         history.visit(url: BrowserVault.scrubURL(webView.url?.absoluteString ?? ""), title: webView.title ?? "")
         if let host = webView.url?.host { FaviconCache.shared.fetch(host: host, from: webView) { tab.iconRevision += 1 } }
         if tab.id == activeID { filledLogin = nil; loginOffer = nil }
