@@ -10,6 +10,10 @@ public final class DesignServer: @unchecked Sendable {
     public let files: URL
     public let token: String
     public private(set) var port: UInt16 = 0
+    /// Где страница редактора внутри папки: "" — в корне (OpenPencil), "editor/" — three.js
+    public let entry: String
+    /// Неизвестный путь — главная страница (у одностраничных приложений свои адреса)
+    public let spa: Bool
 
     private let listener: NWListener
     private let queue = DispatchQueue(label: "lumen.design.server", attributes: .concurrent)
@@ -18,10 +22,13 @@ public final class DesignServer: @unchecked Sendable {
     /// Занят — берётся любой свободный
     public static let preferredPort: UInt16 = 47_821
 
-    public init(root: URL, files: URL, token: String = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased(), port: UInt16? = DesignServer.preferredPort) throws {
+    public init(root: URL, files: URL, token: String = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased(), port: UInt16? = DesignServer.preferredPort,
+                entry: String = "", spa: Bool = true) throws {
         self.root = root.standardizedFileURL
         self.files = files.standardizedFileURL
         self.token = token
+        self.entry = entry
+        self.spa = spa
         func make(_ p: NWEndpoint.Port) throws -> NWListener {
             let params = NWParameters.tcp
             params.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: p)
@@ -47,7 +54,7 @@ public final class DesignServer: @unchecked Sendable {
     }
 
     /// Адрес редактора: с ключом моста для Lumen
-    public var editorURL: URL { URL(string: "http://127.0.0.1:\(port)/?lumen=\(token)")! }
+    public var editorURL: URL { URL(string: "http://127.0.0.1:\(port)/\(entry)?lumen=\(token)")! }
 
     public func start() async throws {
         try FileManager.default.createDirectory(at: files, withIntermediateDirectories: true)
@@ -151,12 +158,16 @@ public final class DesignServer: @unchecked Sendable {
     func staticReply(_ path: String) -> (Int, String, Data, [String: String]) {
         let clean = (path.removingPercentEncoding ?? path).split(separator: "/").filter { $0 != "." && $0 != ".." && !$0.isEmpty }.joined(separator: "/")
         // офлайн-кэш PWA выключен: страницу всегда отдаёт Lumen
-        if clean == "sw.js" || clean.hasPrefix("workbox-") { return (404, "text/plain", Data("no".utf8), [:]) }
-        var url = root.appendingPathComponent(clean.isEmpty ? "index.html" : clean)
+        let last = clean.split(separator: "/").last.map(String.init) ?? ""
+        if last == "sw.js" || last.hasPrefix("workbox-") { return (404, "text/plain", Data("no".utf8), [:]) }
+        var url = root.appendingPathComponent(clean.isEmpty ? entry + "index.html" : clean)
         var isDir: ObjCBool = false
-        if !FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) || isDir.boolValue {
-            if clean.hasPrefix("assets/") { return (404, "text/plain", Data("not found".utf8), [:]) }
-            url = root.appendingPathComponent("index.html")
+        let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
+        if exists, isDir.boolValue {
+            url = url.appendingPathComponent("index.html")
+        } else if !exists {
+            guard spa, !clean.hasPrefix("assets/") else { return (404, "text/plain", Data("not found".utf8), [:]) }
+            url = root.appendingPathComponent(entry + "index.html")
         }
         guard url.standardizedFileURL.path.hasPrefix(root.path), let data = try? Data(contentsOf: url) else {
             return (404, "text/plain", Data("not found".utf8), [:])

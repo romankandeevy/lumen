@@ -186,6 +186,15 @@ final class BrowserModel: NSObject {
     /// Вкладка → id документа в редакторе: сохраняется именно он, а не тот, что открыт в редакторе сейчас
     @ObservationIgnored var designDocIDs: [Int: String] = [:]
     @ObservationIgnored var designServerTask: Task<DesignServer, Error>?
+    // 3D (BrowserModel3D.swift)
+    @ObservationIgnored var modelServer: DesignServer?
+    @ObservationIgnored var modelServerTask: Task<DesignServer, Error>?
+    /// Вкладка → название 3D-модели
+    var modelDocs: [Int: String] = [:]
+    @ObservationIgnored var modelMarks: [Int: Int] = [:]
+    @ObservationIgnored var modelsDir = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-models", isDirectory: true)
+    @ObservationIgnored var modelAutosave: Task<Void, Never>?
+    @ObservationIgnored var model3DGuideSent: Set<String> = []
     @ObservationIgnored var designsDir = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-designs", isDirectory: true)
     @ObservationIgnored var designAutosave: Task<Void, Never>?
     /// Кому из агентов уже отдан справочник по рисованию (один раз за запуск)
@@ -319,7 +328,13 @@ final class BrowserModel: NSObject {
     func close(_ id: Int) {
         guard let i = tabs.firstIndex(where: { $0.id == id }) else { return }
         let gone = tabs.remove(at: i)
-        if let file = designDocs[id] {
+        if let name = modelDocs[id] {
+            // 3D сохраняется перед закрытием
+            Task {
+                await saveModel(gone, name: name, force: false)
+                Self.unhook(gone)
+            }
+        } else if let file = designDocs[id] {
             // макет сохраняется перед закрытием вкладки, потом страница уходит совсем
             let doc = designDocIDs[id]
             Task {
@@ -331,6 +346,7 @@ final class BrowserModel: NSObject {
         }
         designDocs[id] = nil
         designDocIDs[id] = nil
+        modelDocs[id] = nil
         gone.observers = []
         if agentTabID == id { agentTabID = nil }
         if tabs.isEmpty { _ = newTab(configuration: nil) } else if activeID == id { select(tabs[max(0, i - 1)].id) }
@@ -936,6 +952,7 @@ final class BrowserModel: NSObject {
             return .init(text: out.joined(separator: "\n"), image: last.image, error: last.error)
         default:
             if tool.hasPrefix("design") { return await performDesign(tool: tool, args: args, who: who) }
+            if tool.hasPrefix("model3d") { return await performModel3D(tool: tool, args: args, who: who) }
             return .init(text: "Нет такого действия браузера: \(tool)", error: true)
         }
     }
@@ -1352,7 +1369,7 @@ final class BrowserModel: NSObject {
     func savedState() -> SavedState {
         var s = SavedState(zoom: zoomByHost)
         // макет открывается заново с пустой вкладки («Макеты»): его адрес с ключом живёт один запуск
-        for t in tabs where t.id != agentTabID && designDocs[t.id] == nil {
+        for t in tabs where t.id != agentTabID && designDocs[t.id] == nil && modelDocs[t.id] == nil {
             let before = s.tabs.count
             if let f = t.file { s.tabs.append(SavedTab(url: "", title: f.name, file: f.url.path, kind: f.kind.rawValue)) }
             else if let u = t.isLoaded ? t.url : t.pending, !u.isEmpty, u != "about:blank" {

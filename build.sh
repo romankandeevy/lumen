@@ -43,6 +43,12 @@ if [ -f build/design/index.html ]; then
 else
     echo "==> нет build/design — макеты не войдут в сборку (tools/design/build.sh)"
 fi
+# 3D-редактор (three.js editor, MIT): tools/model3d/build.sh
+if [ -f build/model3d/editor/index.html ]; then
+    ditto build/model3d "$APP/Contents/Resources/Model3D"
+else
+    echo "==> нет build/model3d — 3D не войдёт в сборку (tools/model3d/build.sh)"
+fi
 # ресурсы пакетов (GRDB кладёт свой бандл с PrivacyInfo)
 for b in "$BIN"/*.bundle; do [ -e "$b" ] && cp -R "$b" "$APP/Contents/Resources/"; done
 # автообновление: Sparkle.framework рядом с программой (rpath @executable_path/../Frameworks)

@@ -23,6 +23,7 @@ extension AppModel {
         browser.onDropFiles = { [weak self] urls in self?.openDropped(urls) ?? false }
         browser.onTabsChange = { [weak self] in self?.scheduleTabsSave() }
         browser.designsDir = paths.designs
+        browser.modelsDir = paths.models
         if let saved = try? store.value("browser.tabs", as: BrowserModel.SavedState.self) { browser.restore(saved) }
         browserOptionsFromPrefs()
     }
@@ -408,7 +409,7 @@ struct BrowserPane: View {
                 .buttonStyle(.plain)
                 .help("Подставить сохранённый вход — «Войти» нажмёшь сам")
             } else {
-                Icon(browser.isDesign(browser.active) ? "pen-line" : (browser.url.hasPrefix("https") ? "lock" : "globe"), 11).foregroundStyle(p.mutedFg)
+                Icon(browser.isDesign(browser.active) ? "pen-line" : (browser.isModel(browser.active) ? "box" : (browser.url.hasPrefix("https") ? "lock" : "globe")), 11).foregroundStyle(p.mutedFg)
             }
             ZStack(alignment: .leading) {
                 TextField("", text: $address, prompt: Text("Введите URL").foregroundStyle(p.mutedFg.opacity(0.7)))
@@ -430,7 +431,7 @@ struct BrowserPane: View {
             .onTapGesture { editing = true }
             .onHover { hoverAddress = $0 }
             if browser.loading { LiveDot(color: p.glow, size: 5) }
-            if !blank && !editing && !browser.isDesign(browser.active) {
+            if !blank && !editing && !browser.isDesign(browser.active) && !browser.isModel(browser.active) {
                 // звёздочка: страница в «Мои ссылки» на пустой вкладке (и обратно)
                 let saved = app.savedLinks.contains { $0.url == browser.url }
                 Button {
@@ -468,9 +469,10 @@ struct BrowserPane: View {
     /// Адрес в строке, когда он не редактируется: ссылка — хост крупно и путь приглушённо, без «https://» и «www.»;
     /// файл — имя крупно и папка приглушённо. Курсор над строкой — полный адрес
     @ViewBuilder private var addressLabel: some View {
-        if browser.isDesign(browser.active) {
-            // адрес редактора с ключом человеку ни к чему — название макета
-            (Text("Макет  ").foregroundStyle(p.mutedFg) + Text(browser.active.title.isEmpty ? "без названия" : browser.active.title).foregroundStyle(p.foreground))
+        if browser.isDesign(browser.active) || browser.isModel(browser.active) {
+            // адрес редактора с ключом человеку ни к чему — название макета или модели
+            (Text(browser.isModel(browser.active) ? "3D  " : "Макет  ").foregroundStyle(p.mutedFg)
+                + Text(browser.modelDocs[browser.active.id] ?? (browser.active.title.isEmpty ? "без названия" : browser.active.title)).foregroundStyle(p.foreground))
         } else if blank {
             Text("Введите URL").foregroundStyle(p.mutedFg.opacity(0.7))
         } else if hoverAddress {
@@ -570,7 +572,7 @@ struct BrowserPane: View {
                         BrowserTabChip(title: t.file?.name ?? (t.title.isEmpty ? (URL(string: t.url)?.host ?? "Новая вкладка") : t.title),
                                        host: t.file == nil ? t.host : nil,
                                        revision: t.iconRevision,
-                                       fileIcon: t.file.map { Self.icon(for: $0.kind) } ?? (browser.designDocs[t.id] != nil ? "pen-line" : nil),
+                                       fileIcon: t.file.map { Self.icon(for: $0.kind) } ?? (browser.designDocs[t.id] != nil ? "pen-line" : (browser.modelDocs[t.id] != nil ? "box" : nil)),
                                        agent: t.id == browser.agentTabID ? (t.owner ?? "Агент") : nil,
                                        on: t.id == browser.activeID,
                                        select: { browser.select(t.id) },
@@ -588,7 +590,7 @@ struct BrowserPane: View {
                 .animation(app.lessMotion ? nil : Motion.page, value: browser.tabs.map(\.id))
             }
             HStack(spacing: 0) {
-                if browser.isDesign(browser.active) { designSendButton.transition(.scale.combined(with: .opacity)) }
+                if browser.isDesign(browser.active) || browser.isModel(browser.active) { designSendButton.transition(.scale.combined(with: .opacity)) }
                 sendMenu
                 BrowserTool(icon: "key-round", help: "Входы в аккаунты", active: loginsOpen || browser.filledLogin != nil) { loginsOpen.toggle() }
                     .popover(isPresented: $loginsOpen, arrowEdge: .bottom) { LoginsPopover(app: app, browser: browser) { loginsOpen = false } }
@@ -630,7 +632,7 @@ struct BrowserPane: View {
 
     /// В макете: выделенный слой одной кнопкой — в чат, с картинкой и id
     private var designSendButton: some View {
-        Button { app.sendDesignSelection() } label: {
+        Button { if browser.isModel(browser.active) { app.sendModelSelection() } else { app.sendDesignSelection() } } label: {
             HStack(spacing: 5) {
                 Icon("message-square", 12)
                 Text("Выделенное в чат").tw(12, .medium, lh: 16)
@@ -647,10 +649,9 @@ struct BrowserPane: View {
 
     private var moreMenu: some View {
         Menu {
-            if BrowserModel.designAvailable {
-                Button("Новый макет") { app.newDesign() }
-                Divider()
-            }
+            if BrowserModel.designAvailable { Button("Новый макет") { app.newDesign() } }
+            if BrowserModel.model3DAvailable { Button("Новая 3D-модель") { app.newModel() } }
+            if BrowserModel.designAvailable || BrowserModel.model3DAvailable { Divider() }
             Button("Найти на странице  ⌘F") { browser.openFind() }
             Divider()
             Button("Увеличить  ⌘+") { browser.zoom(by: 0.1) }
@@ -700,6 +701,7 @@ struct BrowserPane: View {
                 if !browser.servers.isEmpty { serversCard }
                 linksCard
                 if BrowserModel.designAvailable { designsCard }
+                if BrowserModel.model3DAvailable { modelsCard }
                 if !browser.history.entries.isEmpty { recentCard }
             }
             .frame(width: 360)
@@ -726,6 +728,26 @@ struct BrowserPane: View {
                     Text("Новый макет").font(.geist(13))
                     Spacer(minLength: 0)
                     Text("как в Фигме").font(.geist(12)).foregroundStyle(p.faint)
+                }
+                .foregroundStyle(p.mutedFg).padding(.horizontal, 8).frame(height: 36).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    /// 3D: новая модель и последние три
+    private var modelsCard: some View {
+        card {
+            Text("3D").tw(11.5, .medium, lh: 14).foregroundStyle(p.mutedFg).padding(.horizontal, 8).padding(.top, 6).padding(.bottom, 2)
+            ForEach(Array(browser.modelFiles().prefix(3)), id: \.self) { name in
+                openRow(icon: "box", title: name, detail: ".glb", onOpen: { app.openModel(name) })
+            }
+            Button { app.newModel() } label: {
+                HStack(spacing: 10) {
+                    Icon("plus", 14).frame(width: 18)
+                    Text("Новая 3D-модель").font(.geist(13))
+                    Spacer(minLength: 0)
+                    Text("как в Blender").font(.geist(12)).foregroundStyle(p.faint)
                 }
                 .foregroundStyle(p.mutedFg).padding(.horizontal, 8).frame(height: 36).contentShape(Rectangle())
             }

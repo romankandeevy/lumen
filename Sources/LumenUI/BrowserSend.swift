@@ -100,6 +100,37 @@ extension AppModel {
         }
     }
 
+    /// Выделенная деталь 3D-модели — в чат: её картинка отдельно и строка с uuid
+    func sendModelSelection() {
+        let b = browser
+        Task { @MainActor in
+            guard let pick = await b.modelSelection() else { b.say("Выдели деталь в 3D — потом «В чат»"); return }
+            if let img = pick.image { attachImage(img, name: "3D — \(pick.model) — выделенное.png") }
+            draftInbox += "3D-модель «\(pick.model)», выделено: \(pick.line).\nЧто поменять: "
+            b.say("Выделенное отправлено в поле ввода — напиши, что поменять")
+        }
+    }
+
+    func newModel() {
+        let existing = Set(browser.modelFiles())
+        var n = 1
+        while existing.contains("Модель \(n)") { n += 1 }
+        openModel("Модель \(n)")
+    }
+
+    func openModel(_ name: String) {
+        let b = browser
+        browserOpen = true
+        Task { @MainActor in
+            do {
+                let blank = b.active.file == nil && b.blankPage && b.active.id != b.agentTabID
+                _ = try await b.openModel(name: name, in: blank ? b.active : nil, select: true)
+            } catch {
+                b.say(error.localizedDescription)
+            }
+        }
+    }
+
     /// Новый макет руками: «Макет 1», «Макет 2»… — открывается в браузере, агент подхватит его по названию
     func newDesign() {
         let b = browser

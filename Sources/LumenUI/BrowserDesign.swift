@@ -165,9 +165,9 @@ extension BrowserModel {
         }
         let tab: Tab
         // один макет — одна вкладка: в вкладку с другим макетом новый не кладём
-        if let given, given.file == nil, given.isLoaded, isDesign(given), designDocs[given.id] == nil {
+        if let given, given.file == nil, given.isLoaded, isDesign(given), designDocs[given.id] == nil, modelDocs[given.id] == nil {
             tab = given
-        } else if let given, given.file == nil, designDocs[given.id] == nil, (given.url.isEmpty || given.url == "about:blank") {
+        } else if let given, given.file == nil, designDocs[given.id] == nil, modelDocs[given.id] == nil, (given.url.isEmpty || given.url == "about:blank") {
             tab = given
             tab.webView.load(URLRequest(url: server.editorURL))
         } else {

@@ -1,0 +1,922 @@
+diff --git a/editor/index.html b/editor/index.html
+index ab351c4..e45f948 100644
+--- a/editor/index.html
++++ b/editor/index.html
+@@ -72,6 +72,7 @@
+ 			import { Animation } from './js/Animation.js';
+ 
+ 			import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
++			import { exposeLumen3D, isLumen } from './js/Lumen.js';
+ 
+ 			window.URL = window.URL || window.webkitURL;
+ 			window.BlobBuilder = window.BlobBuilder || window.WebKitBlobBuilder || window.MozBlobBuilder;
+@@ -137,11 +138,14 @@
+ 
+ 			//
+ 
++			exposeLumen3D( editor );
++
+ 			editor.storage.init( function () {
+ 
+ 				editor.storage.get( async function ( state ) {
+ 
+-					if ( isLoadingFromHash ) return;
++					// inside Lumen the model comes from Lumen's file, not from the editor's last session
++					if ( isLoadingFromHash || isLumen() ) return;
+ 
+ 					if ( state !== undefined ) {
+ 
+diff --git a/editor/js/Config.js b/editor/js/Config.js
+index 5210b74..5e7327e 100644
+--- a/editor/js/Config.js
++++ b/editor/js/Config.js
+@@ -4,7 +4,7 @@ function Config() {
+ 
+ 	const userLanguage = navigator.language.split( '-' )[ 0 ];
+ 
+-	const suggestedLanguage = [ 'fr', 'ja', 'zh', 'ko', 'fa' ].includes( userLanguage ) ? userLanguage : 'en';
++	const suggestedLanguage = [ 'fr', 'ja', 'zh', 'ko', 'fa', 'ru' ].includes( userLanguage ) ? userLanguage : 'en';
+ 
+ 	const storage = {
+ 		'language': suggestedLanguage,
+@@ -36,6 +36,10 @@ function Config() {
+ 		'settings/shortcuts/selectAll': 'a'
+ 	};
+ 
++	// inside Lumen (?lumen) the editor speaks Russian, like the rest of the app
++	const lumen = new URLSearchParams( location.search ).has( 'lumen' );
++	if ( lumen ) storage[ 'language' ] = 'ru';
++
+ 	if ( window.localStorage[ name ] === undefined ) {
+ 
+ 		window.localStorage[ name ] = JSON.stringify( storage );
+@@ -50,6 +54,8 @@ function Config() {
+ 
+ 		}
+ 
++		if ( lumen ) storage[ 'language' ] = 'ru';
++
+ 	}
+ 
+ 	return {
+diff --git a/editor/js/Lumen.js b/editor/js/Lumen.js
+new file mode 100644
+index 0000000..450179e
+--- /dev/null
++++ b/editor/js/Lumen.js
+@@ -0,0 +1,377 @@
++/**
++ * Lumen bridge (added for the Lumen macOS app, not part of upstream three.js).
++ *
++ * When the editor is opened inside Lumen's built-in browser as `editor/?lumen=<token>`, `window.lumen3D`
++ * lets Lumen's agent build and change models in the live editor the person sees: run three.js code with
++ * undoable helpers, read the scene tree, render views to PNG, export GLB and save/load the project JSON.
++ */
++import * as THREE from 'three';
++import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
++import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
++import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
++import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
++
++import { AddObjectCommand } from './commands/AddObjectCommand.js';
++import { RemoveObjectCommand } from './commands/RemoveObjectCommand.js';
++import { MultiCmdsCommand } from './commands/MultiCmdsCommand.js';
++
++export function isLumen() {
++
++	return new URLSearchParams( location.search ).has( 'lumen' );
++
++}
++
++function round( v ) {
++
++	return Math.round( v * 1000 ) / 1000;
++
++}
++
++function vec( v ) {
++
++	return [ round( v.x ), round( v.y ), round( v.z ) ];
++
++}
++
++function describe( object, depth, maxDepth ) {
++
++	const node = { name: object.name || '', type: object.type, uuid: object.uuid };
++	if ( object !== object.parent ) {
++
++		node.position = vec( object.position );
++		const r = object.rotation;
++		if ( r.x || r.y || r.z ) node.rotation = vec( r );
++		const s = object.scale;
++		if ( s.x !== 1 || s.y !== 1 || s.z !== 1 ) node.scale = vec( s );
++
++	}
++
++	if ( object.isMesh ) {
++
++		node.geometry = object.geometry.type;
++		const p = object.geometry.parameters;
++		if ( p ) node.params = Object.fromEntries( Object.entries( p ).filter( ( [ , v ] ) => typeof v === 'number' ).map( ( [ k, v ] ) => [ k, round( v ) ] ) );
++		const m = Array.isArray( object.material ) ? object.material[ 0 ] : object.material;
++		if ( m ) {
++
++			node.material = m.type;
++			if ( m.color ) node.color = '#' + m.color.getHexString();
++			if ( m.roughness !== undefined ) node.roughness = round( m.roughness );
++			if ( m.metalness !== undefined && m.metalness ) node.metalness = round( m.metalness );
++			if ( m.transparent ) node.opacity = round( m.opacity );
++
++		}
++
++	}
++
++	if ( object.isLight ) {
++
++		node.intensity = round( object.intensity );
++		node.color = '#' + object.color.getHexString();
++
++	}
++
++	if ( object.children.length ) {
++
++		if ( depth >= maxDepth ) node.children = object.children.length;
++		else node.children = object.children.map( ( c ) => describe( c, depth + 1, maxDepth ) );
++
++	}
++
++	return node;
++
++}
++
++/** Geometries the project loader knows by type; others become plain BufferGeometry so a saved project always reopens */
++const REGISTERED = new Set( [ 'TextGeometry', 'RoundedBoxGeometry' ] );
++
++function portable( root ) {
++
++	root.traverse( ( o ) => {
++
++		if ( ! o.isMesh || ! o.geometry ) return;
++		const type = o.geometry.type;
++		if ( type === 'BufferGeometry' || REGISTERED.has( type ) || ( THREE[ type ] && THREE[ type ].prototype && THREE[ type ].prototype.isBufferGeometry ) ) return;
++		const plain = new THREE.BufferGeometry().copy( o.geometry );
++		plain.name = o.geometry.name;
++		o.geometry = plain;
++
++	} );
++
++}
++
++export function exposeLumen3D( editor ) {
++
++	THREE.ObjectLoader.registerGeometry( 'RoundedBoxGeometry', RoundedBoxGeometry );
++
++	if ( ! isLumen() ) return;
++
++	const scene = editor.scene;
++	// agent code may change objects directly (not through commands): count those runs too, so Lumen saves them
++	let directEdits = 0;
++
++	function find( nameOrUuid ) {
++
++		if ( ! nameOrUuid ) return null;
++		if ( typeof nameOrUuid === 'object' ) return nameOrUuid;
++		return scene.getObjectByProperty( 'uuid', nameOrUuid ) || scene.getObjectByName( nameOrUuid );
++
++	}
++
++	// every change goes through editor commands: the person can undo the agent's steps with ⌘Z
++	const pending = [];
++
++	function add( object, parent ) {
++
++		pending.push( new AddObjectCommand( editor, object, find( parent ) || undefined ) );
++		return object;
++
++	}
++
++	function remove( nameOrUuid ) {
++
++		const o = find( nameOrUuid );
++		if ( o && o !== scene ) pending.push( new RemoveObjectCommand( editor, o ) );
++		return !! o;
++
++	}
++
++	function flush( label ) {
++
++		if ( pending.length === 0 ) return;
++		const cmds = pending.splice( 0 );
++		if ( cmds.length === 1 ) editor.execute( cmds[ 0 ] );
++		else {
++
++			const multi = new MultiCmdsCommand( editor, cmds );
++			multi.name = label || 'Lumen';
++			editor.execute( multi );
++
++		}
++
++	}
++
++	function bounds( object ) {
++
++		const box = new THREE.Box3().setFromObject( object || scene );
++		if ( box.isEmpty() ) box.set( new THREE.Vector3( - 1, - 1, - 1 ), new THREE.Vector3( 1, 1, 1 ) );
++		return box;
++
++	}
++
++	/** Basic light so a fresh scene is not black; only if the scene has no lights yet */
++	function ensureLights() {
++
++		let has = false;
++		scene.traverse( ( o ) => { if ( o.isLight ) has = true; } );
++		if ( has ) return false;
++		const hemi = new THREE.HemisphereLight( 0xffffff, 0x444444, 2 );
++		hemi.name = 'Свет неба';
++		hemi.position.set( 0, 10, 0 );
++		const sun = new THREE.DirectionalLight( 0xffffff, 2.5 );
++		sun.name = 'Солнце';
++		sun.position.set( 5, 10, 7 );
++		add( hemi );
++		add( sun );
++		return true;
++
++	}
++
++	let shotRenderer = null;
++
++	function render( { view = 'iso', width = 1024, height = 768, target } = {} ) {
++
++		if ( ! shotRenderer ) {
++
++			shotRenderer = new THREE.WebGLRenderer( { antialias: true, preserveDrawingBuffer: true } );
++			shotRenderer.toneMapping = THREE.ACESFilmicToneMapping;
++			shotRenderer.outputColorSpace = THREE.SRGBColorSpace;
++
++		}
++
++		shotRenderer.setPixelRatio( 1 );
++		shotRenderer.setSize( width, height, false );
++		const subject = find( target );
++		let camera;
++		if ( view === 'current' ) {
++
++			camera = editor.viewportCamera.clone();
++			if ( camera.isPerspectiveCamera ) { camera.aspect = width / height; camera.updateProjectionMatrix(); }
++
++		} else {
++
++			const box = bounds( subject );
++			const center = box.getCenter( new THREE.Vector3() );
++			// the whole bounding sphere fits the narrower side of the frame, with a margin
++			const radius = ( box.getSize( new THREE.Vector3() ).length() / 2 ) || 1;
++			const fov = 35;
++			const vHalf = THREE.MathUtils.degToRad( fov / 2 );
++			const hHalf = Math.atan( Math.tan( vHalf ) * ( width / height ) );
++			const distance = radius / Math.sin( Math.min( vHalf, hHalf ) ) * 1.12;
++			camera = new THREE.PerspectiveCamera( fov, width / height, distance / 100, distance * 100 );
++			const dirs = { front: [ 0, 0, 1 ], back: [ 0, 0, - 1 ], left: [ - 1, 0, 0 ], right: [ 1, 0, 0 ], top: [ 0, 1, 0.0001 ], iso: [ 1, 0.8, 1.2 ] };
++			const d = new THREE.Vector3( ...( dirs[ view ] || dirs.iso ) ).normalize();
++			camera.position.copy( center ).addScaledVector( d, distance );
++			camera.lookAt( center );
++
++		}
++
++		// the selected object alone: hide everything else that is not a light
++		const hidden = [];
++		if ( subject ) {
++
++			scene.traverse( ( o ) => {
++
++				if ( o === scene || o.isLight ) return;
++				let inside = false;
++				for ( let p = o; p; p = p.parent ) if ( p === subject ) inside = true;
++				let ancestor = false;
++				for ( let p = subject; p; p = p.parent ) if ( p === o ) ancestor = true;
++				if ( ! inside && ! ancestor && o.visible ) { hidden.push( o ); o.visible = false; }
++
++			} );
++
++		}
++
++		const bg = scene.background;
++		if ( ! bg ) scene.background = new THREE.Color( 0x2b2b2b );
++		shotRenderer.render( scene, camera );
++		scene.background = bg;
++		hidden.forEach( ( o ) => { o.visible = true; } );
++		return shotRenderer.domElement.toDataURL( 'image/png' ).split( ',' )[ 1 ];
++
++	}
++
++	window.lumen3D = {
++
++		ready: true,
++
++		/** Scene tree; depth limits how deep children go */
++		tree( depth = 6 ) {
++
++			const box = bounds();
++			return {
++				scene: describe( scene, 0, depth ),
++				selected: editor.selected ? editor.selected.uuid : null,
++				bounds: { min: vec( box.min ), max: vec( box.max ) }
++			};
++
++		},
++
++		/**
++		 * Runs agent code. Inside: THREE, scene, editor, add(object, parent?), remove(nameOrUuid), find(nameOrUuid),
++		 * select(nameOrUuid), lights(), utils (BufferGeometryUtils), RoundedBoxGeometry, ConvexGeometry and
++		 * `await import('three/addons/…')` for anything else. All adds and removes become one undo step.
++		 */
++		async run( code ) {
++
++			const AsyncFunction = Object.getPrototypeOf( async function () {} ).constructor;
++			const fn = new AsyncFunction( 'THREE', 'scene', 'editor', 'add', 'remove', 'find', 'select', 'lights', 'utils', 'RoundedBoxGeometry', 'ConvexGeometry', code );
++			let result;
++			try {
++
++				result = await fn( THREE, scene, editor, add, remove, find, ( n ) => editor.select( find( n ) ), ensureLights, BufferGeometryUtils, RoundedBoxGeometry, ConvexGeometry );
++				for ( const c of pending ) if ( c.object ) portable( c.object );
++				portable( scene );
++				flush( 'Lumen' );
++				directEdits ++;
++
++			} catch ( e ) {
++
++				pending.splice( 0 );
++				throw e;
++
++			}
++
++			editor.signals.sceneGraphChanged.dispatch();
++			editor.signals.objectChanged.dispatch( editor.selected || scene );
++			if ( result === undefined ) return null;
++			try { return JSON.parse( JSON.stringify( result, ( k, v ) => ( v && v.isObject3D ) ? { name: v.name, uuid: v.uuid, type: v.type } : v ) ); } catch ( e ) { return String( result ); }
++
++		},
++
++		/** PNG (base64) of the scene or of one object, from a view: iso, front, back, left, right, top, current */
++		shot( options ) {
++
++			return render( options || {} );
++
++		},
++
++		/** What the person selected, with a picture of it alone */
++		selection() {
++
++			const o = editor.selected;
++			if ( ! o ) return null;
++			return { name: o.name || '', type: o.type, uuid: o.uuid, info: describe( o, 0, 2 ), image: render( { view: 'iso', width: 800, height: 600, target: o } ) };
++
++		},
++
++		select( nameOrUuid ) {
++
++			const o = find( nameOrUuid );
++			editor.select( o );
++			if ( o ) editor.focus( o );
++			return !! o;
++
++		},
++
++		focus() {
++
++			editor.focus( editor.selected || scene );
++
++		},
++
++		/** Editable project (scene, camera, history) — reopened with load() */
++		project() {
++
++			return JSON.stringify( editor.toJSON() );
++
++		},
++
++		async load( json, name ) {
++
++			editor.clear();
++			if ( json ) await editor.fromJSON( typeof json === 'string' ? JSON.parse( json ) : json );
++			if ( name ) editor.scene.name = name;
++			editor.signals.sceneGraphChanged.dispatch();
++			return true;
++
++		},
++
++		async fresh( name ) {
++
++			editor.clear();
++			editor.scene.name = name || 'Сцена';
++			ensureLights();
++			flush( 'Свет' );
++			editor.signals.sceneGraphChanged.dispatch();
++			return true;
++
++		},
++
++		/** GLB (base64) of the whole scene or one object — opens in Blender, macOS Quick Look, game engines */
++		async glb( target ) {
++
++			const exporter = new GLTFExporter();
++			const subject = find( target ) || scene;
++			const result = await exporter.parseAsync( subject, { binary: true, onlyVisible: true } );
++			const bytes = new Uint8Array( result );
++			let s = '';
++			for ( let i = 0; i < bytes.length; i += 0x8000 ) s += String.fromCharCode.apply( null, bytes.subarray( i, i + 0x8000 ) );
++			return btoa( s );
++
++		},
++
++		/** Undo history length — Lumen saves only when something changed */
++		changes() {
++
++			return editor.history.undos.length + editor.history.redos.length * 1000 + directEdits * 1000000;
++
++		}
++
++	};
++
++	// Lumen's own window shows names in Russian; the editor follows the browser language
++	window.webkit?.messageHandlers?.lumen3D?.postMessage( { type: 'ready' } );
++
++}
+diff --git a/editor/js/Sidebar.Settings.js b/editor/js/Sidebar.Settings.js
+index 6756e5d..7ed9cd5 100644
+--- a/editor/js/Sidebar.Settings.js
++++ b/editor/js/Sidebar.Settings.js
+@@ -17,7 +17,7 @@ function SidebarSettings( editor ) {
+ 
+ 	// language
+ 
+-	const options = Object.fromEntries( [ 'en', 'fr', 'zh', 'ja', 'ko', 'fa' ].map( locale => {
++	const options = Object.fromEntries( [ 'en', 'ru', 'fr', 'zh', 'ja', 'ko', 'fa' ].map( locale => {
+ 
+ 		return [ locale, new Intl.DisplayNames( locale, { type: 'language' } ).of( locale ) ];
+ 
+diff --git a/editor/js/Strings.js b/editor/js/Strings.js
+index cc429b3..4a49e2b 100644
+--- a/editor/js/Strings.js
++++ b/editor/js/Strings.js
+@@ -906,6 +906,460 @@ function Strings( config ) {
+ 
+ 		},
+ 
++		ru: {
++
++			'prompt/file/open': 'Несохранённые данные будут потеряны. Продолжить?',
++			'prompt/file/failedToOpenProject': 'Не удалось открыть проект!',
++			'prompt/file/export/noMeshSelected': 'Меш не выбран!',
++			'prompt/file/export/noObjectSelected': 'Объект не выбран!',
++			'prompt/file/export/duplicateNames': 'У некоторых объектов одинаковые имена. Они будут переименованы, чтобы имена стали уникальными. Продолжить?',
++			'prompt/script/remove': 'Вы уверены?',
++			'prompt/history/clear': 'История отмены и повтора будет очищена. Продолжить?',
++			'prompt/history/preserve': 'История будет сохраняться между сеансами.\nЭто может снизить производительность при работе с текстурами.',
++			'prompt/history/forbid': 'Отмена и повтор недоступны во время воспроизведения сцены.',
++			'prompt/rendering/realistic/unsupportedMaterial': 'Реалистичное затенение: поддерживаются только MeshStandardMaterial и MeshPhysicalMaterial',
++
++			'command/AddObject': 'Добавить объект',
++			'command/AddScript': 'Добавить скрипт',
++			'command/MoveObject': 'Переместить объект',
++			'command/MultiCmds': 'Несколько изменений',
++			'command/RemoveObject': 'Удалить объект',
++			'command/RemoveScript': 'Удалить скрипт',
++			'command/SetColor': 'Изменить цвет',
++			'command/SetGeometry': 'Изменить геометрию',
++			'command/SetGeometryValue': 'Изменить параметр геометрии',
++			'command/SetMaterialColor': 'Изменить цвет материала',
++			'command/SetMaterial': 'Изменить материал',
++			'command/SetMaterialMap': 'Изменить карту материала',
++			'command/SetMaterialRange': 'Изменить диапазон материала',
++			'command/SetMaterialValue': 'Изменить параметр материала',
++			'command/SetMaterialVector': 'Изменить вектор материала',
++			'command/SetPosition': 'Изменить положение',
++			'command/SetRotation': 'Изменить поворот',
++			'command/SetScale': 'Изменить масштаб',
++			'command/SetScene': 'Изменить сцену',
++			'command/SetScriptValue': 'Изменить скрипт',
++			'command/SetShadowValue': 'Изменить параметр тени',
++			'command/SetTextureParameters': 'Изменить параметры текстуры',
++			'command/SetUuid': 'Изменить UUID',
++			'command/SetValue': 'Изменить значение',
++
++			'menubar/file': 'Файл',
++			'menubar/file/new': 'Новый',
++			'menubar/file/new/empty': 'Пустой',
++			'menubar/file/new/Arkanoid': 'Арканоид',
++			'menubar/file/new/Camera': 'Камера',
++			'menubar/file/new/Particles': 'Частицы',
++			'menubar/file/new/Pong': 'Понг',
++			'menubar/file/new/Shaders': 'Шейдеры',
++			'menubar/file/open': 'Открыть',
++			'menubar/file/save': 'Сохранить',
++			'menubar/file/import': 'Импорт',
++			'menubar/file/export': 'Экспорт',
++
++			'menubar/edit': 'Правка',
++			'menubar/edit/undo': 'Отменить',
++			'menubar/edit/redo': 'Повторить',
++			'menubar/edit/center': 'Центрировать',
++			'menubar/edit/clone': 'Клонировать',
++			'menubar/edit/delete': 'Удалить',
++
++			'menubar/add': 'Добавить',
++			'menubar/add/group': 'Группа',
++
++			'menubar/add/mesh': 'Меш',
++			'menubar/add/mesh/plane': 'Плоскость',
++			'menubar/add/mesh/box': 'Куб',
++			'menubar/add/mesh/capsule': 'Капсула',
++			'menubar/add/mesh/circle': 'Круг',
++			'menubar/add/mesh/cylinder': 'Цилиндр',
++			'menubar/add/mesh/ring': 'Кольцо',
++			'menubar/add/mesh/sphere': 'Сфера',
++			'menubar/add/mesh/dodecahedron': 'Додекаэдр',
++			'menubar/add/mesh/icosahedron': 'Икосаэдр',
++			'menubar/add/mesh/octahedron': 'Октаэдр',
++			'menubar/add/mesh/tetrahedron': 'Тетраэдр',
++			'menubar/add/text': 'Текст',
++			'menubar/add/mesh/torus': 'Тор',
++			'menubar/add/mesh/tube': 'Труба',
++			'menubar/add/mesh/torusknot': 'Торический узел',
++			'menubar/add/mesh/lathe': 'Тело вращения',
++			'menubar/add/mesh/sprite': 'Спрайт',
++
++			'menubar/add/light': 'Свет',
++			'menubar/add/light/ambient': 'Окружающий',
++			'menubar/add/light/directional': 'Направленный',
++			'menubar/add/light/hemisphere': 'Полусферический',
++			'menubar/add/light/point': 'Точечный',
++			'menubar/add/light/spot': 'Прожектор',
++
++			'menubar/add/camera': 'Камера',
++			'menubar/add/camera/perspective': 'Перспективная',
++			'menubar/add/camera/orthographic': 'Ортографическая',
++
++			'menubar/status/autosave': 'автосохранение',
++
++			'menubar/view': 'Вид',
++			'menubar/view/fullscreen': 'Во весь экран',
++			'menubar/view/gridHelper': 'Сетка',
++			'menubar/view/cameraHelpers': 'Помощники камер',
++			'menubar/view/lightHelpers': 'Помощники света',
++			'menubar/view/skeletonHelpers': 'Помощники скелетов',
++
++			'menubar/render': 'Рендер',
++			'menubar/render/image': 'Изображение',
++			'menubar/render/video': 'Видео',
++			'menubar/render/quality': 'Качество',
++			'menubar/render/cancel': 'Отмена',
++
++			'menubar/help': 'Справка',
++			'menubar/help/source_code': 'Исходный код',
++			'menubar/help/icons': 'Набор иконок',
++			'menubar/help/about': 'О программе',
++			'menubar/help/manual': 'Руководство',
++
++			'sidebar/animations': 'Анимации',
++			'sidebar/animations/play': 'Воспроизвести',
++			'sidebar/animations/stop': 'Стоп',
++			'sidebar/animations/timescale': 'Скорость времени',
++
++			'sidebar/scene': 'Сцена',
++			'sidebar/scene/background': 'Фон',
++			'sidebar/scene/environment': 'Окружение',
++			'sidebar/scene/fog': 'Туман',
++
++			'sidebar/properties/object': 'Объект',
++			'sidebar/properties/geometry': 'Геометрия',
++			'sidebar/properties/material': 'Материал',
++			'sidebar/properties/script': 'Скрипт',
++
++			'sidebar/object/type': 'Тип',
++			'sidebar/object/new': 'Новый',
++			'sidebar/object/uuid': 'UUID',
++			'sidebar/object/name': 'Имя',
++			'sidebar/object/position': 'Положение',
++			'sidebar/object/rotation': 'Поворот',
++			'sidebar/object/scale': 'Масштаб',
++			'sidebar/object/fov': 'Угол обзора',
++			'sidebar/object/left': 'Слева',
++			'sidebar/object/right': 'Справа',
++			'sidebar/object/top': 'Сверху',
++			'sidebar/object/bottom': 'Снизу',
++			'sidebar/object/near': 'Ближняя',
++			'sidebar/object/far': 'Дальняя',
++			'sidebar/object/intensity': 'Интенсивность',
++			'sidebar/object/color': 'Цвет',
++			'sidebar/object/groundcolor': 'Цвет земли',
++			'sidebar/object/distance': 'Расстояние',
++			'sidebar/object/angle': 'Угол',
++			'sidebar/object/penumbra': 'Полутень',
++			'sidebar/object/decay': 'Затухание',
++			'sidebar/object/shadow': 'Тень',
++			'sidebar/object/shadowIntensity': 'Интенсивность тени',
++			'sidebar/object/shadowBias': 'Смещение тени',
++			'sidebar/object/shadowNormalBias': 'Смещение тени по нормали',
++			'sidebar/object/shadowRadius': 'Радиус тени',
++			'sidebar/object/cast': 'отбрасывает',
++			'sidebar/object/receive': 'принимает',
++			'sidebar/object/visible': 'Видимость',
++			'sidebar/object/frustumcull': 'Отсечение по пирамиде',
++			'sidebar/object/renderorder': 'Порядок рендера',
++			'sidebar/object/userdata': 'Данные пользователя',
++			'sidebar/object/export': 'Экспорт JSON',
++
++			'sidebar/geometry/type': 'Тип',
++			'sidebar/geometry/new': 'Новая',
++			'sidebar/geometry/uuid': 'UUID',
++			'sidebar/geometry/name': 'Имя',
++			'sidebar/geometry/bounds': 'Границы',
++			'sidebar/geometry/userdata': 'Данные пользователя',
++			'sidebar/geometry/show_vertex_normals': 'Показать нормали вершин',
++			'sidebar/geometry/compute_vertex_normals': 'Пересчитать нормали вершин',
++			'sidebar/geometry/compute_vertex_tangents': 'Пересчитать касательные',
++			'sidebar/geometry/center': 'Центрировать',
++			'sidebar/geometry/export': 'Экспорт JSON',
++			'sidebar/geometry/morph': 'Морф-цели',
++
++			'sidebar/geometry/box_geometry/width': 'Ширина',
++			'sidebar/geometry/box_geometry/height': 'Высота',
++			'sidebar/geometry/box_geometry/depth': 'Глубина',
++			'sidebar/geometry/box_geometry/widthseg': 'Сегменты по ширине',
++			'sidebar/geometry/box_geometry/heightseg': 'Сегменты по высоте',
++			'sidebar/geometry/box_geometry/depthseg': 'Сегменты по глубине',
++
++			'sidebar/geometry/buffer_geometry/attributes': 'Атрибуты',
++			'sidebar/geometry/buffer_geometry/index': 'индекс',
++			'sidebar/geometry/buffer_geometry/morphAttributes': 'Морф-атрибуты',
++			'sidebar/geometry/buffer_geometry/morphRelative': 'Относительный морфинг',
++
++			'sidebar/geometry/capsule_geometry/radius': 'Радиус',
++			'sidebar/geometry/capsule_geometry/height': 'Высота',
++			'sidebar/geometry/capsule_geometry/capseg': 'Сегменты торцов',
++			'sidebar/geometry/capsule_geometry/radialseg': 'Радиальные сегменты',
++			'sidebar/geometry/capsule_geometry/heightseg': 'Сегменты по высоте',
++
++			'sidebar/geometry/circle_geometry/radius': 'Радиус',
++			'sidebar/geometry/circle_geometry/segments': 'Сегменты',
++			'sidebar/geometry/circle_geometry/thetastart': 'Начало тета',
++			'sidebar/geometry/circle_geometry/thetalength': 'Длина тета',
++
++			'sidebar/geometry/cylinder_geometry/radiustop': 'Верхний радиус',
++			'sidebar/geometry/cylinder_geometry/radiusbottom': 'Нижний радиус',
++			'sidebar/geometry/cylinder_geometry/height': 'Высота',
++			'sidebar/geometry/cylinder_geometry/radialsegments': 'Радиальные сегменты',
++			'sidebar/geometry/cylinder_geometry/heightsegments': 'Сегменты по высоте',
++			'sidebar/geometry/cylinder_geometry/openended': 'Открытые торцы',
++
++			'sidebar/geometry/extrude_geometry/curveSegments': 'Сегменты кривой',
++			'sidebar/geometry/extrude_geometry/steps': 'Шаги',
++			'sidebar/geometry/extrude_geometry/depth': 'Глубина',
++			'sidebar/geometry/extrude_geometry/bevelEnabled': 'Фаска',
++			'sidebar/geometry/extrude_geometry/bevelThickness': 'Толщина',
++			'sidebar/geometry/extrude_geometry/bevelSize': 'Размер',
++			'sidebar/geometry/extrude_geometry/bevelOffset': 'Смещение',
++			'sidebar/geometry/extrude_geometry/bevelSegments': 'Сегменты',
++			'sidebar/geometry/extrude_geometry/shape': 'Преобразовать в фигуру',
++
++			'sidebar/geometry/dodecahedron_geometry/radius': 'Радиус',
++			'sidebar/geometry/dodecahedron_geometry/detail': 'Детализация',
++
++			'sidebar/geometry/icosahedron_geometry/radius': 'Радиус',
++			'sidebar/geometry/icosahedron_geometry/detail': 'Детализация',
++
++			'sidebar/geometry/octahedron_geometry/radius': 'Радиус',
++			'sidebar/geometry/octahedron_geometry/detail': 'Детализация',
++
++			'sidebar/geometry/tetrahedron_geometry/radius': 'Радиус',
++			'sidebar/geometry/tetrahedron_geometry/detail': 'Детализация',
++
++			'sidebar/geometry/lathe_geometry/segments': 'Сегменты',
++			'sidebar/geometry/lathe_geometry/phistart': 'Начало фи (°)',
++			'sidebar/geometry/lathe_geometry/philength': 'Длина фи (°)',
++			'sidebar/geometry/lathe_geometry/points': 'Точки',
++
++			'sidebar/geometry/plane_geometry/width': 'Ширина',
++			'sidebar/geometry/plane_geometry/height': 'Высота',
++			'sidebar/geometry/plane_geometry/widthsegments': 'Сегменты по ширине',
++			'sidebar/geometry/plane_geometry/heightsegments': 'Сегменты по высоте',
++
++			'sidebar/geometry/ring_geometry/innerRadius': 'Внутренний радиус',
++			'sidebar/geometry/ring_geometry/outerRadius': 'Внешний радиус',
++			'sidebar/geometry/ring_geometry/thetaSegments': 'Сегменты тета',
++			'sidebar/geometry/ring_geometry/phiSegments': 'Сегменты фи',
++			'sidebar/geometry/ring_geometry/thetastart': 'Начало тета',
++			'sidebar/geometry/ring_geometry/thetalength': 'Длина тета',
++
++			'sidebar/geometry/text_geometry/text': 'Текст',
++			'sidebar/geometry/text_geometry/size': 'Размер шрифта',
++			'sidebar/geometry/text_geometry/depth': 'Глубина выдавливания',
++			'sidebar/geometry/text_geometry/scale': 'Масштаб',
++			'sidebar/geometry/text_geometry/curveseg': 'Сегменты кривой',
++			'sidebar/geometry/text_geometry/bevelenabled': 'Фаска',
++			'sidebar/geometry/text_geometry/bevelthickness': 'Толщина фаски',
++			'sidebar/geometry/text_geometry/bevelsize': 'Размер фаски',
++			'sidebar/geometry/text_geometry/bevelOffset': 'Смещение фаски',
++			'sidebar/geometry/text_geometry/bevelseg': 'Сегменты фаски',
++
++			'sidebar/geometry/shape_geometry/curveSegments': 'Сегменты кривой',
++			'sidebar/geometry/shape_geometry/extrude': 'Выдавить',
++
++			'sidebar/geometry/sphere_geometry/radius': 'Радиус',
++			'sidebar/geometry/sphere_geometry/widthsegments': 'Сегменты по ширине',
++			'sidebar/geometry/sphere_geometry/heightsegments': 'Сегменты по высоте',
++			'sidebar/geometry/sphere_geometry/phistart': 'Начало фи',
++			'sidebar/geometry/sphere_geometry/philength': 'Длина фи',
++			'sidebar/geometry/sphere_geometry/thetastart': 'Начало тета',
++			'sidebar/geometry/sphere_geometry/thetalength': 'Длина тета',
++
++			'sidebar/geometry/torus_geometry/radius': 'Радиус',
++			'sidebar/geometry/torus_geometry/tube': 'Толщина трубы',
++			'sidebar/geometry/torus_geometry/radialsegments': 'Радиальные сегменты',
++			'sidebar/geometry/torus_geometry/tubularsegments': 'Сегменты трубы',
++			'sidebar/geometry/torus_geometry/arc': 'Дуга',
++
++			'sidebar/geometry/torusKnot_geometry/radius': 'Радиус',
++			'sidebar/geometry/torusKnot_geometry/tube': 'Толщина трубы',
++			'sidebar/geometry/torusKnot_geometry/tubularsegments': 'Сегменты трубы',
++			'sidebar/geometry/torusKnot_geometry/radialsegments': 'Радиальные сегменты',
++			'sidebar/geometry/torusKnot_geometry/p': 'P',
++			'sidebar/geometry/torusKnot_geometry/q': 'Q',
++
++			'sidebar/geometry/tube_geometry/path': 'Путь',
++			'sidebar/geometry/tube_geometry/radius': 'Радиус',
++			'sidebar/geometry/tube_geometry/tube': 'Труба',
++			'sidebar/geometry/tube_geometry/tubularsegments': 'Сегменты трубы',
++			'sidebar/geometry/tube_geometry/radialsegments': 'Радиальные сегменты',
++			'sidebar/geometry/tube_geometry/closed': 'Замкнутая',
++			'sidebar/geometry/tube_geometry/curvetype': 'Тип кривой',
++			'sidebar/geometry/tube_geometry/tension': 'Натяжение',
++
++			'sidebar/material/new': 'Новый',
++			'sidebar/material/copy': 'Копировать',
++			'sidebar/material/paste': 'Вставить',
++			'sidebar/material/slot': 'Слот',
++			'sidebar/material/type': 'Тип',
++			'sidebar/material/uuid': 'UUID',
++			'sidebar/material/name': 'Имя',
++			'sidebar/material/program': 'Программа',
++			'sidebar/material/info': 'Сведения',
++			'sidebar/material/vertex': 'Вершинный',
++			'sidebar/material/fragment': 'Фрагментный',
++			'sidebar/material/color': 'Цвет',
++			'sidebar/material/depthPacking': 'Упаковка глубины',
++			'sidebar/material/roughness': 'Шероховатость',
++			'sidebar/material/metalness': 'Металличность',
++			'sidebar/material/reflectivity': 'Отражающая способность',
++			'sidebar/material/emissive': 'Излучение',
++			'sidebar/material/specular': 'Блик',
++			'sidebar/material/shininess': 'Глянцевость',
++			'sidebar/material/clearcoat': 'Лаковое покрытие',
++			'sidebar/material/clearcoatroughness': 'Шероховатость лака',
++			'sidebar/material/dispersion': 'Дисперсия',
++			'sidebar/material/ior': 'IOR',
++			'sidebar/material/iridescence': 'Иридесценция',
++			'sidebar/material/iridescenceIOR': 'IOR тонкой плёнки',
++			'sidebar/material/iridescenceThicknessMax': 'Толщина тонкой плёнки',
++			'sidebar/material/sheen': 'Блеск ткани',
++			'sidebar/material/sheenroughness': 'Шероховатость блеска ткани',
++			'sidebar/material/sheencolor': 'Цвет блеска ткани',
++			'sidebar/material/transmission': 'Пропускание',
++			'sidebar/material/attenuationDistance': 'Дистанция затухания',
++			'sidebar/material/attenuationColor': 'Цвет затухания',
++			'sidebar/material/thickness': 'Толщина',
++			'sidebar/material/vertexcolors': 'Цвета вершин',
++			'sidebar/material/matcap': 'Matcap',
++			'sidebar/material/map': 'Текстура',
++			'sidebar/material/alphamap': 'Карта альфы',
++			'sidebar/material/bumpmap': 'Карта рельефа',
++			'sidebar/material/normalmap': 'Карта нормалей',
++			'sidebar/material/clearcoatmap': 'Карта лака',
++			'sidebar/material/clearcoatnormalmap': 'Карта нормалей лака',
++			'sidebar/material/clearcoatroughnessmap': 'Карта шероховатости лака',
++			'sidebar/material/displacementmap': 'Карта смещения',
++			'sidebar/material/roughnessmap': 'Карта шероховатости',
++			'sidebar/material/metalnessmap': 'Карта металличности',
++			'sidebar/material/specularmap': 'Карта бликов',
++			'sidebar/material/iridescencemap': 'Карта иридесценции',
++			'sidebar/material/iridescencethicknessmap': 'Карта толщины плёнки',
++			'sidebar/material/sheencolormap': 'Карта цвета блеска',
++			'sidebar/material/sheenroughnessmap': 'Карта шероховатости блеска',
++			'sidebar/material/envmap': 'Карта окружения',
++			'sidebar/material/lightmap': 'Карта освещения',
++			'sidebar/material/aomap': 'Карта AO',
++			'sidebar/material/emissivemap': 'Карта излучения',
++			'sidebar/material/gradientmap': 'Карта градиента',
++			'sidebar/material/transmissionmap': 'Карта пропускания',
++			'sidebar/material/thicknessmap': 'Карта толщины',
++			'sidebar/material/side': 'Сторона',
++			'sidebar/material/size': 'Размер',
++			'sidebar/material/sizeAttenuation': 'Затухание размера',
++			'sidebar/material/flatShading': 'Плоское затенение',
++			'sidebar/material/blending': 'Смешивание',
++			'sidebar/material/opacity': 'Непрозрачность',
++			'sidebar/material/transparent': 'Прозрачность',
++			'sidebar/material/forcesinglepass': 'Принудительно один проход',
++			'sidebar/material/alphatest': 'Альфа-тест',
++			'sidebar/material/depthtest': 'Тест глубины',
++			'sidebar/material/depthwrite': 'Запись глубины',
++			'sidebar/material/wireframe': 'Каркас',
++			'sidebar/material/userdata': 'Данные пользователя',
++			'sidebar/material/export': 'Экспорт JSON',
++
++			'sidebar/script/new': 'Новый',
++			'sidebar/script/edit': 'Изменить',
++			'sidebar/script/remove': 'Удалить',
++
++			'sidebar/project': 'Проект',
++			'sidebar/project/camera': 'Камера',
++			'sidebar/project/renderer': 'Рендерер',
++			'sidebar/project/antialias': 'Сглаживание',
++			'sidebar/project/shadows': 'Тени',
++			'sidebar/project/toneMapping': 'Тональная компрессия',
++			'sidebar/project/geometries': 'Геометрии',
++			'sidebar/project/materials': 'Материалы',
++			'sidebar/project/textures': 'Текстуры',
++			'sidebar/project/Assign': 'Назначить',
++
++			'sidebar/project/app': 'Приложение',
++			'sidebar/project/app/play': 'Запустить',
++			'sidebar/project/app/stop': 'Стоп',
++			'sidebar/project/app/title': 'Название',
++			'sidebar/project/app/editable': 'Редактируемое',
++			'sidebar/project/app/publish': 'Опубликовать',
++
++			'sidebar/project/image': 'Изображение',
++			'sidebar/project/image/samples': 'Сэмплы',
++			'sidebar/project/video': 'Видео',
++
++			'sidebar/project/shading': 'Затенение',
++			'sidebar/project/resolution': 'Разрешение',
++			'sidebar/project/duration': 'Длительность',
++			'sidebar/project/render': 'Рендер',
++
++			'sidebar/settings': 'Настройки',
++			'sidebar/settings/language': 'Язык',
++
++			'sidebar/settings/shortcuts': 'Горячие клавиши',
++			'sidebar/settings/shortcuts/translate': 'Перемещение',
++			'sidebar/settings/shortcuts/rotate': 'Поворот',
++			'sidebar/settings/shortcuts/scale': 'Масштаб',
++			'sidebar/settings/shortcuts/undo': 'Отменить',
++			'sidebar/settings/shortcuts/focus': 'Фокус',
++			'sidebar/settings/shortcuts/perspective': 'Перспектива',
++			'sidebar/settings/shortcuts/orthographic': 'Ортография',
++			'sidebar/settings/shortcuts/selectAll': 'Выделить всё',
++
++			'sidebar/history': 'История',
++			'sidebar/history/clear': 'Очистить',
++			'sidebar/history/persistent': 'Сохранять',
++
++			'toolbar/translate': 'Перемещение',
++			'toolbar/rotate': 'Поворот',
++			'toolbar/scale': 'Масштаб',
++			'toolbar/local': 'Локально',
++
++			'viewport/controls/grid': 'Сетка',
++			'viewport/controls/helpers': 'Помощники',
++
++			'viewport/info/object': 'Объект',
++			'viewport/info/objects': 'Объекты',
++			'viewport/info/vertex': 'Вершина',
++			'viewport/info/vertices': 'Вершины',
++			'viewport/info/triangle': 'Треугольник',
++			'viewport/info/triangles': 'Треугольники',
++			'viewport/info/sample': 'Сэмпл',
++			'viewport/info/samples': 'Сэмплы',
++			'viewport/info/rendertime': 'Время рендера',
++
++			'script/title/vertexShader': 'Вершинный шейдер',
++			'script/title/fragmentShader': 'Фрагментный шейдер',
++			'script/title/programInfo': 'Свойства программы',
++
++			'dialog/gltf/title': 'Импорт glTF',
++			'dialog/gltf/asScene': 'Импортировать glTF как корневую сцену',
++			'dialog/texture/title': 'Параметры текстуры',
++			'dialog/texture/group/preview': 'Превью',
++			'dialog/texture/group/mapping': 'Проецирование',
++			'dialog/texture/group/filtering': 'Фильтрация',
++			'dialog/texture/group/transform': 'Трансформация',
++			'dialog/texture/group/color': 'Цвет',
++			'dialog/texture/mapping': 'Проецирование',
++			'dialog/texture/wrapS': 'Повтор по S',
++			'dialog/texture/wrapT': 'Повтор по T',
++			'dialog/texture/magFilter': 'Фильтр увеличения',
++			'dialog/texture/minFilter': 'Фильтр уменьшения',
++			'dialog/texture/anisotropy': 'Анизотропия',
++			'dialog/texture/offset': 'Смещение',
++			'dialog/texture/repeat': 'Повтор',
++			'dialog/texture/center': 'Центр',
++			'dialog/texture/rotation': 'Поворот',
++			'dialog/texture/premultiplyAlpha': 'Предумножить альфу',
++			'dialog/texture/colorSpace': 'Цветовое пространство',
++			'dialog/ok': 'OK',
++			'dialog/cancel': 'Отмена'
++
++		},
++
+ 		fr: {
+ 
+ 			'prompt/file/open': 'Toutes les données non enregistrées seront perdues Êtes-vous sûr ?',
