@@ -49,3 +49,16 @@ import LumenCore
     #expect(app.isDarkMode)               // но правим по-прежнему цвета тёмного режима
     #expect(app.palette.background.hexString == "#E9EEF2")
 }
+
+/// 26.10: «Монохром» при свете с чёрным фоном — графитовый акцент сливался, пропали значки выбранного
+@MainActor @Test func accentStaysVisibleOnOverriddenBackground() {
+    var o = ThemeOverrides()
+    o.background = "#000000"
+    o.foreground = "#000000"
+    let p = Palette.monoLight.with(o)
+    #expect(p.glow.contrast(with: p.background) >= 3)
+    #expect(p.foreground.contrast(with: p.background) >= 4.5)
+    var dim = ThemeOverrides()
+    dim.accent = "#0E0E10"
+    #expect(Palette.lumen.with(dim).glow.contrast(with: Palette.lumen.background) >= 3)
+}

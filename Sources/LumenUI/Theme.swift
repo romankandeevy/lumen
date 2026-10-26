@@ -206,7 +206,7 @@ public struct Palette: Sendable {
     /// Свои цвета: акцент — свет; фон — фон, а карточки и панели выводятся из него; текст — текст и подписи
     func with(_ o: ThemeOverrides) -> Palette {
         let bg = o.background.flatMap(Color.init(hexString:)) ?? background
-        let glowC = o.accent.flatMap(Color.init(hexString:)) ?? glow
+        var glowC = o.accent.flatMap(Color.init(hexString:)) ?? glow
         let newBg = o.background != nil, newFg = o.foreground != nil
         // Светлая она или тёмная — решает яркость фона (25.10: светлый фон у тёмной темы давал белое на белом и «слетало»)
         let light = newBg ? bg.luminance > 0.4 : isLight
@@ -216,6 +216,16 @@ public struct Palette: Sendable {
             fg = light ? Color(hex: 0x15171C) : Color(hex: 0xF1F3F8)
         }
         let newFgEffective = newFg || fg.hexString != foreground.hexString
+        // акцент тоже обязан быть виден: им рисуются значки выбранного, рамка фокуса, ссылки (26.10: пропала иконка «Темы»).
+        // Сливается с фоном — светлеет (или темнеет) по шагам, пока не станет заметен
+        if glowC.contrast(with: bg) < 3 {
+            let toward: Color = light ? .black : .white
+            var k = 0.15
+            var c = glowC.mixed(with: toward, k)
+            while c.contrast(with: bg) < 3, k < 0.95 { k += 0.1; c = glowC.mixed(with: toward, k) }
+            glowC = c
+        }
+        let accentChanged = o.accent != nil || glowC.hexString != glow.hexString
         var p = Palette(
             background: bg, foreground: fg,
             card: newBg ? bg.mixed(with: fg, 0.035) : card,
@@ -226,8 +236,8 @@ public struct Palette: Sendable {
             sidebarAccent: newBg ? bg.mixed(with: fg, 0.07) : sidebarAccent,
             primary: newFgEffective ? fg : primary, primaryFg: newBg ? bg : primaryFg,
             popover: newBg ? bg.mixed(with: fg, 0.05) : popover,
-            glow: glowC, glowCore: o.accent != nil ? glowC.mixed(with: .white, 0.7) : glowCore,
-            glowSoftBase: o.accent != nil ? glowC : glowSoftBase,
+            glow: glowC, glowCore: accentChanged ? glowC.mixed(with: .white, 0.7) : glowCore,
+            glowSoftBase: accentChanged ? glowC : glowSoftBase,
             borderBase: newFgEffective ? fg : borderBase, isMono: isMono, isLight: light)
         p.borderScale = borderScale
         p.diffSigns = diffSigns
