@@ -43,12 +43,27 @@ extension BrowserModel {
       if (!s && role !== 'textbox') s = el.innerText || el.value || '';
       return clean(s).slice(0, 80);
     }
+    function topWin() { let w = window; try { while (w.parent && w.parent !== w && w.parent.document) w = w.parent; } catch (e) {} return w; }
     function ref(el) {
       let r = el.getAttribute('data-lumen-ref');
-      if (!r) { r = 'e' + (++window.__lumenRefN); el.setAttribute('data-lumen-ref', r); }
+      if (!r) { const t = topWin(); t.__lumenRefN = (t.__lumenRefN || 0) + 1; r = 'e' + t.__lumenRefN; el.setAttribute('data-lumen-ref', r); }
       return r;
     }
-    function byRef(r) { return r ? document.querySelector('[data-lumen-ref="' + r + '"]') : null; }
+    function docsOf(root) {
+      const out = [root];
+      for (const f of root.querySelectorAll('iframe, frame')) { try { if (f.contentDocument) out.push(...docsOf(f.contentDocument)); } catch (e) {} }
+      return out;
+    }
+    function byRef(r) {
+      if (!r) return null;
+      for (const d of docsOf(document)) { const el = d.querySelector('[data-lumen-ref="' + r + '"]'); if (el) return el; }
+      return null;
+    }
+    function absRect(el) {
+      const r = el.getBoundingClientRect(); let x = r.left, y = r.top, w = el.ownerDocument.defaultView;
+      try { while (w && w.frameElement) { const f = w.frameElement.getBoundingClientRect(); x += f.left; y += f.top; w = w.parent; } } catch (e) {}
+      return {left: x, top: y, w: r.width, h: r.height};
+    }
     function describe(el) {
       const role = roleOf(el) || el.tagName.toLowerCase();
       return '[' + ref(el) + '] ' + role + ' "' + nameOf(el, role) + '"';
@@ -100,7 +115,10 @@ extension BrowserModel {
       const shown = here && role && (INTER.has(role) || ((role === 'heading' || role === 'img') && !inter));
       if (shown) {
         let line = pad + (INTER.has(role) ? '[' + ref(el) + '] ' : '') + role + ' "' + nameOf(el, role) + '"';
-        if (role === 'textbox' || role === 'searchbox') { const v = el.isContentEditable ? el.innerText : el.value; if (v) line += ' = "' + clean(v).slice(0, 80) + '"'; }
+        if (role === 'textbox' || role === 'searchbox') {
+          if (el.type === 'password') line += el.value ? ' = (пароль введён, скрыт)' : ' (пароль)';
+          else { const v = el.isContentEditable ? el.innerText : el.value; if (v) line += ' = "' + clean(v).slice(0, 80) + '"'; }
+        }
         if (role === 'checkbox' || role === 'radio' || role === 'switch') line += (el.checked || el.getAttribute('aria-checked') === 'true') ? ' ✓' : ' ☐';
         if (el.tagName === 'SELECT' && el.selectedIndex >= 0) line += ' = "' + clean(el.options[el.selectedIndex].text) + '"';
         if (el.tagName === 'INPUT' && el.type === 'file') line += ' (файл — browser_upload)';
@@ -116,6 +134,12 @@ extension BrowserModel {
       }
       for (const c of el.children) walk(c, depth + (shown ? 1 : 0));
       if (el.shadowRoot) for (const c of el.shadowRoot.children) walk(c, depth);
+      if (el.tagName === 'IFRAME' || el.tagName === 'FRAME') {
+        let d = null; try { d = el.contentDocument; } catch (e) {}
+        const label = clean(el.title || el.name || '').slice(0, 40);
+        if (d && d.body) { push(pad + 'frame "' + label + '"'); walk(d.body, depth + 1); }
+        else if (!inter) push(pad + 'frame "' + label + '" (чужой сайт — внутрь не дотянуться: снимок и нажатие по x, y; текст — browser_key с native)');
+      }
     }
     const start = args.root ? byRef(args.root) : document.body;
     if (args.root && !start) return 'ERR:Нет элемента ' + args.root + ' — прочитай страницу заново.';
@@ -138,7 +162,7 @@ extension BrowserModel {
       if (hits.length >= 20) break;
       if (!vis(el)) continue;
       const role = roleOf(el) || el.tagName.toLowerCase();
-      const hay = (nameOf(el, role) + ' ' + (el.getAttribute('placeholder') || '') + ' ' + (el.value || '') + ' ' + role).toLowerCase();
+      const hay = (nameOf(el, role) + ' ' + (el.getAttribute('placeholder') || '') + ' ' + (el.type === 'password' ? '' : (el.value || '')) + ' ' + role).toLowerCase();
       if (hay.includes(q) || (words.length > 1 && words.every(w => hay.includes(w)))) hits.push(describe(el));
     }
     if (!hits.length) {
@@ -156,9 +180,10 @@ extension BrowserModel {
     static let locateJS = prelude + #"""
     const el = byRef(args.ref);
     if (!el) return 'ERR:нет';
-    el.scrollIntoView({block: 'center', inline: 'center'});
-    const r = el.getBoundingClientRect();
-    return JSON.stringify({x: r.left + r.width / 2, y: r.top + r.height / 2, name: describe(el)});
+    el.scrollIntoView({block: 'center', inline: 'center', behavior: 'instant'});
+    const a = absRect(el), role = roleOf(el) || el.tagName.toLowerCase();
+    const full = clean([el.getAttribute('aria-label'), el.innerText, el.value, el.getAttribute('title')].filter(Boolean).join(' ')).slice(0, 400);
+    return JSON.stringify({x: a.left + a.w / 2, y: a.top + a.h / 2, left: a.left, top: a.top, w: a.w, h: a.h, role, text: nameOf(el, role), full, name: describe(el)});
     """#
 
     /// Нажатие из скрипта (когда панель свёрнута): кнопка, сколько раз, модификаторы
@@ -210,6 +235,7 @@ extension BrowserModel {
     static let typeJS = prelude + #"""
     const el = args.ref ? byRef(args.ref) : document.activeElement;
     if (!el || el === document.body) return 'ERR:Нет поля ' + (args.ref || 'с фокусом') + ' — найди его меткой (browser_read_page).';
+    if (el.type === 'password') return 'ERR:В поля пароля я не печатаю. Если для сайта сохранён вход — browser_login; иначе попроси человека войти самому в панели браузера.';
     el.scrollIntoView({block: 'center'});
     el.focus();
     if (el.isContentEditable) {
@@ -257,7 +283,9 @@ extension BrowserModel {
     const done = [];
     for (let r = 0; r < args.repeat; r++) for (const chord of seq) {
       const parts = chord.split('+'); const k = parts.pop(); const mods = parts.map(x => x.toLowerCase());
-      const el = document.activeElement || document.body;
+      let el = document.activeElement || document.body;
+      while (el && el.contentDocument && el.contentDocument.activeElement && el.contentDocument.activeElement !== el.contentDocument.body) el = el.contentDocument.activeElement;
+      if (el.type === 'password' && k.length === 1) return 'ERR:В поля пароля я не печатаю. Для входа — browser_login или пусть человек войдёт сам.';
       const cmd = mods.includes('cmd') || mods.includes('meta') || mods.includes('ctrl');
       const o = {shiftKey: mods.includes('shift'), ctrlKey: mods.includes('ctrl'), altKey: mods.includes('alt') || mods.includes('option'), metaKey: mods.includes('cmd') || mods.includes('meta')};
       const go = key(el, k, o);
@@ -347,7 +375,8 @@ extension BrowserModel {
     /// Журнал консоли и сети: ставится до кода страницы (в её мире), копит до 500 записей
     static let captureJS = #"""
     (() => { if (window.__lumenLog) return;
-      const L = window.__lumenLog = {console: [], net: [], cr: 0, nr: 0, seen: new Set()};
+      const L = window.__lumenLog = {console: [], net: [], cr: 0, nr: 0, seen: new Set(), pending: 0, mut: performance.now()};
+      try { new MutationObserver(() => { L.mut = performance.now(); }).observe(document, {subtree: true, childList: true, attributes: true, characterData: true}); } catch (e) {}
       const push = (arr, item) => { arr.push(item); if (arr.length > 500) arr.shift(); };
       const str = x => { try { return typeof x === 'string' ? x : (x instanceof Error ? (x.stack || x.message) : JSON.stringify(x)); } catch (e) { return String(x); } };
       for (const lvl of ['log', 'info', 'warn', 'error', 'debug']) {
@@ -360,14 +389,17 @@ extension BrowserModel {
       if (of) window.fetch = async function (input, init) {
         const t0 = performance.now(); const method = (init && init.method) || (input && input.method) || 'GET';
         const url = String((input && input.url) || input); L.seen.add(url);
+        L.pending++;
         try { const r = await of.apply(this, arguments); push(L.net, {method, url, status: r.status, type: r.headers.get('content-type') || '', ms: Math.round(performance.now() - t0)}); return r; }
         catch (e) { push(L.net, {method, url, status: 0, type: 'ошибка: ' + e.message, ms: Math.round(performance.now() - t0)}); throw e; }
+        finally { L.pending--; L.mut = performance.now(); }
       };
       const xo = XMLHttpRequest.prototype.open, xs = XMLHttpRequest.prototype.send;
       XMLHttpRequest.prototype.open = function (m, u) { this.__l = {method: m, url: String(u)}; return xo.apply(this, arguments); };
       XMLHttpRequest.prototype.send = function () {
         const t0 = performance.now(); if (this.__l) L.seen.add(new URL(this.__l.url, location.href).href);
-        this.addEventListener('loadend', () => { if (this.__l) push(L.net, {method: this.__l.method, url: this.__l.url, status: this.status, type: this.getResponseHeader('content-type') || '', ms: Math.round(performance.now() - t0)}); });
+        L.pending++;
+        this.addEventListener('loadend', () => { L.pending--; L.mut = performance.now(); if (this.__l) push(L.net, {method: this.__l.method, url: this.__l.url, status: this.status, type: this.getResponseHeader('content-type') || '', ms: Math.round(performance.now() - t0)}); });
         return xs.apply(this, arguments);
       };
     })();
@@ -399,5 +431,58 @@ extension BrowserModel {
     }
     const lines = re ? out.filter(l => re.test(l)) : out;
     return lines.length ? lines.slice(-200).join('\n') : 'Новых запросов нет.';
+    """#
+
+    /// Есть ли у страницы поле с фокусом (иначе печатать надо настоящими клавишами: фокус может быть в чужом iframe)
+    static let hasFocusedFieldJS = #"""
+    let a = document.activeElement;
+    if (!a || a === document.body) return 'no';
+    return a.matches && a.matches('input, textarea, select, [contenteditable=""], [contenteditable="true"]') ? 'yes' : 'no';
+    """#
+
+    static let focusedIsPasswordJS = #"""
+    let a = document.activeElement;
+    while (a && a.contentDocument && a.contentDocument.activeElement) a = a.contentDocument.activeElement;
+    return a && a.type === 'password' ? 'yes' : 'no';
+    """#
+
+    /// Страница затихла: загружена, запросов нет, DOM не менялся полсекунды (мир страницы: журнал живёт там)
+    static let idleJS = #"""
+    const L = window.__lumenLog;
+    if (document.readyState !== 'complete') return 'busy';
+    if (L && (L.pending > 0 || performance.now() - L.mut < 500)) return 'busy';
+    return 'idle';
+    """#
+
+    /// Что под точкой: текст элемента (и в окнах своего сайта); чужое встроенное окно — FOREIGN_FRAME
+    static let textAtPointJS = prelude + #"""
+    let doc = document, x = args.x, y = args.y, el = null;
+    for (let i = 0; i < 6; i++) {
+      el = doc.elementFromPoint(x, y);
+      if (!el) return '';
+      if (el.tagName !== 'IFRAME' && el.tagName !== 'FRAME') break;
+      let inner = null; try { inner = el.contentDocument; } catch (e) {}
+      if (!inner) return 'FOREIGN_FRAME';
+      const r = el.getBoundingClientRect(); x -= r.left; y -= r.top; doc = inner;
+    }
+    const b = el.closest('button, a, [role=button], input, label') || el;
+    return clean([b.getAttribute('aria-label'), b.innerText, b.value, b.getAttribute('title')].filter(Boolean).join(' ')).slice(0, 300);
+    """#
+
+    /// Кнопка формы, которая отправится по Enter: её текст
+    static let submitLabelJS = prelude + #"""
+    let a = args.ref ? byRef(args.ref) : document.activeElement;
+    while (a && a.contentDocument && a.contentDocument.activeElement) a = a.contentDocument.activeElement;
+    const form = a && a.form;
+    if (!form) return '';
+    const b = form.querySelector('button[type=submit], input[type=submit], button:not([type])');
+    return b ? clean([b.getAttribute('aria-label'), b.innerText, b.value].filter(Boolean).join(' ')).slice(0, 200) : clean(form.getAttribute('aria-label') || form.getAttribute('name') || '');
+    """#
+
+    /// На странице есть поле пароля с введённым значением
+    static let passwordFilledJS = #"""
+    for (const d of [document, ...[...document.querySelectorAll('iframe')].map(f => { try { return f.contentDocument } catch (e) { return null } }).filter(Boolean)])
+      if ([...d.querySelectorAll('input[type=password]')].some(e => e.value)) return 'yes';
+    return 'no';
     """#
 }

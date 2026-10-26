@@ -22,7 +22,7 @@ struct SettingsView: View {
         case fonts = "Шрифты и масштаб"
         case window = "Окно и расположение"
         case chat = "Отображение чата"
-        case pet = "Питомец"
+        case pet = "Питомцы"
         case persona = "Характер"
         case models = "Модели и оплата"
         case importClaude = "Импорт из Claude Code"
@@ -46,6 +46,9 @@ struct SettingsView: View {
             case .uninstall: "trash"
             }
         }
+
+        /// Раздел пока не доводится до конца — у названия жёлтая метка «Бета» (Рома, 26.10)
+        var beta: Bool { self == .pet }
 
         /// Что ещё внутри раздела — для поиска слева
         var keywords: [String] {
@@ -145,7 +148,7 @@ struct SettingsView: View {
                             Text(g.title).tw(12, .medium, lh: 16).foregroundStyle(p.mutedFg)
                                 .padding(.horizontal, 10).padding(.top, 14).padding(.bottom, 4)
                             ForEach(items, id: \.self) { s in
-                                SettingsNavRow(title: s.rawValue, icon: s.icon, active: current == s) { go(s) }
+                                SettingsNavRow(title: s.rawValue, icon: s.icon, active: current == s, beta: s.beta) { go(s) }
                             }
                         }
                     }
@@ -211,7 +214,7 @@ struct SettingsView: View {
     private func page<C: View>(_ lead: String?, aside: AnyView? = nil, @ViewBuilder content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center, spacing: 0) {
-                SettingsHeader(icon: current.icon, title: current.rawValue, lead: lead)
+                SettingsHeader(icon: current.icon, title: current.rawValue, lead: lead, beta: current.beta)
                 Spacer(minLength: 16)
                 if let aside { aside }
             }
@@ -336,9 +339,21 @@ struct SettingsView: View {
                            in: 220...420).frame(width: 240)
                 }
             }
-            group("Браузер сбоку", aside: "⇧⌘B") {
+            group("Браузер сбоку", aside: "⇧⌘B · на всё окно ⌥⌘B") {
                 row("Выезжает сам", "Когда агент открывает страницу или показывает макет", icon: "globe") {
                     LSwitch(isOn: Binding(get: { app.prefs.browserAutoOpen }, set: { v in app.update { $0.browserAutoOpen = v } }))
+                }
+                row("Курсор агента", "Видно, куда агент нажимает: курсор, рамка вокруг кнопки, свечение по краю", icon: "crosshair") {
+                    LSwitch(isOn: Binding(get: { app.prefs.browserAgentCursor }, set: { v in app.update { $0.browserAgentCursor = v } }))
+                }
+                row("Спрашивать перед оплатой", "Оплата, заказ, удаление, публикация — агент ждёт твоё «Разрешить»", icon: "shield-check") {
+                    LSwitch(isOn: Binding(get: { app.prefs.browserAsk }, set: { v in app.update { $0.browserAsk = v } }))
+                }
+                row("Входить сам", "Сохранённый вход подставляется на странице входа; агент жмёт «Войти». Входы — кнопка с ключом в браузере, пароли в Связке ключей", icon: "key-round") {
+                    LSwitch(isOn: Binding(get: { app.prefs.browserAutoLogin }, set: { v in app.update { $0.browserAutoLogin = v } }))
+                }
+                row("Прятать рекламу и трекеры", "Сторонние рекламные сети не грузятся — страницы открываются быстрее", icon: "eye-off") {
+                    LSwitch(isOn: Binding(get: { app.prefs.browserAdBlock }, set: { v in app.update { $0.browserAdBlock = v } }))
                 }
                 linksRow
             }
@@ -516,6 +531,7 @@ struct SettingsNavRow: View {
     var chevron: String?
     var framed = false
     var sub = false
+    var beta = false
     let action: () -> Void
 
     @Environment(\.palette) private var p
@@ -526,6 +542,7 @@ struct SettingsNavRow: View {
             HStack(spacing: 10) {
                 Icon(icon, 15).foregroundStyle(active ? p.glow : p.mutedFg).frame(width: 16)
                 Text(title).tw(14, lh: 20).lineLimit(1)
+                if beta { BetaBadge() }
                 Spacer(minLength: 4)
                 if let chevron { Icon(chevron, 13).foregroundStyle(p.mutedFg) }
             }
@@ -1995,6 +2012,7 @@ struct SettingsHeader: View {
     let icon: String
     let title: String
     var lead: String?
+    var beta = false
 
     @Environment(\.palette) private var p
 
@@ -2005,7 +2023,10 @@ struct SettingsHeader: View {
                 .background(p.glow.opacity(0.1), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(p.glow.opacity(0.22)))
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).tw(20, .semibold, lh: 28).tracking(-0.2)
+                HStack(spacing: 8) {
+                    Text(title).tw(20, .semibold, lh: 28).tracking(-0.2)
+                    if beta { BetaBadge(large: true) }
+                }
                 if let lead {
                     Text(lead).tw(13, lh: 18).foregroundStyle(p.mutedFg)
                         .frame(maxWidth: 600, alignment: .leading).fixedSize(horizontal: false, vertical: true)
@@ -2066,5 +2087,22 @@ extension Effort {
         case .xhigh: "Очень"
         case .max: "Максимум"
         }
+    }
+}
+
+/// «Бета» у недоделанного (Рома, 26.10): жёлтая метка — этим пока не занимались, а не «не работает»
+struct BetaBadge: View {
+    var large = false
+    private static let amber = Color(red: 0.95, green: 0.72, blue: 0.18)
+
+    var body: some View {
+        Text("Бета")
+            .font(.geist(large ? 12 : 10.5, .semibold))
+            .foregroundStyle(Self.amber)
+            .padding(.horizontal, large ? 7 : 5).frame(height: large ? 20 : 16)
+            .background(Self.amber.opacity(0.16), in: Capsule())
+            .overlay(Capsule().strokeBorder(Self.amber.opacity(0.35)))
+            .fixedSize()
+            .help("Бета: работает, но пока не доводится до конца")
     }
 }

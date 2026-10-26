@@ -32,6 +32,8 @@ public struct AppPaths: Sendable {
     public var projects: URL { root.appendingPathComponent("projects", isDirectory: true) }
     /// Копии вложений (картинки и файлы из сообщений)
     public var attachments: URL { root.appendingPathComponent("attachments", isDirectory: true) }
+    /// Макеты «как в Фигме» (.fig), которые агент собирает в браузере сбоку, а человек правит
+    public var designs: URL { root.appendingPathComponent("designs", isDirectory: true) }
     /// Сокет встроенного браузера: lumen-mcp передаёт сюда действия агентов
     public var browserSocket: URL { run.appendingPathComponent("browser.sock") }
     /// Плагины Claude Code (их навыки, агенты, хуки, коннекторы): Lumen выключает их в своих сессиях — список id

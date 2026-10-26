@@ -37,6 +37,12 @@ cp "$BIN/lumen-mcp" "$APP/Contents/MacOS/lumen-mcp"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp -R Resources/Fonts Resources/Icons "$APP/Contents/Resources/"
 cp build/icon-out/AppIcon.icns build/icon-out/Assets.car "$APP/Contents/Resources/"
+# редактор макетов (OpenPencil, MIT): собирается отдельно tools/design/build.sh, без него макетов просто нет
+if [ -f build/design/index.html ]; then
+    ditto build/design "$APP/Contents/Resources/Design"
+else
+    echo "==> нет build/design — макеты не войдут в сборку (tools/design/build.sh)"
+fi
 # ресурсы пакетов (GRDB кладёт свой бандл с PrivacyInfo)
 for b in "$BIN"/*.bundle; do [ -e "$b" ] && cp -R "$b" "$APP/Contents/Resources/"; done
 # автообновление: Sparkle.framework рядом с программой (rpath @executable_path/../Frameworks)

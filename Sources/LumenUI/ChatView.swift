@@ -762,7 +762,9 @@ struct MessageRow: View {
                             .font(.geist(12)).foregroundStyle(p.mutedFg).lineLimit(2)
                     }
                     // как в Claude Code: абзац — шаги — абзац; блок «что дальше» пока пишется — не показывать сырым
-                    let pieces = AnswerPiece.layout(text: NextStep.split(message.text).text, steps: message.steps)
+                    // список «Источники: …» из текста убран, если те же страницы показаны карточками внизу (Рома, 26.10)
+                    let bodyText = NextStep.split(message.text).text
+                    let pieces = AnswerPiece.layout(text: sources.isEmpty ? bodyText : SourceLinks.withoutListing(bodyText), steps: message.steps)
                     ForEach(Array(pieces.enumerated()), id: \.offset) { i, piece in
                         let last = i == pieces.count - 1
                         switch piece {

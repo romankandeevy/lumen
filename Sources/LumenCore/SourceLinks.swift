@@ -74,6 +74,50 @@ public enum SourceLinks {
         return found
     }
 
+    /// Ответ кончается списком «Источники: • ссылка¹ • ссылка²» — те же страницы уже показаны карточками под ответом,
+    /// поэтому список из текста убирается (Рома, 26.10). Режется только хвост: заголовок «Источники» (или Sources, Ссылки),
+    /// а под ним одни пункты со ссылками. Всё остальное остаётся как написано.
+    public static func withoutListing(_ text: String) -> String {
+        var lines = text.components(separatedBy: "\n")
+        while let last = lines.last, last.trimmingCharacters(in: .whitespaces).isEmpty { lines.removeLast() }
+        var i = lines.count
+        var items = 0
+        while i > 0 {
+            let t = lines[i - 1].trimmingCharacters(in: .whitespaces)
+            if t.isEmpty { i -= 1; continue }
+            guard isListItem(t), t.contains("http") else { break }
+            items += 1
+            i -= 1
+        }
+        guard items > 0, i > 0 else { return text }
+        // над списком — заголовок («Источники:», «**Источники**», «## Источники»)
+        var h = i
+        while h > 0, lines[h - 1].trimmingCharacters(in: .whitespaces).isEmpty { h -= 1 }
+        guard h > 0, isSourcesHeading(lines[h - 1]) else { return text }
+        var kept = Array(lines[0..<(h - 1)])
+        while let last = kept.last, last.trimmingCharacters(in: .whitespaces).isEmpty { kept.removeLast() }
+        return kept.joined(separator: "\n")
+    }
+
+    private static func isListItem(_ t: String) -> Bool {
+        if t.hasPrefix("- ") || t.hasPrefix("* ") || t.hasPrefix("• ") || t.hasPrefix("+ ") { return true }
+        // «1. », «2) »
+        var digits = 0
+        for ch in t {
+            if ch.isNumber { digits += 1; continue }
+            return digits > 0 && digits <= 3 && (ch == "." || ch == ")") && t.dropFirst(digits + 1).first == " "
+        }
+        return false
+    }
+
+    private static func isSourcesHeading(_ line: String) -> Bool {
+        var t = line.trimmingCharacters(in: .whitespaces)
+        while t.hasPrefix("#") { t.removeFirst() }
+        t = t.trimmingCharacters(in: CharacterSet(charactersIn: "*_: \t"))
+        let low = t.lowercased()
+        return ["источники", "источники и ссылки", "ссылки", "ссылки на источники", "sources", "references", "links"].contains(low)
+    }
+
     private static func isWeb(_ url: String) -> Bool {
         guard let u = URL(string: url), let host = u.host, host.contains(".") else { return false }
         return ["http", "https"].contains(u.scheme?.lowercased() ?? "")

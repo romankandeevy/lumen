@@ -17,7 +17,7 @@ public final class AppModel {
     var urlSession: URLSession = .shared
 
     var profile: Profile
-    var prefs: Preferences
+    var prefs: Preferences { didSet { browserOptionsFromPrefs() } }
     /// «Характер»: как Lumen говорит, думает и действует (Persona.swift) — в инструкциях чата и агента
     var persona: Persona
     /// Ширина панелей — отдельно от настроек: пока тянут, перерисовывается только панель, сохраняется в конце
@@ -33,6 +33,10 @@ public final class AppModel {
         }
     }
     var browserWidth: Double = 620
+    /// Браузер развёрнут на всё окно (⌥⌘B)
+    var browserFull = false
+    @ObservationIgnored var tabsSaveTask: Task<Void, Never>?
+    @ObservationIgnored var browserWired = false
     @ObservationIgnored var browserServer: BrowserServer?
     /// «Ночь»: Мак не засыпает, будильник на утро (Autonomy.swift)
     @ObservationIgnored var nightActivity: NSObjectProtocol?

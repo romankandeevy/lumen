@@ -215,3 +215,26 @@ import Testing
     #expect(FileMarks.strip(draft, keeping: ["b2"]) == "поправь заголовок\n\(second)а тут цвета")
     #expect(!FileMarks.hasFiles("просто текст"))
 }
+
+@Test func answerEndsWithoutTheSourcesListWhenCardsShowIt() {
+    let list = """
+    Вывод: ставь Dots, Grok пока слабее.
+
+    Источники:
+
+    - [OpenAI launches Dots](https://a.dev/dots)
+    - [Grok Bot vs ChatGPT](https://b.dev/grok)
+    - [Pricing 2026](https://c.dev/price)
+    """
+    #expect(SourceLinks.withoutListing(list) == "Вывод: ставь Dots, Grok пока слабее.")
+    // жирный и решётки в заголовке, нумерованный список
+    #expect(SourceLinks.withoutListing("Текст.\n\n**Источники**\n1. https://a.dev/x\n2. https://b.dev/y\n") == "Текст.")
+    #expect(SourceLinks.withoutListing("Текст.\n\n## Sources\n- [a](https://a.dev)") == "Текст.")
+    // не трогаем: нет заголовка, список не про ссылки, список не в конце, обычные пункты со ссылкой в середине
+    #expect(SourceLinks.withoutListing("Текст.\n\n- [a](https://a.dev)\n- [b](https://b.dev)") == "Текст.\n\n- [a](https://a.dev)\n- [b](https://b.dev)")
+    #expect(SourceLinks.withoutListing("Источники:\n- первый пункт\n- второй") == "Источники:\n- первый пункт\n- второй")
+    let middle = "Источники:\n- [a](https://a.dev)\n\nА теперь вывод."
+    #expect(SourceLinks.withoutListing(middle) == middle)
+    // ссылка в тексте ответа остаётся
+    #expect(SourceLinks.withoutListing("См. [доки](https://a.dev).\n\nИсточники:\n- [доки](https://a.dev)") == "См. [доки](https://a.dev).")
+}

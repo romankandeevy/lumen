@@ -136,6 +136,14 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var textScale: Double = 1
     /// Браузер выезжает сам, когда агент открывает страницу или показывает макет
     public var browserAutoOpen = true
+    /// Браузер сначала спрашивает человека, когда агент хочет оплатить, купить, заказать, удалить или опубликовать
+    public var browserAsk = true
+    /// Сохранённые входы подставляются сами, как только агент (или человек) попадает на страницу входа
+    public var browserAutoLogin = true
+    /// Не грузить известную рекламу и трекеры: страницы открываются быстрее
+    public var browserAdBlock = true
+    /// Курсор агента, рамка и свечение на странице
+    public var browserAgentCursor = true
     /// Ссылки из переписки — в браузер сбоку или в свой (Рома, 18.10). ⌘-клик — в другое место
     public var linkTarget = LinkTarget.side
     /// Свои цвета поверх темы: ключ — «id темы|light» или «id темы|dark»
@@ -241,6 +249,10 @@ public struct Preferences: Codable, Sendable, Equatable {
         chatFont = (try? c.decodeIfPresent(ChatFont.self, forKey: .chatFont)) ?? .geist
         textScale = (try? c.decodeIfPresent(Double.self, forKey: .textScale)) ?? 1
         browserAutoOpen = (try? c.decodeIfPresent(Bool.self, forKey: .browserAutoOpen)) ?? true
+        browserAsk = (try? c.decodeIfPresent(Bool.self, forKey: .browserAsk)) ?? true
+        browserAutoLogin = (try? c.decodeIfPresent(Bool.self, forKey: .browserAutoLogin)) ?? true
+        browserAdBlock = (try? c.decodeIfPresent(Bool.self, forKey: .browserAdBlock)) ?? true
+        browserAgentCursor = (try? c.decodeIfPresent(Bool.self, forKey: .browserAgentCursor)) ?? true
         linkTarget = (try? c.decodeIfPresent(LinkTarget.self, forKey: .linkTarget)) ?? .side
         themeOverrides = (try? c.decodeIfPresent([String: ThemeOverrides].self, forKey: .themeOverrides)) ?? [:]
         separateModes = (try? c.decodeIfPresent(Bool.self, forKey: .separateModes)) ?? false

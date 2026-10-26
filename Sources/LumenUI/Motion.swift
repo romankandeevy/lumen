@@ -7,4 +7,8 @@ enum Motion {
     static let panel = Animation.smooth(duration: 0.32)
     /// Смена страницы: чат, кастомизация, память, артефакты…
     static let page = Animation.smooth(duration: 0.26)
+    /// Курсор агента в браузере: быстро трогается и мягко садится на цель
+    static let cursor = Animation.spring(response: 0.42, dampingFraction: 0.84)
+    /// Рамка вокруг элемента, который трогает агент
+    static let highlight = Animation.smooth(duration: 0.22)
 }

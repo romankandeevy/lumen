@@ -1,0 +1,136 @@
+diff --git a/src/app/automation/bridge/embed.ts b/src/app/automation/bridge/embed.ts
+new file mode 100644
+index 0000000..a68029a
+--- /dev/null
++++ b/src/app/automation/bridge/embed.ts
+@@ -0,0 +1,4 @@
++/** Opened inside Lumen's built-in browser (`/?lumen=<token>`): no welcome, no file-API banner, agents keep their Lumen names. */
++export function isLumenEmbed(): boolean {
++  return typeof location !== 'undefined' && new URLSearchParams(location.search).has('lumen')
++}
+diff --git a/src/app/automation/bridge/lumen.ts b/src/app/automation/bridge/lumen.ts
+new file mode 100644
+index 0000000..6a22e3c
+--- /dev/null
++++ b/src/app/automation/bridge/lumen.ts
+@@ -0,0 +1,60 @@
++/**
++ * Lumen bridge (added for the Lumen macOS app, not part of upstream OpenPencil).
++ *
++ * When the editor is opened inside Lumen's built-in browser as `/?lumen=<token>`, the same command
++ * handlers the MCP bridge uses are exposed on `window.lumenDesign`, so Lumen's agent can build and
++ * edit designs in the live editor the person sees. Files go through Lumen's local server (`/files/`).
++ */
++import { toJsonSchema } from '@valibot/to-json-schema'
++
++import { ALL_TOOLS, isToolExposed } from '@open-pencil/core/tools'
++
++import { makeFigmaFromStore } from '@/app/automation/bridge/figma-factory'
++import { createAutomationCommandHandlers } from '@/app/automation/bridge/handlers'
++import { automationFiles } from '@/app/automation/bridge/server'
++import SYSTEM_PROMPT from '@/app/ai/chat/system-prompt'
++import { getActiveStore } from '@/app/tabs'
++
++type LumenWindow = Window & {
++  lumenDesign?: unknown
++  webkit?: { messageHandlers?: Record<string, { postMessage: (body: unknown) => void } | undefined> }
++}
++
++const LUMEN_AGENT = { session: 'lumen-agent', kind: 'mcp' as const, client: 'Lumen' }
++
++export { isLumenEmbed } from '@/app/automation/bridge/embed'
++
++export function exposeLumenBridge() {
++  const token = new URLSearchParams(location.search).get('lumen')
++  if (!token) return
++  const w = window as LumenWindow
++  const { handleRequest } = createAutomationCommandHandlers(makeFigmaFromStore, automationFiles(location.origin, token))
++  const post = (body: unknown) => w.webkit?.messageHandlers?.lumenDesign?.postMessage(body)
++
++  w.lumenDesign = {
++    /** Any bridge command: tool, eval, export, selection, save_file, open_file, new_document, undo… */
++    call: (command: string, args: unknown) => handleRequest(getActiveStore(), command, args ?? {}),
++    /** One design tool by name, shown in the editor as Lumen's agent (cursor and outline). */
++    tool: (name: string, args: unknown, who?: string) =>
++      handleRequest(getActiveStore(), 'tool', {
++        name,
++        args: args ?? {},
++        agent: { ...LUMEN_AGENT, client: who || LUMEN_AGENT.client }
++      }),
++    /** Tool catalog for the agent: names, descriptions, JSON schemas of inputs. */
++    tools: () =>
++      ALL_TOOLS.filter((t) => isToolExposed(t, 'mcp')).map((t) => {
++        let schema: unknown = {}
++        try {
++          schema = toJsonSchema(t.input, { errorMode: 'ignore' })
++        } catch {
++          schema = {}
++        }
++        return { name: t.name, description: t.description, mutates: t.mutates, schema }
++      }),
++    /** How to author designs: the built-in assistant's guide and the JSX renderer reference. */
++    guide: () => SYSTEM_PROMPT,
++    ready: true
++  }
++  post({ type: 'ready' })
++}
+diff --git a/src/app/presence/registry.ts b/src/app/presence/registry.ts
+index 5663a40..b031657 100644
+--- a/src/app/presence/registry.ts
++++ b/src/app/presence/registry.ts
+@@ -1,5 +1,6 @@
+ import { shallowRef, type ShallowRef } from 'vue'
+ 
++import { isLumenEmbed } from '@/app/automation/bridge/embed'
+ import { AI_ACTIVE_COLOR } from '@open-pencil/core/constants'
+ import { computeContentBounds } from '@open-pencil/core/io/formats/raster'
+ import type { Color } from '@open-pencil/scene-graph/primitives'
+@@ -370,7 +371,8 @@ export function addAgent(store: EditorStore, kind: AgentKind, model?: string): A
+   ])
+   const agent: AgentPresence = {
+     id: randomHex(8),
+-    name: pickCallsign(taken),
++    // inside Lumen the agent is shown under its own name (the Lumen bot), not a random callsign
++    name: isLumenEmbed() && model ? model : pickCallsign(taken),
+     kind,
+     model,
+     status: 'idle'
+diff --git a/src/views/WorkspaceView.vue b/src/views/WorkspaceView.vue
+index 16c2858..4fda4e4 100644
+--- a/src/views/WorkspaceView.vue
++++ b/src/views/WorkspaceView.vue
+@@ -1,4 +1,5 @@
+ <script setup lang="ts">
++import { exposeLumenBridge, isLumenEmbed } from '@/app/automation/bridge/lumen'
+ import { useHead } from '@unhead/vue'
+ import { useEventListener, whenever } from '@vueuse/core'
+ import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue'
+@@ -134,7 +135,7 @@ function openFirstTab(): Tab {
+ // A first visit to the demo link is a first run too; the welcome there skips the tour offer.
+ const welcomeShown =
+   createdInitialTab && (route.path === '/' || route.meta.demo) && !appRuntimeConfig.test
+-    ? offerAISetupOnFirstRun({ inTour: route.meta.demo === true })
++    ? !isLumenEmbed() && offerAISetupOnFirstRun({ inTour: route.meta.demo === true })
+     : false
+ const sharingStarted = startSharing()
+ // One question per surface: a first run is asked about usage stats once the welcome closes.
+@@ -255,7 +256,9 @@ let stopWebMCP: (() => void) | undefined
+ 
+ onMounted(async () => {
+   stopWebMCP = startWebMCP(getActiveStore)
+-  await startMCPRuntime(getActiveStore)
++  // inside Lumen the agent talks through window.lumenDesign, not the local MCP server
++  if (isLumenEmbed()) exposeLumenBridge()
++  else await startMCPRuntime(getActiveStore)
+ 
+   try {
+     await bindAssociatedFileOpen()
+@@ -295,7 +298,7 @@ onUnmounted(() => {
+ 
+ <template>
+   <div data-test-id="editor-root" class="flex h-screen w-screen flex-col">
+-    <FileApiBanner />
++    <FileApiBanner v-if="!isLumenEmbed()" />
+     <ColorSpaceBanner />
+     <FontStatusBanner />
+     <RenameSelectionDialog />

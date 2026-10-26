@@ -71,15 +71,20 @@ public struct RootView: View {
             .coordinateSpace(name: "main")
             .onPreferenceChange(SkyAnchorKey.self) { if let c = $0 { skyCenter = c } }
             .background { if app.prefs.skyBackground { Sky(start: skyStart, center: skyCenter).ignoresSafeArea() } }
-            if app.browserOpen { BrowserPane(app: app, browser: app.browser).transition(.move(edge: .trailing)) }
+            if app.browserOpen && !app.browserFull { BrowserPane(app: app, browser: app.browser).transition(.move(edge: .trailing)) }
         }
         .environment(\.windowWidth, g.size.width)
         }
         .ignoresSafeArea(.container, edges: .top)
         .animation(app.lessMotion ? nil : Motion.panel, value: app.prefs.sidebarHidden)
         .animation(app.lessMotion ? nil : Motion.panel, value: app.browserOpen)
+        .animation(app.lessMotion ? nil : Motion.panel, value: app.browserFull)
         // агент открыл страницу или показал макет — браузер выезжает сам
         .onChange(of: app.browser.wantsOpen) { if !app.browserOpen && app.prefs.browserAutoOpen { app.browserOpen = true } }
+        // агент ждёт «Разрешить» — панель открывается всегда, иначе карточку не увидеть
+        .onChange(of: app.browser.mustOpen) { if !app.browserOpen { app.browserOpen = true } }
+        // макет — на всё окно: редактору нужно место под слои и свойства
+        .onChange(of: app.browser.wantsFull) { app.browserOpen = true; app.browserFull = true }
         .task { app.startBrowser() }
         // живая картинка из переписки — «открыть сбоку»
         .onReceive(NotificationCenter.default.publisher(for: .lumenOpenInBrowser)) { n in
@@ -91,6 +96,13 @@ public struct RootView: View {
             app.openLink(u, alternate: NSEvent.modifierFlags.contains(.command))
             return .handled
         })
+        // браузер на всё окно: поверх чата (чат под ним не перестраивается), кнопки окна остаются выше
+        .overlay {
+            if app.browserOpen && app.browserFull {
+                BrowserPane(app: app, browser: app.browser, full: true)
+                    .transition(.opacity.combined(with: .scale(scale: 0.985)))
+            }
+        }
         // кнопки «панель» и «поиск» — рядом с кнопками окна и не двигаются, открыта панель или нет (Рома, 25.10):
         // передумал — нажимаешь туда же. Панель выезжает под ними
         .overlay(alignment: .topLeading) {
@@ -115,6 +127,13 @@ public struct RootView: View {
                 Button("") { app.browser.webView.reload() }.keyboardShortcut("r", modifiers: .command)
                 Button("") { app.browser.webView.goBack() }.keyboardShortcut("[", modifiers: .command)
                 Button("") { app.browser.webView.goForward() }.keyboardShortcut("]", modifiers: .command)
+                Button("") { app.toggleBrowserFull() }.keyboardShortcut("b", modifiers: [.command, .option])
+                // поиск по странице и масштаб — когда браузер открыт и страница в фокусе
+                Button("") { if app.browserOpen { app.browser.openFind() } }.keyboardShortcut("f", modifiers: .command)
+                Button("") { if app.browserOpen { app.browser.zoom(by: 0.1) } }.keyboardShortcut("=", modifiers: .command)
+                Button("") { if app.browserOpen { app.browser.zoom(by: 0.1) } }.keyboardShortcut("+", modifiers: .command)
+                Button("") { if app.browserOpen { app.browser.zoom(by: -0.1) } }.keyboardShortcut("-", modifiers: .command)
+                Button("") { if app.browserOpen { app.browser.zoom(by: nil) } }.keyboardShortcut("0", modifiers: .command)
             }
             .opacity(0)
         }
