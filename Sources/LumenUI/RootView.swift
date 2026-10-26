@@ -94,7 +94,7 @@ public struct RootView: View {
         // кнопки «панель» и «поиск» — рядом с кнопками окна и не двигаются, открыта панель или нет (Рома, 25.10):
         // передумал — нажимаешь туда же. Панель выезжает под ними
         .overlay(alignment: .topLeading) {
-            WindowControls(app: app).padding(.leading, 84).padding(.top, -2).ignoresSafeArea()
+            WindowControls(app: app).padding(.leading, 74).padding(.top, -2).ignoresSafeArea()
         }
         .overlay { MenuLayer(app: app) }
         .overlay { if app.searchOpen { SearchLayer(app: app).transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top))) } }
