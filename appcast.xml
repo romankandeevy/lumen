@@ -13,7 +13,6 @@
             <sparkle:shortVersionString>1.6.4</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:releaseNotesLink>https://github.com/romankandeevy/lumen/releases/tag/v1.6.4</sparkle:releaseNotesLink>
-            <sparkle:channel>beta</sparkle:channel>
             <enclosure url="https://github.com/romankandeevy/lumen/releases/download/v1.6.4/Lumen-1.6.4.zip" sparkle:edSignature="aTKo6NxDiPw//NeQdjznS6fgkL4MugDzg8BSWLVNoReXUqjCdFSSafGf5WyhCFkK9Vrp9UMji9DJmm2xCqOsCg==" length="16683057" type="application/octet-stream"/>
         </item>
         <item>
@@ -23,7 +22,6 @@
             <sparkle:shortVersionString>1.6.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:releaseNotesLink>https://github.com/romankandeevy/lumen/releases/tag/v1.6.3</sparkle:releaseNotesLink>
-            <sparkle:channel>beta</sparkle:channel>
             <enclosure url="https://github.com/romankandeevy/lumen/releases/download/v1.6.3/Lumen-1.6.3.zip" sparkle:edSignature="qlmDLKtnLStG4r4kQmXOcmXSFPgLCB4G2VuIqpoMBjcHWuusuVZJGMsXSaMb266AwJydcXb0NR4r8r8Gxv4mAA==" length="16641165" type="application/octet-stream"/>
         </item>
         <item>
@@ -33,7 +31,6 @@
             <sparkle:shortVersionString>1.6.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:releaseNotesLink>https://github.com/romankandeevy/lumen/releases/tag/v1.6.2</sparkle:releaseNotesLink>
-            <sparkle:channel>beta</sparkle:channel>
             <enclosure url="https://github.com/romankandeevy/lumen/releases/download/v1.6.2/Lumen-1.6.2.zip" sparkle:edSignature="jz4ChIk2ppllL23NuSCENQYXXQ3acMpfkZFSxigxJtfZLZz7uOh/e05HsaWe3tYZNv90kB/tAoe2vZ4+rGOYDA==" length="16638404" type="application/octet-stream"/>
         </item>
         <item>
