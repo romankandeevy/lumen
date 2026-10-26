@@ -254,9 +254,13 @@ final class BrowserModel: NSObject {
             guard let self, let w else { return }
             MainActor.assumeIsolated { self.extend(menu, for: w) }
         }
-        w.dropHook = { [weak self] urls in
+        w.dropHook = { [weak self, weak w] urls in
             guard let self else { return false }
-            return MainActor.assumeIsolated { self.onDropFiles?(urls) ?? false }
+            return MainActor.assumeIsolated {
+                // макет и 3D принимают брошенные файлы сами (импорт моделей, картинок, .fig)
+                if let t = self.tabs.first(where: { $0.web === w }), self.isDesign(t) || self.isModel(t) || self.pendingEditors[t.id] != nil { return false }
+                return self.onDropFiles?(urls) ?? false
+            }
         }
         tab.observers = [
             w.observe(\.title) { [weak tab, weak self] v, _ in
@@ -1612,6 +1616,32 @@ extension BrowserModel: WKUIDelegate, WKNavigationDelegate {
         a.addButton(withTitle: "OK")
         a.addButton(withTitle: "Отмена")
         return a.runModal() == .alertFirstButtonReturn ? field.stringValue : nil
+    }
+
+    /// Выбор файла на странице (<input type=file>: «Импорт» в 3D и макетах, загрузка на сайтах) — обычное окно macOS.
+    /// Пока работает агент, окно не открывается: файлы он загружает через browser_upload
+    func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo) async -> [URL]? {
+        if acting > 0 {
+            events.append("Страница открыла выбор файла — отменено. Загрузить файлы — browser_upload по метке поля.")
+            return nil
+        }
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+        panel.canChooseDirectories = parameters.allowsDirectories
+        panel.canChooseFiles = true
+        panel.prompt = "Выбрать"
+        if let window = webView.window, !BrowserStage.shared.holds(webView) {
+            let r = await withCheckedContinuation { (c: CheckedContinuation<NSApplication.ModalResponse, Never>) in
+                panel.beginSheetModal(for: window) { c.resume(returning: $0) }
+            }
+            return r == .OK ? panel.urls : nil
+        }
+        return panel.runModal() == .OK ? panel.urls : nil
+    }
+
+    /// Ссылка «скачать» (<a download>, экспорт из 3D и макетов) — в «Загрузки», а не переход на страницу
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, preferences: WKWebpagePreferences) async -> (WKNavigationActionPolicy, WKWebpagePreferences) {
+        navigationAction.shouldPerformDownload ? (.download, preferences) : (.allow, preferences)
     }
 
     /// Загрузка файлов — в «Загрузки»

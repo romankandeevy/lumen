@@ -557,3 +557,23 @@ private let checkout = """
     #expect(saved.tabs.count == 3)
     #expect(saved.tabs[saved.active].url.hasSuffix("?c"), "\(saved)")
 }
+
+
+@MainActor @Test func downloadLinksGoToDownloadsInsteadOfNavigating() async throws {
+    let name = "lumen-test-\(UUID().uuidString.prefix(6)).txt"
+    let page = "<!doctype html><meta charset=utf-8><title>Экспорт</title><a id=d download=\"\(name)\" href=\"data:text/plain;charset=utf-8,hello\">Скачать модель</a>"
+    let lab = try await Lab.make(["export.html": page])
+    defer {
+        lab.stop()
+        try? FileManager.default.removeItem(at: FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0].appendingPathComponent(name))
+    }
+    let b = lab.browser
+    _ = await lab.call("browser_navigate", ["url": "\(lab.base)/export.html"])
+    let read = await lab.call("browser_read_page", ["filter": "interactive"])
+    let link = try #require(Lab.ref(read.text, "Скачать модель"))
+    _ = await lab.call("browser_click", ["ref": link])
+    for _ in 0..<50 where !(b.downloadItems.first?.state == .done) { try await Task.sleep(for: .milliseconds(100)) }
+    #expect(b.downloadItems.first?.name == name, "\(b.downloadItems.map(\.name))")
+    #expect(b.downloadItems.first?.state == .done)
+    #expect(b.workTab.url.hasSuffix("export.html"), "страница не ушла на data:-адрес")
+}

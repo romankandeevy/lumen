@@ -107,7 +107,7 @@ index 314fd6c..01dddcd 100644
  		historyChanged: new Signal(),
  
 diff --git a/editor/js/EditorControls.js b/editor/js/EditorControls.js
-index 7ad14fe..317c6cf 100644
+index 7ad14fe..223efc8 100644
 --- a/editor/js/EditorControls.js
 +++ b/editor/js/EditorControls.js
 @@ -124,6 +124,28 @@ class EditorControls extends THREE.EventDispatcher {
@@ -139,7 +139,83 @@ index 7ad14fe..317c6cf 100644
  		this.rotate = function ( delta ) {
  
  			vector.copy( object.position ).sub( center );
-@@ -284,8 +306,49 @@ class EditorControls extends THREE.EventDispatcher {
+@@ -229,7 +251,16 @@ class EditorControls extends THREE.EventDispatcher {
+ 
+ 		function onMouseDown( event ) {
+ 
+-			if ( event.button === 0 ) {
++			if ( event.button === 0 && ( event.shiftKey || event.altKey ) ) {
++
++				// trackpad has one button: shift- or ⌥-drag moves the view
++				state = STATE.PAN;
++
++			} else if ( event.button === 0 && event.metaKey ) {
++
++				state = STATE.ZOOM;
++
++			} else if ( event.button === 0 ) {
+ 
+ 				state = STATE.ROTATE;
+ 
+@@ -247,12 +278,21 @@ class EditorControls extends THREE.EventDispatcher {
+ 
+ 		}
+ 
++		let moveFrame = 0;
++
+ 		function onMouseMove( event ) {
+ 
+ 			pointer.set( event.clientX, event.clientY );
++			if ( ! moveFrame ) moveFrame = requestAnimationFrame( applyMouseMove );
++
++		}
++
++		function applyMouseMove() {
+ 
++			moveFrame = 0;
+ 			var movementX = pointer.x - pointerOld.x;
+ 			var movementY = pointer.y - pointerOld.y;
++			if ( movementX === 0 && movementY === 0 ) return;
+ 
+ 			if ( state === STATE.ROTATE ) {
+ 
+@@ -268,7 +308,7 @@ class EditorControls extends THREE.EventDispatcher {
+ 
+ 			}
+ 
+-			pointerOld.set( event.clientX, event.clientY );
++			pointerOld.set( pointer.x, pointer.y );
+ 
+ 		}
+ 
+@@ -278,14 +318,81 @@ class EditorControls extends THREE.EventDispatcher {
+ 
+ 		}
+ 
++		// Trackpads send several wheel events per frame: they are summed and applied once per frame,
++		// so the scene is drawn once and the camera moves evenly
++		const wheelSum = { zoom: 0, panX: 0, panY: 0, orbitX: 0, orbitY: 0 };
++		let wheelFrame = 0;
++
++		function flushWheel() {
++
++			wheelFrame = 0;
++			if ( wheelSum.zoom ) scope.zoomScale( Math.exp( Math.max( - 0.8, Math.min( 0.8, wheelSum.zoom ) ) ) );
++			if ( wheelSum.panX || wheelSum.panY ) scope.pan( delta.set( wheelSum.panX, wheelSum.panY, 0 ) );
++			if ( wheelSum.orbitX || wheelSum.orbitY ) scope.rotate( delta.set( wheelSum.orbitX, wheelSum.orbitY, 0 ) );
++			wheelSum.zoom = wheelSum.panX = wheelSum.panY = wheelSum.orbitX = wheelSum.orbitY = 0;
++
++		}
++
++		function queueWheel() {
++
++			if ( ! wheelFrame ) wheelFrame = requestAnimationFrame( flushWheel );
++
++		}
++
+ 		function onMouseWheel( event ) {
+ 
+ 			if ( scope.enabled === false ) return;
  
  			event.preventDefault();
  
@@ -156,19 +232,23 @@ index 7ad14fe..317c6cf 100644
 +
 +				// pinch on a trackpad comes as ctrl + wheel; ⌘ + scroll and the mouse wheel zoom too
 +				const k = event.ctrlKey ? 0.01 : 0.0022;
-+				scope.zoomScale( Math.exp( Math.max( - 0.6, Math.min( 0.6, dy * k ) ) ) );
++				wheelSum.zoom += dy * k;
 +
-+			} else if ( event.shiftKey ) {
++			} else if ( event.shiftKey || event.altKey ) {
 +
-+				// shift + two fingers: move the view (as in Blender)
-+				scope.pan( delta.set( dx, - dy, 0 ) );
++				// shift (or ⌥) + two fingers: move the view (as in Blender)
++				wheelSum.panX += dx;
++				wheelSum.panY -= dy;
 +
 +			} else {
 +
 +				// two fingers: orbit around the center (as in Blender on a trackpad)
-+				scope.rotate( delta.set( dx, dy, 0 ) );
++				wheelSum.orbitX += dx;
++				wheelSum.orbitY += dy;
 +
 +			}
++
++			queueWheel();
 +
 +		}
 +
@@ -186,12 +266,13 @@ index 7ad14fe..317c6cf 100644
 +
 +			if ( scope.enabled === false ) return;
 +			event.preventDefault();
-+			scope.zoomScale( gestureScale / event.scale );
++			wheelSum.zoom += Math.log( gestureScale / event.scale );
 +			gestureScale = event.scale;
++			queueWheel();
  
  		}
  
-@@ -304,6 +367,8 @@ class EditorControls extends THREE.EventDispatcher {
+@@ -304,6 +411,8 @@ class EditorControls extends THREE.EventDispatcher {
  			domElement.addEventListener( 'contextmenu', contextmenu );
  			domElement.addEventListener( 'dblclick', onMouseUp );
  			domElement.addEventListener( 'wheel', onMouseWheel, { passive: false } );
@@ -200,7 +281,7 @@ index 7ad14fe..317c6cf 100644
  
  			domElement.addEventListener( 'pointerdown', onPointerDown );
  
-@@ -314,6 +379,8 @@ class EditorControls extends THREE.EventDispatcher {
+@@ -314,6 +423,8 @@ class EditorControls extends THREE.EventDispatcher {
  			domElement.removeEventListener( 'contextmenu', contextmenu );
  			domElement.removeEventListener( 'dblclick', onMouseUp );
  			domElement.removeEventListener( 'wheel', onMouseWheel );

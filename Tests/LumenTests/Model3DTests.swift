@@ -62,10 +62,11 @@ import WebKit
     // камера на трекпаде плавная: щипок — чуть ближе, два пальца — вращение без скачка расстояния, колесо мыши — заметный, но не 10 % за событие шаг
     let cam = try await tab.webView.callAsyncJavaScript("""
     const v = document.querySelector('#viewport canvas') || document.getElementById('viewport'), c = editor.viewportCamera, d = () => c.position.length();
+    const frame = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
     const fire = (o) => v.dispatchEvent(new WheelEvent('wheel', Object.assign({bubbles: true, cancelable: true, deltaMode: 0}, o)));
-    const d0 = d(); fire({deltaY: 4, ctrlKey: true}); const pinch = d() / d0;
-    const p0 = c.position.clone(), d1 = d(); fire({deltaX: 12, deltaY: 3}); const orbitMoved = c.position.distanceTo(p0), orbitDist = d() / d1;
-    const d2 = d(); fire({deltaY: 100}); const wheel = d() / d2;
+    const d0 = d(); fire({deltaY: 4, ctrlKey: true}); await frame(); const pinch = d() / d0;
+    const p0 = c.position.clone(), d1 = d(); fire({deltaX: 6, deltaY: 1}); fire({deltaX: 6, deltaY: 2}); await frame(); const orbitMoved = c.position.distanceTo(p0), orbitDist = d() / d1;
+    const d2 = d(); fire({deltaY: 100}); await frame(); const wheel = d() / d2;
     return [pinch, orbitMoved, orbitDist, wheel];
     """, contentWorld: .page) as? [Double] ?? []
     #expect(cam.count == 4, "\(cam)")
