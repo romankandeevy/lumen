@@ -53,6 +53,12 @@ import WebKit
     #expect(broken.error)
     #expect(broken.text.contains("nope"))
 
+    // правая панель сворачивается (клавиша N, «Вид → Боковая панель», ручка) — вид на всю ширину
+    let folded = try await tab.webView.callAsyncJavaScript("editor.signals.sidebarToggled.dispatch(); return [getComputedStyle(document.getElementById('sidebar')).display, document.getElementById('viewport').style.right]", contentWorld: .page) as? [String]
+    #expect(folded == ["none", "0px"], "\(String(describing: folded))")
+    let unfolded = try await tab.webView.callAsyncJavaScript("editor.signals.sidebarToggled.dispatch(); return getComputedStyle(document.getElementById('sidebar')).display", contentWorld: .page) as? String
+    #expect(unfolded != "none")
+
     let tree = await call("model3d_tree")
     #expect(tree.text.contains("Сиденье") && tree.text.contains("Спинка"), "\(tree.text.prefix(500))")
 

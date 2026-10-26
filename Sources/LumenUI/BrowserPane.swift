@@ -270,6 +270,10 @@ struct BrowserPane: View {
     @FocusState private var editing: Bool
 
     private var blank: Bool { browser.url.isEmpty || browser.url == "about:blank" }
+    /// Открыт макет или 3D: адрес у редактора не нужен — одна строка вкладок, всё место редактору (Рома, 26.10)
+    private var editorTab: Bool { browser.isDesign(browser.active) || browser.isModel(browser.active) }
+    /// Верхняя строка с адресом видна (не файл и не редактор)
+    private var showsToolbar: Bool { browser.active.file == nil && !editorTab }
 
     /// Подсказки под адресом: история и сохранённые ссылки, пока адрес правится
     private var suggestions: [(title: String, url: String)] {
@@ -286,7 +290,7 @@ struct BrowserPane: View {
     var body: some View {
         VStack(spacing: 0) {
             // сверху адрес на одном уровне с крестиком, под ним вкладки (Рома, 18.10). У файла адреса нет: вкладки, под ними шапка файла
-            if browser.active.file == nil { toolbar }
+            if showsToolbar { toolbar }
             tabBar
             p.border.frame(height: 1)
                 .overlay(alignment: .top) { LoadBar(loading: browser.loading && browser.active.file == nil, progress: browser.progress).offset(y: -0.5) }
@@ -321,7 +325,7 @@ struct BrowserPane: View {
         }
         // что сейчас делает агент — плашкой сверху над страницей (и над файлом), а не полосой, от которой всё прыгает вниз;
         // карточка «Разрешить» видна, какая бы вкладка ни была открыта
-        .overlay(alignment: .top) { AgentBar(browser: browser).padding(.top, browser.active.file == nil ? 80 : 36) }
+        .overlay(alignment: .top) { AgentBar(browser: browser).padding(.top, showsToolbar ? 80 : 36) }
         .frame(width: paneWidth)
         .frame(maxWidth: full ? .infinity : nil)
         // отдельный блок, как вкладка в Claude: скруглённая карточка с отступами от краёв окна
@@ -590,7 +594,15 @@ struct BrowserPane: View {
                 .animation(app.lessMotion ? nil : Motion.page, value: browser.tabs.map(\.id))
             }
             HStack(spacing: 0) {
-                if browser.isDesign(browser.active) || browser.isModel(browser.active) { designSendButton.transition(.scale.combined(with: .opacity)) }
+                if editorTab {
+                    // в редакторе — только нужное: выделенное в чат, «⋯», на всё окно, закрыть
+                    selectionSendButton
+                    moreMenu
+                    p.border.frame(width: 1, height: 16).padding(.horizontal, 4)
+                    BrowserTool(symbol: full ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                                help: full ? "Вернуть сбоку · ⌥⌘B" : "На всё окно · ⌥⌘B", active: full) { app.toggleBrowserFull() }
+                    BrowserTool(icon: "x", help: "Закрыть браузер · ⇧⌘B") { app.browserFull = false; app.browserOpen = false }
+                } else {
                 sendMenu
                 BrowserTool(icon: "key-round", help: "Входы в аккаунты", active: loginsOpen || browser.filledLogin != nil) { loginsOpen.toggle() }
                     .popover(isPresented: $loginsOpen, arrowEdge: .bottom) { LoginsPopover(app: app, browser: browser) { loginsOpen = false } }
@@ -602,10 +614,13 @@ struct BrowserPane: View {
                         .transition(.scale.combined(with: .opacity))
                 }
                 moreMenu
+                }
             }
             .padding(.horizontal, 4)
         }
-        .frame(height: 34)
+        // строка адреса спрятана, а браузер на всё окно — слева место под кнопки окна
+        .padding(.leading, full && !showsToolbar ? TitleBar.controlsX + 74 : 0)
+        .frame(height: showsToolbar ? 34 : 44)
         .animation(app.lessMotion ? nil : Motion.page, value: browser.downloadItems.isEmpty)
     }
 
@@ -630,21 +645,21 @@ struct BrowserPane: View {
             }
     }
 
-    /// В макете: выделенный слой одной кнопкой — в чат, с картинкой и id
-    private var designSendButton: some View {
+    /// В макете и 3D: выделенное одной кнопкой — в чат (с картинкой и id); значок, а не широкая плашка
+    private var selectionSendButton: some View {
         Button { if browser.isModel(browser.active) { app.sendModelSelection() } else { app.sendDesignSelection() } } label: {
-            HStack(spacing: 5) {
-                Icon("message-square", 12)
-                Text("Выделенное в чат").tw(12, .medium, lh: 16)
+            ZStack(alignment: .topTrailing) {
+                Icon("message-square", 14).foregroundStyle(p.glow)
+                Image(systemName: "arrow.up").font(.system(size: 7, weight: .bold)).foregroundStyle(p.onGlow)
+                    .frame(width: 11, height: 11).background(p.glow, in: Circle()).offset(x: 5, y: -4)
             }
-            .foregroundStyle(p.onGlow)
-            .padding(.horizontal, 10).frame(height: 24)
-            .background(p.glow, in: Capsule())
-            .contentShape(Capsule())
+            .frame(width: 26, height: 26)
+            .background(p.glow.opacity(0.12), in: RoundedRectangle(cornerRadius: R.md))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("Выдели слой в макете и нажми — он уйдёт в поле ввода с картинкой, останется написать, что поменять")
-        .padding(.trailing, 4)
+        .help("Выделенное — в чат: выдели слой или деталь и нажми; останется написать, что поменять")
+        .padding(.trailing, 2)
     }
 
     private var moreMenu: some View {

@@ -1,3 +1,38 @@
+diff --git a/editor/css/main.css b/editor/css/main.css
+index d1beb3a..cbcacdf 100644
+--- a/editor/css/main.css
++++ b/editor/css/main.css
+@@ -338,6 +338,30 @@ hr {
+ 		background-color: #08f;
+ 	}
+ 
++#sidebar-toggle {
++	position: absolute;
++	z-index: 3;
++	top: 50%;
++	right: 350px;
++	width: 20px;
++	height: 72px;
++	margin-top: -36px;
++	padding: 0;
++	border: none;
++	border-radius: 10px 0 0 10px;
++	background: rgba(0, 0, 0, 0.32);
++	color: #fff;
++	font: bold 18px/72px sans-serif;
++	cursor: pointer;
++	box-shadow: -1px 0 6px rgba(0, 0, 0, 0.18);
++	transition: background-color 0.15s, width 0.15s;
++}
++
++	#sidebar-toggle:hover {
++		width: 24px;
++		background: #08f;
++	}
++
+ #viewport {
+ 	position: absolute;
+ 	top: 36px;
 diff --git a/editor/index.html b/editor/index.html
 index ab351c4..e45f948 100644
 --- a/editor/index.html
@@ -59,6 +94,18 @@ index 5210b74..5e7327e 100644
  	}
  
  	return {
+diff --git a/editor/js/Editor.js b/editor/js/Editor.js
+index 314fd6c..01dddcd 100644
+--- a/editor/js/Editor.js
++++ b/editor/js/Editor.js
+@@ -84,6 +84,7 @@ function Editor() {
+ 		windowResize: new Signal(),
+ 
+ 		showHelpersChanged: new Signal(),
++		sidebarToggled: new Signal(),
+ 		refreshSidebarObject3D: new Signal(),
+ 		historyChanged: new Signal(),
+ 
 diff --git a/editor/js/Lumen.js b/editor/js/Lumen.js
 new file mode 100644
 index 0000000..450179e
@@ -442,6 +489,146 @@ index 0000000..450179e
 +	window.webkit?.messageHandlers?.lumen3D?.postMessage( { type: 'ready' } );
 +
 +}
+diff --git a/editor/js/Menubar.View.js b/editor/js/Menubar.View.js
+index 8e04f21..ab9573c 100644
+--- a/editor/js/Menubar.View.js
++++ b/editor/js/Menubar.View.js
+@@ -28,6 +28,23 @@ function MenubarView( editor ) {
+ 
+ 	};
+ 
++	// Sidebar (collapse to give the viewport the whole width; also the N key, as in Blender)
++
++	const sidebarOption = new UIRow().addClass( 'option' ).addClass( 'toggle' ).setTextContent( strings.getKey( 'menubar/view/sidebar' ) + '  N' ).onClick( function () {
++
++		signals.sidebarToggled.dispatch();
++
++	} ).toggleClass( 'toggle-on', true );
++
++	signals.sidebarToggled.add( function ( shown ) {
++
++		if ( shown !== undefined ) sidebarOption.toggleClass( 'toggle-on', shown );
++
++	} );
++
++	options.add( sidebarOption );
++	options.add( new UIHorizontalRule() );
++
+ 	// Grid Helper
+ 
+ 	let option = new UIRow().addClass( 'option' ).addClass( 'toggle' ).setTextContent( strings.getKey( 'menubar/view/gridHelper' ) ).onClick( function () {
+diff --git a/editor/js/Resizer.js b/editor/js/Resizer.js
+index c595e00..d2d5a89 100644
+--- a/editor/js/Resizer.js
++++ b/editor/js/Resizer.js
+@@ -7,6 +7,81 @@ function Resizer( editor ) {
+ 	const dom = document.createElement( 'div' );
+ 	dom.id = 'resizer';
+ 
++	// The right sidebar can be collapsed: a handle on its edge, View → Sidebar, or the N key (as in Blender)
++	const STORE = 'threejs-editor-sidebar';
++	let width = 350;
++	let shown = true;
++	try {
++
++		const saved = JSON.parse( localStorage.getItem( STORE ) || '{}' );
++		if ( typeof saved.width === 'number' ) width = Math.max( 335, saved.width );
++		if ( saved.shown === false ) shown = false;
++
++	} catch ( e ) { /* first run */ }
++
++	const handle = document.createElement( 'button' );
++	handle.id = 'sidebar-toggle';
++	handle.setAttribute( 'aria-label', 'Sidebar' );
++	document.body.appendChild( handle );
++
++	function apply( x ) {
++
++		const right = shown ? x : 0;
++		dom.style.right = right + 'px';
++		dom.style.display = shown ? '' : 'none';
++		const sidebar = document.getElementById( 'sidebar' );
++		if ( sidebar ) { sidebar.style.width = x + 'px'; sidebar.style.display = shown ? '' : 'none'; }
++		for ( const id of [ 'player', 'script', 'viewport', 'animation', 'animation-resizer' ] ) {
++
++			const el = document.getElementById( id );
++			if ( el ) el.style.right = right + 'px';
++
++		}
++
++		// Center toolbar in viewport area
++		const toolbar = document.getElementById( 'toolbar' );
++		if ( toolbar ) toolbar.style.left = ( ( document.body.offsetWidth - right ) / 2 ) + 'px';
++		handle.style.right = right + 'px';
++		handle.textContent = shown ? '›' : '‹';
++		handle.title = shown ? 'Hide sidebar (N)' : 'Show sidebar (N)';
++		try { localStorage.setItem( STORE, JSON.stringify( { width: x, shown } ) ); } catch ( e ) { /* private mode */ }
++		signals.windowResize.dispatch();
++
++	}
++
++	function toggle() {
++
++		shown = ! shown;
++		apply( width );
++		signals.sidebarToggled.dispatch( shown );
++
++	}
++
++	signals.sidebarToggled.add( function ( state ) {
++
++		if ( state === undefined ) toggle();
++
++	} );
++
++	handle.addEventListener( 'click', toggle );
++
++	document.addEventListener( 'keydown', function ( event ) {
++
++		const t = event.target;
++		if ( event.metaKey || event.ctrlKey || event.altKey ) return;
++		if ( t && ( t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable ) ) return;
++		if ( event.key === 'n' || event.key === 'N' || event.key === 'т' || event.key === 'Т' ) { event.preventDefault(); toggle(); }
++
++	} );
++
++	// the sidebar exists only after the editor has built its panels
++	requestAnimationFrame( function () {
++
++		apply( width );
++		if ( ! shown ) signals.sidebarToggled.dispatch( false );
++
++	} );
++
+ 	function onPointerDown( event ) {
+ 
+ 		if ( event.isPrimary === false ) return;
+@@ -36,23 +111,8 @@ function Resizer( editor ) {
+ 
+ 		const cX = clientX < 0 ? 0 : clientX > offsetWidth ? offsetWidth : clientX;
+ 
+-		const x = Math.max( 335, offsetWidth - cX ); // .TabbedPanel min-width: 335px
+-
+-		dom.style.right = x + 'px';
+-
+-		document.getElementById( 'sidebar' ).style.width = x + 'px';
+-		document.getElementById( 'player' ).style.right = x + 'px';
+-		document.getElementById( 'script' ).style.right = x + 'px';
+-		document.getElementById( 'viewport' ).style.right = x + 'px';
+-		document.getElementById( 'animation' ).style.right = x + 'px';
+-		document.getElementById( 'animation-resizer' ).style.right = x + 'px';
+-
+-		// Center toolbar in viewport area
+-		const toolbar = document.getElementById( 'toolbar' );
+-		const viewportWidth = offsetWidth - x;
+-		toolbar.style.left = ( viewportWidth / 2 ) + 'px';
+-
+-		signals.windowResize.dispatch();
++		width = Math.max( 335, offsetWidth - cX ); // .TabbedPanel min-width: 335px
++		apply( width );
+ 
+ 	}
+ 
 diff --git a/editor/js/Sidebar.Settings.js b/editor/js/Sidebar.Settings.js
 index 6756e5d..7ed9cd5 100644
 --- a/editor/js/Sidebar.Settings.js
@@ -456,10 +643,26 @@ index 6756e5d..7ed9cd5 100644
  		return [ locale, new Intl.DisplayNames( locale, { type: 'language' } ).of( locale ) ];
  
 diff --git a/editor/js/Strings.js b/editor/js/Strings.js
-index cc429b3..4a49e2b 100644
+index cc429b3..71ab914 100644
 --- a/editor/js/Strings.js
 +++ b/editor/js/Strings.js
-@@ -906,6 +906,460 @@ function Strings( config ) {
+@@ -98,6 +98,7 @@ function Strings( config ) {
+ 			'menubar/view': 'نمایش',
+ 			'menubar/view/fullscreen': 'تمام صفحه',
+ 			'menubar/view/gridHelper': 'کمک کننده گرید',
++			'menubar/view/sidebar': 'نوار کناری',
+ 			'menubar/view/cameraHelpers': 'کمک کننده دوربین',
+ 			'menubar/view/lightHelpers': 'کمک کننده نور',
+ 			'menubar/view/skeletonHelpers': 'کمک کننده اسکلتون',
+@@ -548,6 +549,7 @@ function Strings( config ) {
+ 			'menubar/view': 'View',
+ 			'menubar/view/fullscreen': 'Fullscreen',
+ 			'menubar/view/gridHelper': 'Grid Helper',
++			'menubar/view/sidebar': 'Sidebar',
+ 			'menubar/view/cameraHelpers': 'Camera Helpers',
+ 			'menubar/view/lightHelpers': 'Light Helpers',
+ 			'menubar/view/skeletonHelpers': 'Skeleton Helpers',
+@@ -906,6 +908,461 @@ function Strings( config ) {
  
  		},
  
@@ -559,6 +762,7 @@ index cc429b3..4a49e2b 100644
 +			'menubar/view': 'Вид',
 +			'menubar/view/fullscreen': 'Во весь экран',
 +			'menubar/view/gridHelper': 'Сетка',
++			'menubar/view/sidebar': 'Боковая панель',
 +			'menubar/view/cameraHelpers': 'Помощники камер',
 +			'menubar/view/lightHelpers': 'Помощники света',
 +			'menubar/view/skeletonHelpers': 'Помощники скелетов',
@@ -920,3 +1124,35 @@ index cc429b3..4a49e2b 100644
  		fr: {
  
  			'prompt/file/open': 'Toutes les données non enregistrées seront perdues Êtes-vous sûr ?',
+@@ -1002,6 +1459,7 @@ function Strings( config ) {
+ 			'menubar/view': 'View',
+ 			'menubar/view/fullscreen': 'Fullscreen',
+ 			'menubar/view/gridHelper': 'Assistant de grille',
++			'menubar/view/sidebar': 'Panneau latéral',
+ 			'menubar/view/cameraHelpers': 'Aides à la caméra',
+ 			'menubar/view/lightHelpers': 'Aides Lumière',
+ 			'menubar/view/skeletonHelpers': 'Aides squelettes',
+@@ -1453,6 +1911,7 @@ function Strings( config ) {
+ 			'menubar/view': '视图',
+ 			'menubar/view/fullscreen': '全屏',
+ 			'menubar/view/gridHelper': '网格助手',
++			'menubar/view/sidebar': '侧边栏',
+ 			'menubar/view/cameraHelpers': '相机助手',
+ 			'menubar/view/lightHelpers': '光助手',
+ 			'menubar/view/skeletonHelpers': '骷髅助手',
+@@ -1904,6 +2363,7 @@ function Strings( config ) {
+ 			'menubar/view': '表示',
+ 			'menubar/view/fullscreen': 'フルスクリーン',
+ 			'menubar/view/gridHelper': 'グリッドヘルパー',
++			'menubar/view/sidebar': 'サイドバー',
+ 			'menubar/view/cameraHelpers': 'カメラヘルパー',
+ 			'menubar/view/lightHelpers': 'ライトヘルパー',
+ 			'menubar/view/skeletonHelpers': 'スケルトンヘルパー',
+@@ -2354,6 +2814,7 @@ function Strings( config ) {
+ 			'menubar/view': '보기',
+ 			'menubar/view/fullscreen': '전체 화면',
+ 			'menubar/view/gridHelper': '그리드 도우미',
++			'menubar/view/sidebar': '사이드바',
+ 			'menubar/view/cameraHelpers': '카메라 도우미',
+ 			'menubar/view/lightHelpers': '조명 도우미',
+ 			'menubar/view/skeletonHelpers': '골격 도우미',
