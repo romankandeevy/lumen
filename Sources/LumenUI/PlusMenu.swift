@@ -19,15 +19,20 @@ struct PlusMenu: View {
     @Binding var github: [GitHubAdded]
     /// Поиск в сети, память и ресерч — не у ботов и групп: у них права из паспорта
     var showsTools = true
+    /// Для снимков: показать эту страницу меню сразу, без всплывающего окна
+    var previewPage: Page?
 
     @Environment(\.palette) private var p
     @State private var open = false
     @State private var page: Page = .main
     @State private var hover = false
     @State private var repoText = ""
-    @State private var repos: [(slug: String, note: String)] = []
+    @State var repos: [(slug: String, note: String)] = []
     @State private var working = false
     @State private var note: String?
+    /// «Новый проект» в подменю: поле названия раскрыто
+    @State private var naming = false
+    @State private var projectName = ""
 
     enum Page { case main, skills, connectors, bots, artifacts, github, project }
 
@@ -35,6 +40,36 @@ struct PlusMenu: View {
     private var botsHere: Bool { !agent && app.chat.conversation?.kind != .bot && !app.bots.isEmpty }
 
     var body: some View {
+        if let previewPage {
+            panel.onAppear { page = previewPage }
+        } else {
+            button
+        }
+    }
+
+    /// Меню: строки текущей страницы на подложке всплывающего окна
+    private var panel: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            switch page {
+            case .main: main
+            case .skills: skillsPage
+            case .connectors: connectorsPage
+            case .bots: botsPage
+            case .artifacts: artifactsPage
+            case .github: githubPage
+            case .project: projectPage
+            }
+        }
+        .padding(6)
+        // шире, чем было (232): названия пунктов, поле ссылки и репозитории не режутся (Рома, 26.10)
+        .frame(width: page == .github ? 360 : 300)
+        .background(p.popover)
+        .environment(\.palette, p)
+        .preferredColorScheme(p.scheme)
+        .animation(.easeOut(duration: 0.12), value: page)
+    }
+
+    private var button: some View {
         Button { page = .main; open.toggle() } label: {
             // «+» 36, скругление 11; цвет чуть светлее подписей (#A3A9B8 у «Люмена»)
             Icon("plus", 18).foregroundStyle(hover || open ? p.foreground : p.mutedFg.mixed(with: p.foreground, 0.2))
@@ -51,25 +86,7 @@ struct PlusMenu: View {
             Button("") { addFiles() }.keyboardShortcut("u", modifiers: .command).opacity(0).allowsHitTesting(false)
         }
         // меню открывается сбоку от «+», а не над ним по центру
-        .popover(isPresented: $open, arrowEdge: .trailing) {
-            VStack(alignment: .leading, spacing: 2) {
-                switch page {
-                case .main: main
-                case .skills: skillsPage
-                case .connectors: connectorsPage
-                case .bots: botsPage
-                case .artifacts: artifactsPage
-                case .github: githubPage
-                case .project: projectPage
-                }
-            }
-            .padding(4)
-            .frame(width: 232)
-            .background(p.popover)
-            .environment(\.palette, p)
-            .preferredColorScheme(p.scheme)
-            .animation(.easeOut(duration: 0.12), value: page)
-        }
+        .popover(isPresented: $open, arrowEdge: .trailing) { panel }
     }
 
     @ViewBuilder private var main: some View {
@@ -127,13 +144,14 @@ struct PlusMenu: View {
         HStack(spacing: 6) {
             TextField("owner/repo или ссылка", text: $repoText)
                 .textFieldStyle(.plain).font(.geist(13))
-                .padding(.horizontal, 10).frame(height: 30)
-                .background(p.input.opacity(0.4), in: RoundedRectangle(cornerRadius: R.md))
+                .padding(.horizontal, 10).frame(height: 32)
+                .background(p.input.opacity(0.5), in: RoundedRectangle(cornerRadius: R.md))
+                .overlay(RoundedRectangle(cornerRadius: R.md).strokeBorder(p.border))
                 .onSubmit { importRepo(repoText) }
                 .disabled(working)
             Button { importRepo(repoText) } label: {
                 Text("Взять").font(.geist(12.5, .medium)).foregroundStyle(p.onGlow)
-                    .padding(.horizontal, 11).frame(height: 30)
+                    .padding(.horizontal, 12).frame(height: 32)
                     .background(p.accent.opacity(repoText.isEmpty || working ? 0.4 : 1), in: RoundedRectangle(cornerRadius: R.md))
             }
             .buttonStyle(.plain).disabled(repoText.isEmpty || working)
@@ -141,7 +159,7 @@ struct PlusMenu: View {
         .padding(.horizontal, 4).padding(.top, 2)
         Text(agent ? "Склонируется в папку Lumen и станет доступна агенту. Приватный — если вошёл в gh."
                    : "Склонируется в папку Lumen; в разговор попадут README и список файлов.")
-            .font(.geist(11)).foregroundStyle(p.mutedFg).padding(.horizontal, 8).fixedSize(horizontal: false, vertical: true)
+            .font(.geist(11.5)).foregroundStyle(p.mutedFg).padding(.horizontal, 8).padding(.top, 2).fixedSize(horizontal: false, vertical: true)
         if working {
             HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Забираю репозиторий…").font(.geist(12)).foregroundStyle(p.mutedFg) }
                 .padding(.horizontal, 8).padding(.vertical, 4)
@@ -150,15 +168,18 @@ struct PlusMenu: View {
             Text(note).font(.geist(12)).foregroundStyle(Palette.destructive).padding(.horizontal, 8).fixedSize(horizontal: false, vertical: true)
         }
         if !repos.isEmpty {
-            Text("Твои репозитории").font(.geist(11, .medium)).foregroundStyle(p.mutedFg).padding(.horizontal, 8).padding(.top, 4)
+            Section(title: "Твои репозитории")
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(repos, id: \.slug) { r in
-                        Row(icon: "git-branch", title: r.slug, note: r.note.isEmpty ? nil : r.note) { repoText = r.slug; importRepo(r.slug) }
+                        // владелец у своих один и тот же — в названии только имя, владелец в подсказке
+                        Row(icon: "git-branch", title: String(r.slug.split(separator: "/").last ?? Substring(r.slug)),
+                            note: r.note.isEmpty ? nil : r.note) { repoText = r.slug; importRepo(r.slug) }
+                            .help(r.slug)
                     }
                 }
             }
-            .frame(maxHeight: 220)
+            .frame(height: min(CGFloat(repos.count) * 42, 252))
         }
     }
 
@@ -199,19 +220,46 @@ struct PlusMenu: View {
         let texts = attachments.filter { $0.kind == .text }
         Text(texts.isEmpty ? "Выбери проект и файлы — Lumen будет видеть их в каждом разговоре проекта."
                            : "Прикреплённые текстовые файлы (\(texts.count)) уйдут в выбранный проект.")
-            .font(.geist(11)).foregroundStyle(p.mutedFg).padding(.horizontal, 8).fixedSize(horizontal: false, vertical: true)
-        if list.isEmpty {
-            Text("Проектов пока нет — создай «Новый проект» в боковой панели.")
-                .font(.geist(12)).foregroundStyle(p.mutedFg).padding(.horizontal, 10).padding(.vertical, 6).fixedSize(horizontal: false, vertical: true)
+            .font(.geist(11.5)).foregroundStyle(p.mutedFg).padding(.horizontal, 8).padding(.bottom, 4).fixedSize(horizontal: false, vertical: true)
+        // новый проект — прямо здесь, не уходя из разговора (Рома, 26.10: «почему нет кнопки создать проект»)
+        if naming {
+            HStack(spacing: 6) {
+                TextField("Название проекта", text: $projectName)
+                    .textFieldStyle(.plain).font(.geist(13))
+                    .padding(.horizontal, 10).frame(height: 32)
+                    .background(p.input.opacity(0.5), in: RoundedRectangle(cornerRadius: R.md))
+                    .overlay(RoundedRectangle(cornerRadius: R.md).strokeBorder(p.glow.opacity(0.4)))
+                    .onSubmit { createProject(texts) }
+                Button { createProject(texts) } label: {
+                    Text("Создать").font(.geist(12.5, .medium)).foregroundStyle(p.onGlow)
+                        .padding(.horizontal, 12).frame(height: 32)
+                        .background(p.accent, in: RoundedRectangle(cornerRadius: R.md))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 4)
+        } else {
+            Row(icon: "plus", title: "Новый проект", accent: true) { projectName = ""; naming = true }
         }
-        ScrollView {
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(list) { pr in
-                    Row(icon: "folder-plus", title: pr.name, note: pr.id == current?.id ? "проект этого разговора" : nil) { addToProject(pr, texts) }
+        if !list.isEmpty {
+            Section(title: "Твои проекты")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(list) { pr in
+                        Row(icon: "folder", title: pr.name, note: pr.id == current?.id ? "проект этого разговора" : nil) { addToProject(pr, texts) }
+                    }
                 }
             }
+            .frame(height: min(CGFloat(list.count) * 38, 260))
         }
-        .frame(maxHeight: 260)
+    }
+
+    private func createProject(_ texts: [Attachment]) {
+        let pr = app.makeProject(name: projectName, kind: agent ? .agent : .chat)
+        naming = false
+        // новый разговор сразу в этом проекте
+        chat.assignNewProject(pr.id)
+        addToProject(pr, texts)
     }
 
     private func addToProject(_ pr: Project, _ texts: [Attachment]) {
@@ -235,6 +283,7 @@ struct PlusMenu: View {
             Text("Пока ни одного: файлы, что делают Lumen и боты, появятся здесь.")
                 .font(.geist(12)).foregroundStyle(p.mutedFg).padding(.horizontal, 10).padding(.vertical, 6)
         }
+        if !items.isEmpty {
         ScrollView {
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(Array(items.prefix(60).enumerated()), id: \.offset) { _, it in
@@ -247,7 +296,8 @@ struct PlusMenu: View {
                 }
             }
         }
-        .frame(maxHeight: 340)
+        .frame(height: min(CGFloat(min(items.count, 60)) * 42, 340))
+        }
     }
 
     @ViewBuilder private var skillsPage: some View {
@@ -262,7 +312,7 @@ struct PlusMenu: View {
                 }
             }
         }
-        .frame(maxHeight: 320)
+        .frame(height: min(CGFloat(skills.count) * 42, 320))
     }
 
     @ViewBuilder private var connectorsPage: some View {
@@ -325,6 +375,8 @@ struct PlusMenu: View {
         var note: String? = nil
         var trailing: String? = nil
         var chevron = false
+        /// Действие «создать»: значок и название в цвете акцента
+        var accent = false
         let action: () -> Void
 
         @Environment(\.palette) private var p
@@ -332,19 +384,30 @@ struct PlusMenu: View {
         var body: some View {
             Button(action: action) {
                 HStack(spacing: 10) {
-                    Icon(icon, 14).foregroundStyle(p.foreground.opacity(0.85)).frame(width: 16)
+                    Icon(icon, 15).foregroundStyle(accent ? p.glow : p.foreground.opacity(0.85)).frame(width: 18)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(title).font(.geist(12.5)).lineLimit(1)
-                        if let note { Text(note).font(.geist(11)).foregroundStyle(p.mutedFg).lineLimit(1) }
+                        Text(title).font(.geist(13, accent ? .medium : .regular)).foregroundStyle(accent ? p.glow : p.foreground)
+                            .lineLimit(1).truncationMode(.middle)
+                        if let note { Text(note).font(.geist(11.5)).foregroundStyle(p.mutedFg).lineLimit(1) }
                     }
                     Spacer(minLength: 8)
                     if let trailing { Text(trailing).font(.geist(12)).foregroundStyle(p.mutedFg) }
                     if chevron { Icon("chevron-right", 13).foregroundStyle(p.mutedFg) }
                 }
-                .padding(.horizontal, 8).frame(minHeight: 30)
+                .padding(.horizontal, 8).padding(.vertical, note == nil ? 0 : 4).frame(minHeight: 32)
                 .contentShape(Rectangle())
             }
             .buttonStyle(MenuRowStyle())
+        }
+    }
+
+    /// Подпись над списком в подменю
+    private struct Section: View {
+        let title: String
+        @Environment(\.palette) private var p
+        var body: some View {
+            Text(title).font(.geist(11.5, .medium)).foregroundStyle(p.mutedFg)
+                .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 2)
         }
     }
 
@@ -378,7 +441,7 @@ struct PlusMenu: View {
             Button(action: action) {
                 HStack(spacing: 8) {
                     Icon("chevron-right", 13).rotationEffect(.degrees(180)).foregroundStyle(p.mutedFg)
-                    Text(title).font(.geist(12, .medium)).foregroundStyle(p.mutedFg)
+                    Text(title).font(.geist(13.5, .semibold)).foregroundStyle(p.foreground)
                     Spacer()
                 }
                 .padding(.horizontal, 8).frame(height: 30)

@@ -88,6 +88,17 @@ extension AppModel {
         return p
     }
 
+    /// Новый проект прямо из «+» у поля ввода: не уходит со страницы разговора, черновик остаётся на месте
+    func makeProject(name: String, kind: ConversationKind) -> Project {
+        let kind = Self.projectKind(kind)
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let p = Project(name: freeProjectName(clean.isEmpty ? "Новый проект" : clean, kind: kind), folder: nil, kind: kind)
+        try? store.save(p)
+        ensureContextFile(p)
+        reloadProjects()
+        return p
+    }
+
     /// Два проекта с одним названием на одной вкладке не бывает: занято — «Название 2», «Название 3»…
     func freeProjectName(_ name: String, except id: String? = nil, kind: ConversationKind) -> String {
         let taken = Set(projects(of: kind).filter { $0.id != id }.map { $0.name.trimmingCharacters(in: .whitespaces).lowercased() })

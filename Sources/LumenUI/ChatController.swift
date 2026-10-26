@@ -272,6 +272,12 @@ final class ChatController {
     /// Проект для нового разговора, пока он не начат
     private(set) var newProjectID: String?
 
+    /// Ещё не начатый разговор — в этот проект (новый проект из «+» у поля); черновик и вложения остаются
+    func assignNewProject(_ id: String?) {
+        guard conversation == nil else { return }
+        newProjectID = id
+    }
+
     /// Новый чат ещё не в базе: появится в списке после первого сообщения
     func startNew(projectID: String? = nil) {
         newProjectID = projectID

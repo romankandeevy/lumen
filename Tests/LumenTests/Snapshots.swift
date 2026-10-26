@@ -963,3 +963,23 @@ enum Snap {
     try await Snap.save(MessageRow(message: message, chat: nil).environment(\.palette, Palette.lumen).padding(24).frame(width: 760).background(Palette.lumen.background),
                         "step-shots", size: CGSize(width: 760, height: 560))
 }
+
+
+/// 26.10: подменю «+» — шире, без обрезаний; «Добавить в проект» с «Новый проект» и без пустоты
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotPlusMenu() async throws {
+    Snap.registerFonts()
+    let app = try Snap.app()
+    app.finishOnboarding(name: "Роман", address: .ty, backend: .subscription, theme: .lumen)
+    for (name, page) in [("main", PlusMenu.Page.main), ("project-empty", .project), ("github", .github), ("artifacts", .artifacts)] {
+        let menu = PlusMenu(app: app, agent: false, chat: app.chat, draft: .constant(""), attachments: .constant([]),
+                            research: .constant(false), github: .constant([]), previewPage: page)
+        try await Snap.save(menu.environment(\.palette, app.palette).padding(20).background(app.palette.background),
+                            "plus-\(name)", size: CGSize(width: 420, height: 520))
+    }
+    _ = app.makeProject(name: "Learn English", kind: .chat)
+    _ = app.makeProject(name: "Lumen", kind: .chat)
+    let menu = PlusMenu(app: app, agent: false, chat: app.chat, draft: .constant(""), attachments: .constant([]),
+                        research: .constant(false), github: .constant([]), previewPage: .project)
+    try await Snap.save(menu.environment(\.palette, app.palette).padding(20).background(app.palette.background),
+                        "plus-project-list", size: CGSize(width: 420, height: 520))
+}
