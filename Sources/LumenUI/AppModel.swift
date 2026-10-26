@@ -150,6 +150,8 @@ public final class AppModel {
     }
 
     func closeSettings() {
+        // панель «Цвета» живёт только с настройками
+        if NSColorPanel.sharedColorPanelExists { NSColorPanel.shared.orderOut(nil) }
         withAnimation(Motion.panel) { settingsOpen = false }
     }
     /// Щелчок по имени папки в заголовке новой задачи — открыть выбор папки в поле ввода (как у кнопки папки)

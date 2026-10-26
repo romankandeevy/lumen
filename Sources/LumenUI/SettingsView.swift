@@ -590,6 +590,20 @@ struct ThemeSettings: View {
     private var themeID: String { Palette.themeID(app.prefs, dark: dark) }
     private var key: String { Palette.overridesKey(themeID, dark: dark) }
     private var overrides: ThemeOverrides { app.prefs.themeOverrides[key] ?? ThemeOverrides() }
+    /// Цвета темы без своих — от них поля показывают значения по умолчанию
+    private var base: Palette { Palette.Family.find(themeID, app.prefs).palette(dark: dark) }
+    /// Что выбрал человек (а не что получилось после подстройки под читаемость): поле и колодец показывают это
+    private var chosenBackground: Color { overrides.background.flatMap(Color.init(hexString:)) ?? base.background }
+    private var chosenForeground: Color { overrides.foreground.flatMap(Color.init(hexString:)) ?? base.foreground }
+    private var chosenAccent: Color { overrides.accent.flatMap(Color.init(hexString:)) ?? base.glow }
+    /// Что Lumen подстроил, чтобы читалось: подпись под цветами
+    private var adjusted: String? {
+        var parts: [String] = []
+        if p.foreground.hexString != chosenForeground.hexString { parts.append("текст") }
+        if p.glow.hexString != chosenAccent.hexString { parts.append("акцент") }
+        guard !parts.isEmpty else { return nil }
+        return "На этом фоне " + parts.joined(separator: " и ") + " не читался бы — Lumen подстроил " + (parts.count > 1 ? "их" : "его") + " сам"
+    }
 
     private func setOverride(_ f: @escaping (inout ThemeOverrides) -> Void) {
         let k = key
@@ -634,10 +648,14 @@ struct ThemeSettings: View {
                 }
                 line("Акцентный цвет", divider: true) { accentMenu }
                 line("Фон", divider: true) {
-                    ColorField(color: p.background) { c in setOverride { $0.background = c?.hexString } }
+                    ColorField(color: chosenBackground) { c in setOverride { $0.background = c?.hexString } }
                 }
-                line("Цвет текста") {
-                    ColorField(color: p.foreground) { c in setOverride { $0.foreground = c?.hexString } }
+                line("Цвет текста", divider: adjusted != nil) {
+                    ColorField(color: chosenForeground) { c in setOverride { $0.foreground = c?.hexString } }
+                }
+                if let adjusted {
+                    IconLabel(text: adjusted, icon: "info", size: 13).tw(12, lh: 16).foregroundStyle(p.mutedFg)
+                        .padding(.vertical, 10)
                 }
                 if !overrides.isEmpty {
                     HStack {
@@ -747,8 +765,8 @@ struct ThemeSettings: View {
                 .contentShape(Capsule())
             }
             .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-            ColorPicker("", selection: Binding(get: { p.glow }, set: { c in setOverride { $0.accent = c.hexString } }), supportsOpacity: false)
-                .labelsHidden().help("Свой цвет")
+            ColorField(color: chosenAccent) { c in setOverride { $0.accent = c?.hexString } }
+                .help("Свой цвет")
         }
     }
 
@@ -893,48 +911,83 @@ private struct ModeCard: View {
 }
 
 /// Цвет кружком и «#RRGGBB»: щелчок по кружку — палитра macOS, по тексту — ввести код
+/// Цвет: колодец (системная панель «Цвета») и поле #RRGGBB — одинаковые у фона, текста и акцента
 private struct ColorField: View {
+    /// Что выбрано сейчас (выбор человека, а не подстроенный под читаемость цвет)
     let color: Color
     let set: (Color?) -> Void
 
     @Environment(\.palette) private var p
     @State private var text = ""
-    @State private var picked: Color = .black
-    /// Цвет, который мы сами отправили в тему: его эхо из темы обратно в круг не пускаем
-    @State private var applied = ""
-    @State private var pending: Task<Void, Never>?
     @FocusState private var focused: Bool
 
     var body: some View {
         HStack(spacing: 8) {
-            // Круг крутится на своей копии цвета, а в тему цвет уходит, когда рука чуть замерла: раньше каждый кадр
-            // перекрашивал всё окно и записывался в настройки, а цвет из темы возвращался в круг и уводил его (25.10)
-            ColorPicker("", selection: $picked, supportsOpacity: false).labelsHidden()
-                .onChange(of: picked) { _, c in
-                    let h = c.hexString
-                    guard h != applied, h != color.hexString else { return }
-                    text = h
-                    pending?.cancel()
-                    pending = Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(200))
-                        guard !Task.isCancelled else { return }
-                        applied = h
-                        set(c)
-                    }
-                }
+            ColorWell(color: color) { c in
+                text = c.hexString
+                set(c)
+            }
+            .frame(width: 38, height: 24)
             TextField("", text: $text).textFieldStyle(.plain).font(.system(size: 13, design: .monospaced))
                 .frame(width: 76).focused($focused)
-                .onSubmit { if let c = Color(hexString: text) { applied = c.hexString; set(c) } else { text = color.hexString } }
+                .onSubmit { if let c = Color(hexString: text) { set(c) } else { text = color.hexString } }
         }
-        .padding(.leading, 6).padding(.trailing, 12).frame(height: 34)
+        .padding(.leading, 6).padding(.trailing, 10).frame(height: 34)
         .overlay(Capsule().strokeBorder(p.border))
-        .onAppear { picked = color; text = color.hexString; applied = color.hexString }
-        .onChange(of: color.hexString) { _, h in
-            // изменили не мы (другая тема, «Вернуть цвета») — подтянуть круг и поле
-            guard h != applied else { return }
-            applied = h
-            if !focused { text = h }
-            if picked.hexString != h { picked = color }
+        .onAppear { text = color.hexString }
+        .onChange(of: color.hexString) { _, h in if !focused { text = h } }
+    }
+}
+
+/// Колодец цвета на AppKit (26.10, взамен SwiftUI ColorPicker). Пока человек крутит цвет в панели, колодец «в руках»
+/// (isActive): цвет из настроек в него не возвращается, иначе он уводил круг и мигал. В тему цвет уходит, когда рука
+/// на миг замерла; само действие колодца срабатывает только от человека, не от того, что мы поставили цвет сами
+struct ColorWell: NSViewRepresentable {
+    let color: Color
+    let onChange: (Color) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSColorWell {
+        let w = NSColorWell(style: .default)
+        w.supportsAlpha = false
+        w.isContinuous = true
+        w.color = NSColor(color)
+        w.target = context.coordinator
+        w.action = #selector(Coordinator.changed(_:))
+        return w
+    }
+
+    func updateNSView(_ w: NSColorWell, context: Context) {
+        context.coordinator.onChange = onChange
+        guard !w.isActive else { return }
+        if Color(nsColor: w.color).hexString != color.hexString { w.color = NSColor(color) }
+    }
+
+    static func dismantleNSView(_ w: NSColorWell, coordinator: Coordinator) {
+        coordinator.flush()
+        w.deactivate()
+    }
+
+    @MainActor final class Coordinator: NSObject {
+        var onChange: (Color) -> Void = { _ in }
+        private var pending: Color?
+        private var timer: Timer?
+
+        @objc func changed(_ w: NSColorWell) {
+            pending = Color(nsColor: w.color)
+            timer?.invalidate()
+            timer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated { self?.flush() }
+            }
+        }
+
+        func flush() {
+            timer?.invalidate()
+            timer = nil
+            guard let c = pending else { return }
+            pending = nil
+            onChange(c)
         }
     }
 }
