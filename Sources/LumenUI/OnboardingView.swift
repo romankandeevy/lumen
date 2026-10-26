@@ -239,9 +239,9 @@ struct ThemeCard: View {
 
     var body: some View {
         // миниатюра — при том свете, что сейчас у окна
-        let t = family.palette(dark: !current.isLight)
+        let t = family.palette(dark: app.isDarkMode)
         // выбор относится к тому свету, что сейчас: при раздельных режимах в темноте своя тема (раньше клик менял только светлую)
-        let dark = !current.isLight
+        let dark = app.isDarkMode
         let active = Palette.themeID(app.prefs, dark: dark) == family.id
         let name = family.name, note = note ?? family.note
         Button {

@@ -262,7 +262,7 @@ struct SettingsView: View {
                 row("Свет", "У каждой темы есть светлые и тёмные цвета", icon: "sun-moon") {
                     LightSwitch(value: lightBinding).fixedSize()
                 }
-                row("Тема", "Сейчас — «\(Palette.Family.find(Palette.themeID(app.prefs, dark: !app.palette.isLight), app.prefs).name)»", icon: "palette") {
+                row("Тема", "Сейчас — «\(Palette.Family.find(Palette.themeID(app.prefs, dark: app.isDarkMode), app.prefs).name)»", icon: "palette") {
                     LButton(title: "Выбрать", kind: .outline, small: true) { go(.theme) }
                 }
                 row("Меньше движения", "Сфера не дышит, свет не мерцает, значки не крутятся", icon: "zap") {
@@ -586,7 +586,7 @@ struct ThemeSettings: View {
     @State private var advanced = true
     @State private var note: String?
 
-    private var dark: Bool { !p.isLight }
+    private var dark: Bool { app.isDarkMode }
     private var themeID: String { Palette.themeID(app.prefs, dark: dark) }
     private var key: String { Palette.overridesKey(themeID, dark: dark) }
     private var overrides: ThemeOverrides { app.prefs.themeOverrides[key] ?? ThemeOverrides() }

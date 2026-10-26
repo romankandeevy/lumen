@@ -196,7 +196,7 @@ public struct Palette: Sendable {
 
     /// Цвета окна: выбранная тема при выбранном свете (системный — как сейчас в macOS), поверх — свои цвета и контраст
     static func resolve(_ prefs: Preferences, systemDark: Bool) -> Palette {
-        let dark = prefs.appearance == .system ? systemDark : prefs.appearance == .dark
+        let dark = prefs.appearance == .system ? systemDark : prefs.appearance == .dark // то же, что AppModel.isDarkMode
         let id = themeID(prefs, dark: dark)
         var p = Family.find(id, prefs).palette(dark: dark)
         if let o = prefs.themeOverrides[overridesKey(id, dark: dark)] { p = p.with(o) }

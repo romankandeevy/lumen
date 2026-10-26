@@ -81,6 +81,9 @@ public final class AppModel {
     }
     /// Цвета окна: тема при выбранном свете
     var palette: Palette { Palette.resolve(prefs, systemDark: systemDark) }
+    /// Какой свет выбран сейчас (тёмный или светлый режим) — по настройке и macOS, а не по цвету фона:
+    /// свой светлый фон переворачивает палитру, но режим и его цвета остаются теми же (26.10: ломался пикер цвета)
+    var isDarkMode: Bool { prefs.appearance == .system ? systemDark : prefs.appearance == .dark }
 
     // MARK: окно
     enum Page: Equatable {

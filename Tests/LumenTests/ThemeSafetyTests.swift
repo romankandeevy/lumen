@@ -37,3 +37,15 @@ import LumenCore
     #expect(p.foreground.hexString == "#FFFFFF")
     #expect(p.background.hexString == "#000000")
 }
+
+/// 26.10: светлый фон в тёмном режиме переворачивал палитру, и «Тема» начинала читать и писать цвета светлого режима —
+/// пикер показывал белый, а фон в окне не менялся. Режим — по настройке, не по цвету
+@MainActor @Test func lightBackgroundDoesNotSwitchEditedMode() throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-mode-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    app.update { $0.appearance = .dark; $0.themeOverrides[Palette.overridesKey($0.themeID, dark: true)] = ThemeOverrides(background: "#E9EEF2") }
+    #expect(app.palette.isLight)          // палитра светлая — текст тёмный, читается
+    #expect(app.isDarkMode)               // но правим по-прежнему цвета тёмного режима
+    #expect(app.palette.background.hexString == "#E9EEF2")
+}
