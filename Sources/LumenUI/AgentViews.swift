@@ -287,7 +287,7 @@ struct StepsView: View {
         let list = VStack(alignment: .leading, spacing: 0) {
             ForEach(rows, id: \.offset) { i, s in
                 let current = live != nil && i == steps.count - 1
-                // строка шага хендоффа (1.7.4): значок 16 без кружка, текст 14/20, между строками линия
+                // строка шага хендоффа (1.7.3): значок 16 без кружка, текст 14/20, между строками линия
                 HStack(alignment: .top, spacing: 10) {
                     ZStack {
                         if current {

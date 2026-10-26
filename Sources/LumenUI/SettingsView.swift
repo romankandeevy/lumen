@@ -233,7 +233,7 @@ struct SettingsView: View {
     /// Строка настройки: значок, название и пояснение слева, управление справа, линия снизу
     private func row<C: View>(_ title: String, _ note: String? = nil, icon: String? = nil, @ViewBuilder control: () -> C) -> some View {
         HStack(alignment: .center, spacing: 12) {
-            // значок 20 серым у края, без плитки (1.7.4)
+            // значок 20 серым у края, без плитки (1.7.3)
             if let icon {
                 Icon(icon, 20).foregroundStyle(p.mutedFg).frame(width: 20)
             }
@@ -993,7 +993,7 @@ struct PillPicker<T: Hashable>: View {
     @Environment(\.palette) private var p
 
     var body: some View {
-        // тот же вид, что у остальных сегментов (1.7.4): раньше были пилюли без обёртки
+        // тот же вид, что у остальных сегментов (1.7.3): раньше были пилюли без обёртки
         HStack(spacing: 0) {
             ForEach(options, id: \.0) { v, name in
                 Button { value = v } label: {
@@ -2087,7 +2087,7 @@ struct SettingsHeader: View {
     @Environment(\.palette) private var p
 
     var body: some View {
-        // заголовок страницы с засечками, без плитки под значком (1.7.4)
+        // заголовок страницы с засечками, без плитки под значком (1.7.3)
         HStack(alignment: .center, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {

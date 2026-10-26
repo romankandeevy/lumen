@@ -282,7 +282,7 @@ struct ChatView: View {
                 if !bot.role.isEmpty { Text(bot.role).tw(13, lh: 18).foregroundStyle(p.mutedFg) }
             }
         } else {
-            // знак 64 и «Привет, имя» — New York 46 (1.7.4, шрифты хендоффа), в узком окне знак встаёт над текстом. Без свечения сзади (Рома, 21.10)
+            // знак 64 и «Привет, имя» — New York 46 (1.7.3, шрифты хендоффа), в узком окне знак встаёт над текстом. Без свечения сзади (Рома, 21.10)
             let hot = composerFocused || !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             let text = Text(app.profile.name.isEmpty ? "Привет" : "Привет, \(app.profile.name)")
                 .font(.greeting(46)).tracking(-0.7).foregroundStyle(p.textStrong)
@@ -995,7 +995,7 @@ private struct ActionIcon: View {
         Button(action: action) {
             Icon(on && Icon.image(icon + "-fill") != nil ? icon + "-fill" : icon, 16)
                 .foregroundStyle(on ? p.glow : hover && enabled ? p.foreground : p.mutedFg)
-                // 24×24, r6, значок 16 — как действия под ответом в хендоффе (1.7.4)
+                // 24×24, r6, значок 16 — как действия под ответом в хендоффе (1.7.3)
                 .frame(width: 24, height: 24)
                 .background(hover && enabled ? p.hover : .clear, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                 .contentShape(Rectangle())
@@ -1584,7 +1584,7 @@ struct Composer: View {
                 }
             }
         }
-        // поле хендоффа (1.7.4): r20, внутри 14 сверху и 16 слева, кнопки ряда h28
+        // поле хендоффа (1.7.3): r20, внутри 14 сверху и 16 слева, кнопки ряда h28
         .padding(.top, 14).padding(.leading, 16).padding(.trailing, 10).padding(.bottom, 10)
         .background { glass }
         .animation(.easeOut(duration: 0.2), value: focused)
@@ -1640,7 +1640,7 @@ struct Composer: View {
     /// Тёмная: кольцо 1px .09, светлая кромка сверху, тень 0 24 70 .38; в фокусе кольцо синее .42 и ореол 4px .10.
     /// Светлая: кольцо снаружи .09 и две мягкие тени. У бота — его цвет вместо синего
     @ViewBuilder private var glass: some View {
-        // r20, кольцо 1 pt; в фокусе — тонкое кольцо цвета света и ореол 3 pt, без тяжёлого свечения (1.7.4)
+        // r20, кольцо 1 pt; в фокусе — тонкое кольцо цвета света и ореол 3 pt, без тяжёлого свечения (1.7.3)
         let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
         let tint = tintBot.map { BotColor.accent($0.hue) } ?? p.glow
         let ring: Color = tintBot.map { focused ? BotColor.accent($0.hue).opacity(0.4) : BotColor.soft($0.hue) }
@@ -1961,7 +1961,7 @@ struct Composer: View {
             .accessibilityLabel("Остановить ответ")
         } else if !(app.claudeBusy(chat.conversation?.id) && canSend) {
             let on = canSend && ready
-            // отправить — квадрат 28 со скруглением 8 (хендофф, 1.7.4); цвет «Люмена» и ботов тот же, что был у круга
+            // отправить — квадрат 28 со скруглением 8 (хендофф, 1.7.3); цвет «Люмена» и ботов тот же, что был у круга
             let send = RoundedRectangle(cornerRadius: 8, style: .continuous)
             Button(action: self.send) {
                 Icon("arrow-up", 16)
@@ -2021,7 +2021,7 @@ struct PickerButton<Label: View, Panel: View>: View {
             }
             // все подписи под полем одного цвета и веса; ярче — под курсором и пока открыто (минимализм, 19.10)
             .foregroundStyle(hover || open ? p.foreground : p.textControl)
-            // кнопка хендоффа: h28, по бокам 8, r8 (1.7.4)
+            // кнопка хендоффа: h28, по бокам 8, r8 (1.7.3)
             .padding(.horizontal, 8).frame(height: 28)
             .background(hover || open ? p.hover : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(bordered ? p.borderBase.opacity(0.10) : .clear))

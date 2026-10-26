@@ -196,7 +196,7 @@ struct MiniSegmented<T: Hashable>: View {
     @Environment(\.palette) private var p
 
     var body: some View {
-        // тот же вид, что у Segmented, только по ширине текста (1.7.4)
+        // тот же вид, что у Segmented, только по ширине текста (1.7.3)
         HStack(spacing: 0) {
             ForEach(options, id: \.0) { id, name in
                 Button { value = id } label: {

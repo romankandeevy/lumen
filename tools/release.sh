@@ -50,7 +50,8 @@ BUILD=$(( $(/usr/libexec/PlistBuddy -c "Print CFBundleVersion" Resources/Info.pl
 # выпускаем — сборка больше не «в разработке»: экран «Версия» покажет номер выпуска
 /usr/libexec/PlistBuddy -c "Set LumenUnreleased false" Resources/Info.plist
 # порядковый номер выпуска для экрана «Версия»: сколько версий уже выпущено, плюс эта (1.0 — первый выпуск)
-RELEASE_NO=$(( $(git tag --list 'v*' | wc -l | tr -d ' ') + 1 ))
+# (когда мини-версии вошли в этот выпуск и считаются отдельно, номер задаётся вручную: RELEASE_NO=24 tools/release.sh 1.7.3 beta)
+RELEASE_NO="${RELEASE_NO:-$(( $(git tag --list 'v*' | wc -l | tr -d ' ') + 1 ))}"
 /usr/libexec/PlistBuddy -c "Add LumenReleaseNumber string $RELEASE_NO" Resources/Info.plist 2>/dev/null || /usr/libexec/PlistBuddy -c "Set LumenReleaseNumber $RELEASE_NO" Resources/Info.plist
 
 ./build.sh

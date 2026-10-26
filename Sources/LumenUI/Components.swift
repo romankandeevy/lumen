@@ -66,7 +66,7 @@ struct LButton: View {
         self.action = action
     }
 
-    /// Шкала кнопок хендоффа (1.7.4): 40 / 32 / 28 / 24, скругление 8 (у большой 10)
+    /// Шкала кнопок хендоффа (1.7.3): 40 / 32 / 28 / 24, скругление 8 (у большой 10)
     private var height: CGFloat {
         switch size { case .lg: 40; case .normal: 32; case .sm: 28; case .xs: 24 }
     }
@@ -120,7 +120,7 @@ struct LButton: View {
     }
 }
 
-/// Сегменты-переключатель («ты / вы»): равные части во всю ширину, тот же вид, что у всех сегментов (1.7.4).
+/// Сегменты-переключатель («ты / вы»): равные части во всю ширину, тот же вид, что у всех сегментов (1.7.3).
 struct Segmented<T: Hashable>: View {
     @Binding var value: T
     let options: [(T, String)]
@@ -129,7 +129,7 @@ struct Segmented<T: Hashable>: View {
     @Namespace private var pill
 
     var body: some View {
-        // один вид сегментов на всё приложение (хендофф, 1.7.4): обёртка h28 с отступом 1 и r8, сегмент h26 r6
+        // один вид сегментов на всё приложение (хендофф, 1.7.3): обёртка h28 с отступом 1 и r8, сегмент h26 r6
         HStack(spacing: 0) {
             ForEach(options, id: \.0) { id, name in
                 let active = id == value
@@ -356,7 +356,7 @@ struct GlowField<Trailing: View>: View {
     var mono = false
     /// Значок слева (поиск, ссылка)
     var icon: String? = nil
-    /// Невысокое поле в ряд с кнопками h28 (хендофф, 1.7.4)
+    /// Невысокое поле в ряд с кнопками h28 (хендофф, 1.7.3)
     var compact = false
     var onSubmit: () -> Void = {}
     @ViewBuilder var trailing: Trailing
@@ -435,7 +435,7 @@ struct LSwitch: View {
     @Environment(\.palette) private var p
 
     var body: some View {
-        // один тумблер на всё приложение (хендофф, 1.7.4): 36×20, ручка 16 белая, включён — акцентный цвет темы
+        // один тумблер на всё приложение (хендофф, 1.7.3): 36×20, ручка 16 белая, включён — акцентный цвет темы
         Button { withAnimation(.easeOut(duration: 0.15)) { isOn.toggle() } } label: {
             Capsule()
                 .fill(isOn ? p.accent : p.foreground.opacity(p.isLight ? 0.16 : 0.14))
@@ -549,7 +549,7 @@ struct PopoverChrome: ViewModifier {
     @Environment(\.palette) private var p
 
     func body(content: Content) -> some View {
-        // всплывашка хендоффа (1.7.4): r14, кольцо 1 pt и две мягкие тени — «0 8 24» и «0 2 6»
+        // всплывашка хендоффа (1.7.3): r14, кольцо 1 pt и две мягкие тени — «0 8 24» и «0 2 6»
         let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
         content
             .background(p.popover)

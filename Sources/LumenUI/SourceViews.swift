@@ -47,7 +47,7 @@ private struct SourceChip: View {
 
     var body: some View {
         Button(action: action) {
-            // пилюля хендоффа (1.7.4): h24, 12/17, кружок сайта 16 серым, номер тусклым
+            // пилюля хендоффа (1.7.3): h24, 12/17, кружок сайта 16 серым, номер тусклым
             HStack(spacing: 6) {
                 SiteTile(host: source.host, size: 16)
                 Text(source.host).font(.geist(12)).lineLimit(1).truncationMode(.middle)
@@ -68,7 +68,7 @@ private struct SourceChip: View {
 }
 
 /// Значок сайта: серый кружок с первой буквой (без запросов в сеть за настоящими значками).
-/// Раньше квадрат был цветным по домену — пёстро и дёшево рядом с текстом (1.7.4)
+/// Раньше квадрат был цветным по домену — пёстро и дёшево рядом с текстом (1.7.3)
 struct SiteTile: View {
     let host: String
     var size: CGFloat = 18

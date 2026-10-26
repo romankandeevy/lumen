@@ -16,7 +16,7 @@ struct MenuItem: Identifiable {
     var icon: String? = nil
     let action: () -> Void
 
-    /// Значки пунктов по названию — одинаковые во всех меню (хендофф, 1.7.4)
+    /// Значки пунктов по названию — одинаковые во всех меню (хендофф, 1.7.3)
     static func guessIcon(_ title: String) -> String? {
         let t = title.lowercased()
         if t.hasPrefix("закрепить") || t.hasPrefix("открепить") { return "pin" }
@@ -181,7 +181,7 @@ struct SearchLayer: View {
         ZStack(alignment: .top) {
             Color.black.opacity(0.35).ignoresSafeArea().onTapGesture { app.searchOpen = false }
             VStack(spacing: 0) {
-                // шапка 52: лупа 20, поле 15, справа клавиша esc (хендофф, 1.7.4)
+                // шапка 52: лупа 20, поле 15, справа клавиша esc (хендофф, 1.7.3)
                 HStack(spacing: 10) {
                     Icon("search", 20).foregroundStyle(p.mutedFg)
                     TextField("Найти в названиях и тексте всех разговоров", text: $query)
@@ -318,7 +318,7 @@ struct SearchLayer: View {
                         if let snippet { Text(snippet).tw(12, lh: 16).foregroundStyle(p.mutedFg).lineLimit(2) }
                     }
                     Spacer(minLength: 8)
-                    // когда был разговор — справа тусклым (хендофф, 1.7.4)
+                    // когда был разговор — справа тусклым (хендофф, 1.7.3)
                     Text(RelativeWhen.string(c.updatedAt)).tw(12, lh: 20).foregroundStyle(p.faint)
                 }
                 .foregroundStyle(p.foreground)

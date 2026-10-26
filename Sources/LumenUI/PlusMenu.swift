@@ -71,7 +71,7 @@ struct PlusMenu: View {
 
     private var button: some View {
         Button { page = .main; open.toggle() } label: {
-            // «+» 28, скругление 8, значок 20 (хендофф, 1.7.4)
+            // «+» 28, скругление 8, значок 20 (хендофф, 1.7.3)
             Icon("plus", 20).foregroundStyle(hover || open ? p.foreground : p.mutedFg.mixed(with: p.foreground, 0.2))
                 .frame(width: 28, height: 28)
                 .background(hover || open ? p.hover : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -422,7 +422,7 @@ struct PlusMenu: View {
         @Environment(\.palette) private var p
 
         var body: some View {
-            // включённое — синяя галочка справа, выключенное — серым текстом; тумблеров в меню нет (хендофф, 1.7.4)
+            // включённое — синяя галочка справа, выключенное — серым текстом; тумблеров в меню нет (хендофф, 1.7.3)
             HStack(spacing: 8) {
                 Icon(icon, 20).foregroundStyle(p.mutedFg).frame(width: 20)
                 Text(title).font(.geist(14, .medium)).foregroundStyle(isOn ? p.foreground : p.mutedFg)

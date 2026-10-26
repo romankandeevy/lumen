@@ -379,7 +379,7 @@ extension Font {
     nonisolated(unsafe) static var uiScale: CGFloat = 1
 
     /// Шрифт интерфейса. Имя осталось от Geist: так он зовётся по всему коду.
-    /// `.medium` — вес «контрол» хендоффа (кнопки, пункты, меню): между обычным и средним SF Pro, как 435 у Claude (1.7.4)
+    /// `.medium` — вес «контрол» хендоффа (кнопки, пункты, меню): между обычным и средним SF Pro, как 435 у Claude (1.7.3)
     static func geist(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
         if weight == .medium { return Font(NSFont.systemFont(ofSize: size * uiScale, weight: .control)) }
         return .system(size: size * uiScale, weight: weight)
@@ -392,7 +392,7 @@ extension Font {
         return NSFont(name: name, size: size) != nil ? .custom(name, size: size) : .system(size: size, weight: weight)
     }
 
-    /// Приветствие и заголовки страниц: системный шрифт с засечками (New York), тонкий — роль «приветствие» хендоффа (1.7.4)
+    /// Приветствие и заголовки страниц: системный шрифт с засечками (New York), тонкий — роль «приветствие» хендоффа (1.7.3)
     @MainActor static func greeting(_ size: CGFloat) -> Font {
         Font(Greeting.font(size * uiScale))
     }
@@ -437,7 +437,7 @@ struct Icon: View {
 
     @MainActor private static var cache: [String: NSImage] = [:]
 
-    /// Линия как у иконок Claude (хендофф, 1.7.4): тонкая — 1.5 из 24 у иконок 16–20, у мелких 12–14 чуть толще, чтобы не таяли
+    /// Линия как у иконок Claude (хендофф, 1.7.3): тонкая — 1.5 из 24 у иконок 16–20, у мелких 12–14 чуть толще, чтобы не таяли
     static func stroke(for size: CGFloat) -> String { size <= 14 ? "1.75" : "1.5" }
 
     /// В бандле — Contents/Resources/Icons; в тестах и снимках — папка из LUMEN_ICONS

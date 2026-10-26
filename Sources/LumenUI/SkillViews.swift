@@ -112,7 +112,7 @@ private struct SkillRow: View {
     private var on: Bool { skill.info.enabled }
 
     var body: some View {
-        // карточка хендоффа (1.7.4): r12, значок 20 в рамке 36 r8, название 14 полужирным, откуда — 12
+        // карточка хендоффа (1.7.3): r12, значок 20 в рамке 36 r8, название 14 полужирным, откуда — 12
         let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center, spacing: 10) {
