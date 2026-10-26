@@ -983,3 +983,21 @@ enum Snap {
     try await Snap.save(menu.environment(\.palette, app.palette).padding(20).background(app.palette.background),
                         "plus-project-list", size: CGSize(width: 420, height: 520))
 }
+
+@MainActor @Test(.enabled(if: snapDir != nil)) func snapshotGitHubRepoCard() async throws {
+    // «+ → Добавить из GitHub»: в поле одна карточка репозитория с логотипом, а не README и «структура» файлами (Рома, 26.10)
+    Snap.registerFonts()
+    let app = try Snap.app()
+    app.finishOnboarding(name: "Роман", address: .ty, backend: .subscription, theme: .lumen)
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-repo-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let summary = dir.appendingPathComponent("flowlocal.md")
+    try "— README.md —\n# FlowLocal\n".write(to: summary, atomically: true, encoding: .utf8)
+    var card = try #require(app.importAttachment(summary))
+    card.name = "flowlocal"
+    card.repo = "romankandeevy/flowlocal"
+    var items = [card]
+    try await Snap.save(AttachmentStrip(items: Binding(get: { items }, set: { items = $0 })).environment(\.palette, Palette.lumen)
+                            .padding(24).frame(width: 520, alignment: .leading).background(Palette.lumen.background),
+                        "github-repo-card", size: CGSize(width: 520, height: 130))
+}

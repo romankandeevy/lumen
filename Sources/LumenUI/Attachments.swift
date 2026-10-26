@@ -143,24 +143,25 @@ private struct AttachmentThumb: View {
             .help("Убрать")
         }
         .onHover { hover = $0 }
-        .help(attachment.name)
+        .help(attachment.repo ?? attachment.name)
     }
 }
 
-/// Карточка файла: значок по виду, имя, размер
+/// Карточка файла: значок по виду, имя, размер. Репозиторий GitHub — логотип, название и «GitHub · владелец»
 struct FileCard: View {
     let attachment: Attachment
     @Environment(\.palette) private var p
 
     var body: some View {
         HStack(spacing: 10) {
-            Icon(attachment.kind == .pdf ? "file-text" : attachment.kind == .text ? "file-text" : "file", 18)
-                .foregroundStyle(p.glow)
+            Icon(attachment.repo != nil ? "github" : (attachment.kind == .pdf || attachment.kind == .text ? "file-text" : "file"), 18)
+                .foregroundStyle(attachment.repo != nil ? p.foreground : p.glow)
                 .frame(width: 36, height: 36)
-                .background(p.glow.opacity(0.08), in: RoundedRectangle(cornerRadius: R.md))
+                .background((attachment.repo != nil ? p.foreground : p.glow).opacity(0.08), in: RoundedRectangle(cornerRadius: R.md))
             VStack(alignment: .leading, spacing: 1) {
                 Text(attachment.name).tw(13, .medium, lh: 18).lineLimit(1).truncationMode(.middle)
-                Text(kindName + " · " + attachment.sizeText).tw(11, lh: 14).foregroundStyle(p.mutedFg)
+                Text(attachment.repo != nil ? "GitHub · " + (attachment.repoOwner ?? "") : kindName + " · " + attachment.sizeText)
+                    .tw(11, lh: 14).foregroundStyle(p.mutedFg).lineLimit(1)
             }
         }
         .padding(.leading, 10).padding(.trailing, 14)
@@ -237,7 +238,7 @@ struct MessageAttachments: View {
         }
     }
 
-    private func open(_ a: Attachment) { NSWorkspace.shared.open(a.url) }
+    private func open(_ a: Attachment) { NSWorkspace.shared.open(a.repoWebURL ?? a.url) }
 }
 
 /// Картинки и файлы, которые показал агент, — как в Claude Code: маленькие превью в строку, при наведении — крупнее

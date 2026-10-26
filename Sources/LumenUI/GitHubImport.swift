@@ -3,15 +3,15 @@ import LumenCore
 import LumenProviders
 
 /// «Добавить из GitHub» в меню «+»: репозиторий клонируется в папку Lumen (мелко, без истории) и достаётся человеку:
-/// агенту — как ещё одна папка с доступом, чату — файлами README и «структура» во вложения.
+/// агенту — как ещё одна папка с доступом, чату — README и списком файлов. В поле ввода — одна карточка репозитория.
 extension AppModel {
     var githubFolder: URL { paths.root.appendingPathComponent("github", isDirectory: true) }
 
     struct GitHubResult {
         let repo: GitHubRepo
         let folder: URL
-        /// Для чата: README и список файлов — вложениями (их копирует importAttachment)
-        let files: [URL]
+        /// Для чата: README и список файлов одним текстом (его копирует importAttachment)
+        let summary: URL?
     }
 
     enum GitHubError: LocalizedError {
@@ -67,26 +67,26 @@ extension AppModel {
                                          + ". Приватный репозиторий — войди в gh (`gh auth login`)")
             }
         }
-        return GitHubResult(repo: repo, folder: dir, files: await summaryFiles(repo, in: dir))
+        return GitHubResult(repo: repo, folder: dir, summary: await summaryFile(repo, in: dir))
     }
 
-    /// README и «структура» репозитория: для чата, у которого нет доступа к файлам
-    private func summaryFiles(_ repo: GitHubRepo, in dir: URL) async -> [URL] {
-        var out: [URL] = []
+    /// README и список файлов репозитория одним текстом: для чата, у которого нет доступа к файлам
+    private func summaryFile(_ repo: GitHubRepo, in dir: URL) async -> URL? {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory.appendingPathComponent("lumen-github-\(UUID().uuidString)", isDirectory: true)
-        try? fm.createDirectory(at: tmp, withIntermediateDirectories: true)
-        if let readme = (try? fm.contentsOfDirectory(atPath: dir.path))?.first(where: { $0.lowercased().hasPrefix("readme") }) {
-            let copy = tmp.appendingPathComponent("\(repo.name)-\(readme)")
-            if (try? fm.copyItem(at: dir.appendingPathComponent(readme), to: copy)) != nil { out.append(copy) }
+        var parts: [String] = []
+        if let readme = (try? fm.contentsOfDirectory(atPath: dir.path))?.first(where: { $0.lowercased().hasPrefix("readme") }),
+           let text = try? String(contentsOf: dir.appendingPathComponent(readme), encoding: .utf8) {
+            parts.append("— \(readme) —\n" + text)
         }
         if let git = Shell.which("git"), let ls = try? await Shell.run(git, ["-C", dir.path, "ls-files"]), ls.status == 0 {
-            let lines = ls.stdout.split(separator: "\n").prefix(400)
-            let more = ls.stdout.split(separator: "\n").count - lines.count
-            let text = "Файлы репозитория \(repo.slug):\n" + lines.joined(separator: "\n") + (more > 0 ? "\n… и ещё \(more)" : "") + "\n"
-            let file = tmp.appendingPathComponent("\(repo.name)-структура.txt")
-            if (try? text.write(to: file, atomically: true, encoding: .utf8)) != nil { out.append(file) }
+            let all = ls.stdout.split(separator: "\n")
+            let lines = all.prefix(400)
+            parts.append("— Файлы (\(all.count)) —\n" + lines.joined(separator: "\n") + (all.count > lines.count ? "\n… и ещё \(all.count - lines.count)" : ""))
         }
-        return out
+        guard !parts.isEmpty else { return nil }
+        let tmp = fm.temporaryDirectory.appendingPathComponent("lumen-github-\(UUID().uuidString)", isDirectory: true)
+        try? fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let file = tmp.appendingPathComponent("\(repo.name).md")
+        return (try? parts.joined(separator: "\n\n").write(to: file, atomically: true, encoding: .utf8)) != nil ? file : nil
     }
 }

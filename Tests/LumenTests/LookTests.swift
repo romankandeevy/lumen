@@ -238,3 +238,26 @@ import Testing
     // ссылка в тексте ответа остаётся
     #expect(SourceLinks.withoutListing("См. [доки](https://a.dev).\n\nИсточники:\n- [доки](https://a.dev)") == "См. [доки](https://a.dev).")
 }
+
+@Test func githubRepoGoesToTheModelAsOneRepository() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-repo-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let summary = dir.appendingPathComponent("flowlocal.md")
+    try "— README.md —\n# FlowLocal\n\n— Файлы (2) —\nREADME.md\nPackage.swift".write(to: summary, atomically: true, encoding: .utf8)
+    var chat = Attachment(name: "flowlocal", kind: .text, mime: "text/plain", path: summary.path, size: 60)
+    chat.repo = "romankandeevy/flowlocal"
+    let text = chat.contentBlock()?["text"] as? String ?? ""
+    #expect(text.contains("Репозиторий GitHub «romankandeevy/flowlocal»") && text.contains("Package.swift"))
+    #expect(chat.repoOwner == "romankandeevy")
+    #expect(chat.repoWebURL?.absoluteString == "https://github.com/romankandeevy/flowlocal")
+
+    // агенту — папка; путь в блоке репозитория, без служебной приписки «Вложения сохранены»
+    var agent = Attachment(name: "flowlocal", kind: .file, mime: "inode/directory", path: dir.path, size: 0)
+    agent.repo = "romankandeevy/flowlocal"
+    let blocks = Attachment.userContent(text: "Сделай промо", attachments: [agent], agent: true)
+    let all = blocks.compactMap { $0["text"] as? String }.joined(separator: "\n")
+    #expect(all.contains("склонирован в папку \(dir.path)"))
+    #expect(!all.contains("Вложения сохранены"))
+    #expect(all.hasSuffix("Сделай промо"))
+}

@@ -191,18 +191,21 @@ struct PlusMenu: View {
             defer { working = false }
             do {
                 let r = try await app.importGitHub(text)
-                var ids: [String] = []
+                // в поле — одна карточка репозитория (как в Claude): у агента это папка с доступом, у чата — README и список файлов
+                var card: Attachment?
                 if agent {
-                    // папка — рабочий доступ агента; в поле — подсказка, где лежит
                     _ = chat.addPaths([r.folder])
-                    draft = "Репозиторий \(r.repo.slug) лежит в \(r.folder.path) — он тебе доступен. " + draft
-                } else {
-                    let added = r.files.compactMap(app.importAttachment)
-                    attachments += added
-                    ids = added.map(\.id)
+                    card = Attachment(name: r.repo.name, kind: .file, mime: "inode/directory", path: r.folder.path, size: 0)
+                } else if let summary = r.summary {
+                    card = app.importAttachment(summary)
                 }
+                guard var card else { throw AppModel.GitHubError.failed("В «\(r.repo.slug)» нечего показать чату: нет README и файлов") }
+                card.name = r.repo.name
+                card.repo = r.repo.slug
+                attachments.removeAll { $0.repo == r.repo.slug }
+                attachments.append(card)
                 github.removeAll { $0.slug == r.repo.slug }
-                github.append(GitHubAdded(slug: r.repo.slug, folder: r.folder, attachmentIDs: ids))
+                github.append(GitHubAdded(slug: r.repo.slug, folder: r.folder, attachmentIDs: [card.id]))
                 repoText = ""
                 open = false
             } catch {
@@ -480,12 +483,10 @@ struct GitHubAdded: Identifiable, Equatable {
     var id: String { slug }
 }
 
-/// Таблетки у «+»: только то, что включено или добавлено в это сообщение (Рома, 22.10) — «Ресерч» и репозитории GitHub.
-/// Поиск в сети и память по умолчанию включены и живут только в меню «+». Нажатие на таблетку убирает её
+/// Таблетки у «+»: только то, что включено в это сообщение (Рома, 22.10) — «Ресерч». Репозиторий GitHub — карточкой
+/// среди вложений, не таблеткой (26.10). Поиск в сети и память по умолчанию включены и живут только в меню «+»
 struct ToolPills: View {
     @Binding var research: Bool
-    @Binding var github: [GitHubAdded]
-    let removeGitHub: (GitHubAdded) -> Void
 
     var body: some View {
         HStack(spacing: 6) {
@@ -493,9 +494,6 @@ struct ToolPills: View {
                 ToolPill(icon: "flask-conical", title: "Ресерч", on: true, help: "Глубокое исследование на это сообщение — нажми, чтобы убрать") {
                     research = false
                 }
-            }
-            ForEach(github) { g in
-                ToolPill(icon: "github", title: g.slug, on: true, help: "Репозиторий добавлен — нажми, чтобы убрать") { removeGitHub(g) }
             }
         }
     }

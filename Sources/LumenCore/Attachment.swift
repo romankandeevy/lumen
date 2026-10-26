@@ -17,6 +17,9 @@ public struct Attachment: Codable, Sendable, Equatable, Hashable, Identifiable {
     public var height: Int?
     /// Снимок экрана, что сделал сам агент (browser_screenshot): виден превью на строке его шагов, а не отдельной картинкой
     public var snapshot: Bool?
+    /// Репозиторий GitHub «owner/name» из «+ → Добавить из GitHub»: одна карточка с логотипом (как в Claude, Рома 26.10).
+    /// У чата `path` — README и список файлов одним текстом, у агента — папка с копией репозитория
+    public var repo: String?
 
     public init(id: String = UUID().uuidString.lowercased(), name: String, kind: Kind, mime: String, path: String, size: Int,
                 width: Int? = nil, height: Int? = nil) {
@@ -31,6 +34,10 @@ public struct Attachment: Codable, Sendable, Equatable, Hashable, Identifiable {
     }
 
     public var url: URL { URL(fileURLWithPath: path) }
+
+    /// Карточка репозитория: «flowlocal» крупно, владелец — подписью
+    public var repoOwner: String? { repo.flatMap { $0.split(separator: "/").first.map(String.init) } }
+    public var repoWebURL: URL? { repo.flatMap { URL(string: "https://github.com/\($0)") } }
 
     /// Видео и аудио — проигрываются в браузере сбоку
     public static let videoExts: Set<String> = ["mp4", "mov", "m4v", "webm"]
@@ -50,6 +57,13 @@ public struct Attachment: Codable, Sendable, Equatable, Hashable, Identifiable {
 
     /// Блок содержимого Anthropic (тот же для `claude` через stream-json и для API)
     public func contentBlock() -> [String: Any]? {
+        if let repo {
+            if kind == .text, let text = try? String(contentsOf: url, encoding: .utf8) {
+                let cut = text.count > Self.textLimit ? String(text.prefix(Self.textLimit)) + "\n…(обрезано)" : text
+                return ["type": "text", "text": "Репозиторий GitHub «\(repo)» — README и список файлов:\n```\n\(cut)\n```"]
+            }
+            return ["type": "text", "text": "Репозиторий GitHub «\(repo)» склонирован в папку \(path) — она тебе доступна: читай и ищи файлы там."]
+        }
         switch kind {
         case .image:
             guard let data = try? Data(contentsOf: url) else { return nil }
@@ -73,7 +87,9 @@ public struct Attachment: Codable, Sendable, Equatable, Hashable, Identifiable {
         var blocks = attachments.compactMap { $0.contentBlock() }
         var t = text
         if agent && !attachments.isEmpty {
-            t += "\n\n(Вложения сохранены: " + attachments.map { "\($0.name) — \($0.path)" }.joined(separator: "; ") + ")"
+            // у репозитория путь уже в его блоке
+            let files = attachments.filter { $0.repo == nil }
+            if !files.isEmpty { t += "\n\n(Вложения сохранены: " + files.map { "\($0.name) — \($0.path)" }.joined(separator: "; ") + ")" }
         }
         if !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { blocks.append(["type": "text", "text": t]) }
         return blocks

@@ -1603,6 +1603,8 @@ struct Composer: View {
         .onChange(of: attachments.map(\.id)) {
             let clean = FileMarks.strip(draft, keeping: Set(attachments.map(\.id)))
             if clean != draft { draft = clean }
+            // убрали карточку репозитория — у агента уходит и доступ к его папке
+            for g in githubAdded where !attachments.contains(where: { $0.repo == g.slug }) { removeGitHub(g) }
         }
         // ширина — как у колонки переписки (Рома, 17.10), не шире 700 (макет 21.10).
         // Без белой полосы-градиента над полем: она закрывала последние строки ответа
@@ -1662,9 +1664,9 @@ struct Composer: View {
         // как в Claude: «+» в левом нижнем углу — картинки и файлы
         PlusMenu(app: app, agent: agent, canPickFolder: agent && chat.conversation == nil, chat: chat, draft: $draft, attachments: $attachments,
                  research: $research, github: $githubAdded, showsTools: !inBot && !inGroup).fixedSize()
-        // рядом с «+» — только то, что включено или добавлено в это сообщение: «Ресерч» и репозитории GitHub
-        if !inBot && !inGroup && (research || !githubAdded.isEmpty) {
-            ToolPills(research: $research, github: $githubAdded, removeGitHub: removeGitHub).fixedSize()
+        // рядом с «+» — только то, что включено в это сообщение: «Ресерч» (репозиторий GitHub — карточкой во вложениях)
+        if !inBot && !inGroup && research {
+            ToolPills(research: $research).fixedSize()
         }
         // агент: папка (единственная кнопка с рамкой) и «Режим» — в нём и режим, и «Ночь» (Рома, 21.10)
         if agent { folderPicker.fixedSize(); modeMenu.fixedSize(); modePills }
@@ -1848,7 +1850,7 @@ struct Composer: View {
         attachments += files.compactMap(app.importAttachment)
     }
 
-    /// Убрать репозиторий GitHub из сообщения: у агента — доступ к его папке, у чата — вложенные README и список файлов
+    /// Убрать репозиторий GitHub из сообщения: у агента — доступ к его папке, у чата — карточку с README и списком файлов
     private func removeGitHub(_ g: GitHubAdded) {
         githubAdded.removeAll { $0.id == g.id }
         if agent { removeExtra(g.folder) } else { attachments.removeAll { g.attachmentIDs.contains($0.id) } }
