@@ -59,6 +59,22 @@ import WebKit
     let unfolded = try await tab.webView.callAsyncJavaScript("editor.signals.sidebarToggled.dispatch(); return getComputedStyle(document.getElementById('sidebar')).display", contentWorld: .page) as? String
     #expect(unfolded != "none")
 
+    // камера на трекпаде плавная: щипок — чуть ближе, два пальца — вращение без скачка расстояния, колесо мыши — заметный, но не 10 % за событие шаг
+    let cam = try await tab.webView.callAsyncJavaScript("""
+    const v = document.querySelector('#viewport canvas') || document.getElementById('viewport'), c = editor.viewportCamera, d = () => c.position.length();
+    const fire = (o) => v.dispatchEvent(new WheelEvent('wheel', Object.assign({bubbles: true, cancelable: true, deltaMode: 0}, o)));
+    const d0 = d(); fire({deltaY: 4, ctrlKey: true}); const pinch = d() / d0;
+    const p0 = c.position.clone(), d1 = d(); fire({deltaX: 12, deltaY: 3}); const orbitMoved = c.position.distanceTo(p0), orbitDist = d() / d1;
+    const d2 = d(); fire({deltaY: 100}); const wheel = d() / d2;
+    return [pinch, orbitMoved, orbitDist, wheel];
+    """, contentWorld: .page) as? [Double] ?? []
+    #expect(cam.count == 4, "\(cam)")
+    if cam.count == 4 {
+        #expect(cam[0] > 1 && cam[0] < 1.06, "щипок на 4 px — чуть дальше, без рывка: \(cam)")
+        #expect(cam[1] > 0 && abs(cam[2] - 1) < 0.001, "два пальца вращают, расстояние то же: \(cam)")
+        #expect(cam[3] > 1.1 && cam[3] < 1.4, "колесо мыши — плавный шаг: \(cam[3])")
+    }
+
     let tree = await call("model3d_tree")
     #expect(tree.text.contains("Сиденье") && tree.text.contains("Спинка"), "\(tree.text.prefix(500))")
 

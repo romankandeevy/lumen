@@ -129,6 +129,9 @@ extension BrowserModel {
         }
         if select { self.select(tab.id); wantsFull += 1 }
         BrowserStage.keepRendering(tab.webView)
+        // щипок трекпада — приближение камеры в редакторе, а не увеличение всей страницы
+        tab.webView.allowsMagnification = false
+        tab.webView.magnification = 1
         try? FileManager.default.createDirectory(at: modelsDir, withIntermediateDirectories: true)
         guard await waitModelReady(tab) else { throw DesignError("3D-редактор не загрузился за 25 секунд.") }
         let project = modelProjectURL(name)

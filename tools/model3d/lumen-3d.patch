@@ -106,6 +106,109 @@ index 314fd6c..01dddcd 100644
  		refreshSidebarObject3D: new Signal(),
  		historyChanged: new Signal(),
  
+diff --git a/editor/js/EditorControls.js b/editor/js/EditorControls.js
+index 7ad14fe..317c6cf 100644
+--- a/editor/js/EditorControls.js
++++ b/editor/js/EditorControls.js
+@@ -124,6 +124,28 @@ class EditorControls extends THREE.EventDispatcher {
+ 
+ 		};
+ 
++		// Smooth zoom by a factor (<1 closer, >1 farther): trackpads send many small wheel events, so every event moves a bit
++		this.zoomScale = function ( factor ) {
++
++			if ( object.isOrthographicCamera ) {
++
++				object.zoom = Math.max( 0.0001, object.zoom / factor );
++				object.updateProjectionMatrix();
++
++			} else {
++
++				vector.copy( object.position ).sub( center );
++				const distance = vector.length();
++				const next = Math.min( Math.max( distance * factor, 0.001 ), 1e6 );
++				vector.setLength( next );
++				object.position.copy( center ).add( vector );
++
++			}
++
++			scope.dispatchEvent( changeEvent );
++
++		};
++
+ 		this.rotate = function ( delta ) {
+ 
+ 			vector.copy( object.position ).sub( center );
+@@ -284,8 +306,49 @@ class EditorControls extends THREE.EventDispatcher {
+ 
+ 			event.preventDefault();
+ 
+-			// Normalize deltaY due to https://bugzilla.mozilla.org/show_bug.cgi?id=1392460
+-			scope.zoom( delta.set( 0, 0, event.deltaY > 0 ? 1 : - 1 ) );
++			// in lines or pages (some mice) — to pixels
++			const unit = event.deltaMode === 1 ? 16 : ( event.deltaMode === 2 ? 400 : 1 );
++			const dx = event.deltaX * unit, dy = event.deltaY * unit;
++
++			// a mouse wheel: whole notches, no sideways component
++			const wheel = event.deltaMode !== 0 || ( dx === 0 && Math.abs( dy ) >= 50 && Number.isInteger( dy ) );
++
++			if ( event.ctrlKey || event.metaKey || wheel ) {
++
++				// pinch on a trackpad comes as ctrl + wheel; ⌘ + scroll and the mouse wheel zoom too
++				const k = event.ctrlKey ? 0.01 : 0.0022;
++				scope.zoomScale( Math.exp( Math.max( - 0.6, Math.min( 0.6, dy * k ) ) ) );
++
++			} else if ( event.shiftKey ) {
++
++				// shift + two fingers: move the view (as in Blender)
++				scope.pan( delta.set( dx, - dy, 0 ) );
++
++			} else {
++
++				// two fingers: orbit around the center (as in Blender on a trackpad)
++				scope.rotate( delta.set( dx, dy, 0 ) );
++
++			}
++
++		}
++
++		// Safari / WebKit pinch: scale is cumulative from the gesture start
++		let gestureScale = 1;
++
++		function onGestureStart( event ) {
++
++			event.preventDefault();
++			gestureScale = 1;
++
++		}
++
++		function onGestureChange( event ) {
++
++			if ( scope.enabled === false ) return;
++			event.preventDefault();
++			scope.zoomScale( gestureScale / event.scale );
++			gestureScale = event.scale;
+ 
+ 		}
+ 
+@@ -304,6 +367,8 @@ class EditorControls extends THREE.EventDispatcher {
+ 			domElement.addEventListener( 'contextmenu', contextmenu );
+ 			domElement.addEventListener( 'dblclick', onMouseUp );
+ 			domElement.addEventListener( 'wheel', onMouseWheel, { passive: false } );
++			domElement.addEventListener( 'gesturestart', onGestureStart, { passive: false } );
++			domElement.addEventListener( 'gesturechange', onGestureChange, { passive: false } );
+ 
+ 			domElement.addEventListener( 'pointerdown', onPointerDown );
+ 
+@@ -314,6 +379,8 @@ class EditorControls extends THREE.EventDispatcher {
+ 			domElement.removeEventListener( 'contextmenu', contextmenu );
+ 			domElement.removeEventListener( 'dblclick', onMouseUp );
+ 			domElement.removeEventListener( 'wheel', onMouseWheel );
++			domElement.removeEventListener( 'gesturestart', onGestureStart );
++			domElement.removeEventListener( 'gesturechange', onGestureChange );
+ 
+ 			domElement.removeEventListener( 'pointerdown', onPointerDown );
+ 
 diff --git a/editor/js/Lumen.js b/editor/js/Lumen.js
 new file mode 100644
 index 0000000..450179e

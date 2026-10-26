@@ -176,6 +176,9 @@ extension BrowserModel {
         }
         if select { self.select(tab.id); wantsFull += 1 }
         BrowserStage.keepRendering(tab.webView)
+        // щипок трекпада — масштаб холста макета, а не увеличение всей страницы
+        tab.webView.allowsMagnification = false
+        tab.webView.magnification = 1
         try? FileManager.default.createDirectory(at: designsDir, withIntermediateDirectories: true)
         guard await waitDesignReady(tab) else { throw DesignError("Редактор макетов не загрузился за 25 секунд.") }
         let exists = FileManager.default.fileExists(atPath: designsDir.appendingPathComponent(file).path)
