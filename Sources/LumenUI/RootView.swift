@@ -94,7 +94,7 @@ public struct RootView: View {
         // кнопки «панель» и «поиск» — рядом с кнопками окна и не двигаются, открыта панель или нет (Рома, 25.10):
         // передумал — нажимаешь туда же. Панель выезжает под ними
         .overlay(alignment: .topLeading) {
-            WindowControls(app: app).padding(.leading, 74).padding(.top, -2).ignoresSafeArea()
+            WindowControls(app: app).padding(.leading, TitleBar.controlsX).padding(.top, TitleBar.top(32)).ignoresSafeArea()
         }
         .overlay { MenuLayer(app: app) }
         .overlay { if app.searchOpen { SearchLayer(app: app).transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top))) } }
@@ -125,6 +125,8 @@ public struct RootView: View {
         }
         .animation(.easeInOut(duration: 0.3), value: app.prefs.onboarded)
         .background(p.background.ignoresSafeArea())
+        // кнопки окна — дальше от края и на линии шапки (TitleBar)
+        .background(TrafficLights().frame(width: 0, height: 0))
         // чат по подписке должен знать, где claude и есть ли вход
         .task { if app.claude == .checking { await app.refreshClaude() } }
         .task { if app.codex == .checking { await app.refreshCodex() } }
@@ -179,7 +181,7 @@ struct Sidebar: View {
             // как в Claude: в одной строке с кнопками окна — «спрятать панель» и поиск
             // строка заголовка: кнопки на одной линии с кнопками окна; ниже — сразу вкладки (Рома, 21.10: «слишком жирно»)
             // место под кнопки окна, «панель» и «поиск»: сами кнопки висят над окном (RootView), чтобы не ездить с панелью
-            Color.clear.frame(height: 36)
+            Color.clear.frame(height: TitleBar.height - 4)
 
             TabSwitch(app: app).padding(.horizontal, 14).padding(.top, 2)
 

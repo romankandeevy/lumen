@@ -164,7 +164,7 @@ struct ChatView: View {
         app.attachInbox = []
     }
 
-    static let headerHeight: CGFloat = 40
+    static let headerHeight: CGFloat = TitleBar.height
 
     /// Пустой экран и новый чат: названия нет — его роль у приветствия
     private var showsTitle: Bool { !(chat.messages.isEmpty && !chat.busy) }
@@ -181,9 +181,8 @@ struct ChatView: View {
                 headerButtons
             }
             .padding(.leading, app.prefs.sidebarHidden ? 168 : 24).padding(.trailing, 12)
+            // строка посередине шапки — на одной линии с кнопками окна, «панелью» и «поиском» (TitleBar.lineY)
             .frame(width: g.size.width, height: Self.headerHeight)
-            // светофор сидит выше середины шапки — поднимаем строку на его линию
-            .offset(y: -4)
         }
         .frame(height: Self.headerHeight)
         .background(WindowDragArea())
