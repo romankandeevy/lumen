@@ -172,7 +172,7 @@ extension BrowserModel {
         guard modelAutosave == nil else { return }
         modelAutosave = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(6))
+                try? await Task.sleep(for: .seconds(3))
                 guard let self else { return }
                 for t in self.tabs where self.modelDocs[t.id] != nil && t.isLoaded { await self.saveModel(t) }
             }

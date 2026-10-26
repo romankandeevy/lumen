@@ -195,6 +195,8 @@ final class BrowserModel: NSObject {
     @ObservationIgnored var modelsDir = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-models", isDirectory: true)
     @ObservationIgnored var modelAutosave: Task<Void, Never>?
     @ObservationIgnored var model3DGuideSent: Set<String> = []
+    /// Вкладки макетов и 3D после перезапуска: редактор откроется, когда на вкладку перейдут ("design" / "model3d", название)
+    var pendingEditors: [Int: (kind: String, name: String)] = [:]
     @ObservationIgnored var designsDir = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-designs", isDirectory: true)
     @ObservationIgnored var designAutosave: Task<Void, Never>?
     /// Кому из агентов уже отдан справочник по рисованию (один раз за запуск)
@@ -302,6 +304,13 @@ final class BrowserModel: NSObject {
             w.observe(\.estimatedProgress, options: [.initial]) { [weak self] v, _ in MainActor.assumeIsolated { self?.progress = v.estimatedProgress } },
         ]
         zoomLevel = w.pageZoom
+        // вкладка макета или 3D после перезапуска — открыть в ней свой редактор
+        if let pe = pendingEditors.removeValue(forKey: id), let tab = tabs.first(where: { $0.id == id }) {
+            Task {
+                if pe.kind == "model3d" { _ = try? await openModel(name: pe.name, in: tab, select: false) }
+                else { _ = try? await openDesign(name: pe.name, in: tab, select: false) }
+            }
+        }
         findOpen = false
         filledLogin = nil
         loginOffer = nil
@@ -347,6 +356,7 @@ final class BrowserModel: NSObject {
         designDocs[id] = nil
         designDocIDs[id] = nil
         modelDocs[id] = nil
+        pendingEditors[id] = nil
         gone.observers = []
         if agentTabID == id { agentTabID = nil }
         if tabs.isEmpty { _ = newTab(configuration: nil) } else if activeID == id { select(tabs[max(0, i - 1)].id) }
@@ -1368,10 +1378,13 @@ final class BrowserModel: NSObject {
 
     func savedState() -> SavedState {
         var s = SavedState(zoom: zoomByHost)
-        // макет открывается заново с пустой вкладки («Макеты»): его адрес с ключом живёт один запуск
-        for t in tabs where t.id != agentTabID && designDocs[t.id] == nil && modelDocs[t.id] == nil {
+        // макет и 3D сохраняются по названию (адрес редактора с ключом живёт один запуск); вкладки агента — тоже, уже как обычные
+        for t in tabs {
             let before = s.tabs.count
-            if let f = t.file { s.tabs.append(SavedTab(url: "", title: f.name, file: f.url.path, kind: f.kind.rawValue)) }
+            if let file = designDocs[t.id] { s.tabs.append(SavedTab(url: "", title: String(file.dropLast(4)), file: nil, kind: "design")) }
+            else if let name = modelDocs[t.id] { s.tabs.append(SavedTab(url: "", title: name, file: nil, kind: "model3d")) }
+            else if let pe = pendingEditors[t.id] { s.tabs.append(SavedTab(url: "", title: pe.name, file: nil, kind: pe.kind)) }
+            else if let f = t.file { s.tabs.append(SavedTab(url: "", title: f.name, file: f.url.path, kind: f.kind.rawValue)) }
             else if let u = t.isLoaded ? t.url : t.pending, !u.isEmpty, u != "about:blank" {
                 s.tabs.append(SavedTab(url: BrowserVault.scrubURL(u), title: t.title, file: nil, kind: nil))
             }
@@ -1390,7 +1403,13 @@ final class BrowserModel: NSObject {
         for (i, st) in s.tabs.enumerated() {
             let count = made.count
             defer { if i == s.active, made.count > count { activeTab = made.last } }
-            if let path = st.file {
+            if st.file == nil, st.kind == "design" || st.kind == "model3d" {
+                let t = Tab(id: nextTabID, model: self)
+                nextTabID += 1
+                t.title = st.title
+                pendingEditors[t.id] = (st.kind!, st.title)
+                made.append(t)
+            } else if let path = st.file {
                 guard FileManager.default.fileExists(atPath: path) else { continue }
                 let t = Tab(id: nextTabID, model: self)
                 nextTabID += 1

@@ -271,7 +271,9 @@ struct BrowserPane: View {
 
     private var blank: Bool { browser.url.isEmpty || browser.url == "about:blank" }
     /// Открыт макет или 3D: адрес у редактора не нужен — одна строка вкладок, всё место редактору (Рома, 26.10)
-    private var editorTab: Bool { browser.isDesign(browser.active) || browser.isModel(browser.active) }
+    private var editorTab: Bool {
+        browser.isDesign(browser.active) || browser.isModel(browser.active) || browser.pendingEditors[browser.active.id] != nil
+    }
     /// Верхняя строка с адресом видна (не файл и не редактор)
     private var showsToolbar: Bool { browser.active.file == nil && !editorTab }
 
@@ -319,7 +321,17 @@ struct BrowserPane: View {
                 } else {
                     pageView
                 }
-                if blank { empty }
+                if blank && !editorTab { empty }
+                if blank && editorTab {
+                    // вкладка макета или 3D после перезапуска: редактор открывается
+                    VStack(spacing: 10) {
+                        ProgressView().controlSize(.small)
+                        Text("Открываю \(browser.pendingEditors[browser.active.id]?.kind == "model3d" ? "3D-модель" : "макет") «\(browser.active.title)»…")
+                            .tw(12.5, lh: 16).foregroundStyle(p.mutedFg)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(p.background)
+                }
             }
             }
         }
@@ -573,10 +585,12 @@ struct BrowserPane: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 2) {
                     ForEach(browser.tabs) { t in
-                        BrowserTabChip(title: t.file?.name ?? (t.title.isEmpty ? (URL(string: t.url)?.host ?? "Новая вкладка") : t.title),
+                        BrowserTabChip(title: t.file?.name ?? browser.modelDocs[t.id] ?? (t.title.isEmpty ? (URL(string: t.url)?.host ?? "Новая вкладка") : t.title),
                                        host: t.file == nil ? t.host : nil,
                                        revision: t.iconRevision,
-                                       fileIcon: t.file.map { Self.icon(for: $0.kind) } ?? (browser.designDocs[t.id] != nil ? "pen-line" : (browser.modelDocs[t.id] != nil ? "box" : nil)),
+                                       fileIcon: t.file.map { Self.icon(for: $0.kind) }
+                                           ?? (browser.designDocs[t.id] != nil || browser.pendingEditors[t.id]?.kind == "design" ? "pen-line"
+                                               : (browser.modelDocs[t.id] != nil || browser.pendingEditors[t.id]?.kind == "model3d" ? "box" : nil)),
                                        agent: t.id == browser.agentTabID ? (t.owner ?? "Агент") : nil,
                                        on: t.id == browser.activeID,
                                        select: { browser.select(t.id) },

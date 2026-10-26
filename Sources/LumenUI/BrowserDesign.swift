@@ -230,7 +230,7 @@ extension BrowserModel {
         guard designAutosave == nil else { return }
         designAutosave = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(6))
+                try? await Task.sleep(for: .seconds(3))
                 guard let self else { return }
                 let open = self.tabs.filter { self.designDocs[$0.id] != nil && $0.isLoaded }
                 if open.isEmpty { continue }

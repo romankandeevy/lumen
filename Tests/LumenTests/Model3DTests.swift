@@ -98,4 +98,23 @@ import WebKit
     #expect(!again.text.contains("Как строить"), "справочник — один раз")
     let reopened = await call("model3d_tree")
     #expect(reopened.text.contains("Спинка") && reopened.text.contains("c0392b"), "\(reopened.text.prefix(600))")
+
+    // после перезапуска Lumen вкладка с моделью возвращается и открывает модель, когда на неё переходят
+    let saved = browser.savedState()
+    #expect(saved.tabs.contains { $0.kind == "model3d" && $0.title == "Стул" }, "\(saved)")
+    let next = BrowserModel()
+    next.modelsDir = models
+    let w2 = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820), styleMask: [.borderless], backing: .buffered, defer: false)
+    w2.setFrameOrigin(NSPoint(x: -4000, y: -4000)); w2.orderFrontRegardless()
+    defer { w2.orderOut(nil) }
+    next.restore(BrowserModel.SavedState(tabs: [BrowserModel.SavedTab(url: "https://example.com/", title: "Пример", file: nil, kind: nil)] + saved.tabs.filter { $0.kind == "model3d" }, active: 0))
+    let restored = try #require(next.tabs.first { $0.title == "Стул" })
+    #expect(next.pendingEditors[restored.id]?.kind == "model3d")
+    next.select(restored.id)
+    restored.webView.frame = w2.contentView!.bounds
+    w2.contentView!.addSubview(restored.webView)
+    for _ in 0..<100 where next.modelDocs[restored.id] == nil { try await Task.sleep(for: .milliseconds(100)) }
+    #expect(next.modelDocs[restored.id] == "Стул")
+    let back = await next.handle(tool: "model3d_tree", args: [:], who: "@designer")
+    #expect(back.text.contains("Спинка"), "\(back.text.prefix(300))")
 }
