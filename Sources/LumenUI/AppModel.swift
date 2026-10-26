@@ -497,11 +497,16 @@ public final class AppModel {
         guard let cli = CodexCLI.locate() else {
             codexCLI = nil
             codex = .notInstalled
+            codexAuth = .signedOut
             return
         }
         codexCLI = cli
-        codex = await cli.signedIn() ? .signedIn : .signedOut
+        codexAuth = await cli.authMode()
+        codex = codexAuth == .signedOut ? .signedOut : .signedIn
     }
+
+    /// Чем сейчас платит codex: подписка ChatGPT или ключ OpenAI API
+    var codexAuth: CodexCLI.AuthMode = .signedOut
 
     /// Вход аккаунтом ChatGPT: codex открывает браузер и ждёт
     func codexSignIn() async {
@@ -519,6 +524,52 @@ public final class AppModel {
         update {
             if $0.model.isGPT { $0.model = .sonnet }
             if $0.agentModel?.isGPT == true { $0.agentModel = nil }
+        }
+    }
+
+    // MARK: ChatGPT по ключу OpenAI API
+
+    var openaiKeyState: KeyState = .none
+    var savedOpenAITail: String?
+
+    /// Подключить ключ OpenAI API: проверка настоящим запросом, затем вход codex этим ключом —
+    /// модели GPT в Lumen платят ключом OpenAI, а не подпиской ChatGPT
+    func checkOpenAIKey(_ typed: String) async {
+        let candidate = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !candidate.isEmpty else {
+            openaiKeyState = .none
+            return
+        }
+        guard OpenAIAPI.looksValid(candidate) else {
+            openaiKeyState = .rejected
+            return
+        }
+        openaiKeyState = .checking
+        switch await OpenAIAPI(key: candidate).check() {
+        case .ok:
+            do {
+                try keychain.save(candidate, for: Keychain.openaiKey)
+                savedOpenAITail = String(candidate.suffix(4))
+                // ключ — и вход codex: codex платит этим ключом
+                if let cli = codexCLI { try? await cli.login(apiKey: candidate) }
+                await refreshCodex()
+                openaiKeyState = .ok
+            } catch {
+                openaiKeyState = .error(error.localizedDescription)
+            }
+        case .rejected: openaiKeyState = .rejected
+        case .noNetwork: openaiKeyState = .noNetwork
+        case .other(let m): openaiKeyState = .error(m)
+        }
+    }
+
+    func forgetOpenAIKey() {
+        keychain.delete(Keychain.openaiKey)
+        savedOpenAITail = nil
+        openaiKeyState = .none
+        // вход codex был этим ключом — выходим и из него
+        if codexAuth == .apiKey, let codexCLI {
+            Task { try? await codexCLI.logout(); await refreshCodex() }
         }
     }
 
@@ -680,6 +731,24 @@ public final class AppModel {
         update { $0.activeKeyID = id }
         savedKeyTail = String(key.suffix(4))
         keyState = .saved
+        chooseBackend(.api)
+    }
+
+    /// Карточка «API» / выбор ключа: выбранный движок — для всех разговоров, не только открытого и новых
+    func chooseBackend(_ backend: Backend) {
+        update { $0.backend = backend }
+        // Рома, 26.10: выбрал API, а старые разговоры продолжали платить подпиской — выбор применялся
+        // только к открытому чату и новым. Теперь применяем ко всем сразу
+        var changed = false
+        for var c in conversations where !c.model.isGPT && c.backend != backend {
+            c.backend = backend
+            // агентская сессия claude с OAuth не продолжается ключом — сессия новая
+            c.cliSessionID = nil
+            try? store.save(c)
+            changed = true
+        }
+        for ctl in controllers { ctl.applyBackend(backend) }
+        if changed { reloadConversations() }
     }
 
     func renameKey(_ id: String, _ name: String) {
@@ -721,6 +790,7 @@ public final class AppModel {
                 } else if let same = prefs.apiKeys.first(where: { keychain.read(Self.keyAccount($0.id)) == candidate }) {
                     update { $0.activeKeyID = same.id }
                 }
+                chooseBackend(.api)
                 keyState = .ok
             } catch {
                 keyState = .error(error.localizedDescription)

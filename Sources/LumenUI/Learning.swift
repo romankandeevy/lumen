@@ -27,12 +27,17 @@ extension AppModel {
     /// Один короткий запрос к модели без инструментов и настроек пользователя; ответ — текст
     func quickAsk(_ prompt: String, system: String, model: ChatModel = .haiku, effort: Effort = .low) async -> String? {
         guard let cli else { return nil }
-        let config = ClaudeSession.Config(model: model.rawValue, effort: effort.rawValue, systemPrompt: system, tools: [], userSettings: false)
+        var config = ClaudeSession.Config(model: model.rawValue, effort: effort.rawValue, systemPrompt: system, tools: [], userSettings: false)
+        // Рома, 26.10: выбран движок API, а фоновые вызовы (названия чатов, контекст проектов) всё равно
+        // списывали подписку — теперь платят ключом. bare, чтобы CLI не взял вход в подписку
+        let key = prefs.backend == .api ? keychain.read(Keychain.anthropicKey) : nil
+        if let key { config.payWithAPIKey(key) }
         guard let session = try? ClaudeSession(cli: cli, config: config) else { return nil }
         defer { session.close() }
         guard let r = try? await session.ask(prompt), r.ok else { return nil }
         if r.costUSD > 0 {
-            try? store.logSpend(conversationID: nil, backend: .subscription, model: model.rawValue, input: r.inputTokens, output: r.outputTokens,
+            try? store.logSpend(conversationID: nil, backend: key != nil ? .api : .subscription, model: model.rawValue,
+                                input: r.inputTokens, output: r.outputTokens,
                                 cacheRead: r.cacheReadTokens, cacheWrite: r.cacheWriteTokens, usd: r.costUSD)
         }
         return r.text

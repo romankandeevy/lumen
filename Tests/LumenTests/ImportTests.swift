@@ -269,6 +269,24 @@ private func writeSession(dir: URL, id: String, cwd: String) throws -> URL {
     #expect(MarkdownHTML.page(name: "a.md", text: "# Привет", raw: true).contains("<span class=\"t\"># Привет</span>"))
 }
 
+@Test func artifactsNeverHoldImagesOrScreenshots() throws {
+    let store = try Store()
+    let c = Conversation(title: "Снимки", kind: .agent, folder: "/tmp", backend: .subscription, model: .opus, effort: .high)
+    try store.save(c)
+    var shot = LumenCore.Attachment(name: "snap.png", kind: .image, mime: "image/png", path: "/tmp/snap.png", size: 10)
+    shot.snapshot = true
+    var m = ChatMessage(conversationID: c.id, role: .assistant, text: "Смотри")
+    m.attachments = [shot, LumenCore.Attachment(name: "pic.png", kind: .image, mime: "image/png", path: "/tmp/pic.png", size: 10),
+                     LumenCore.Attachment(name: "demo.mp4", kind: .file, mime: "video/mp4", path: "/tmp/demo.mp4", size: 10)]
+    try store.save(m)
+    var onlyImages = ChatMessage(conversationID: c.id, role: .assistant, text: "Картинка")
+    onlyImages.attachments = [shot]
+    try store.save(onlyImages)
+    let list = try store.artifacts()
+    #expect(list.count == 1)
+    #expect(list.first?.message.attachments.map(\.name) == ["demo.mp4"])
+}
+
 @Test func artifactsCollectEverythingLumenGaveAsAttachment() throws {
     let store = try Store()
     let c = Conversation(title: "Паспорт", kind: .agent, folder: "/tmp", backend: .subscription, model: .opus, effort: .high)

@@ -21,6 +21,8 @@ public struct Keychain: Sendable {
     static var isApp: Bool { Bundle.main.bundleIdentifier == "com.roman.lumen" }
 
     public static let anthropicKey = "anthropic-api-key"
+    /// Ключ OpenAI API: ChatGPT по ключу, не по подписке (вход codex этим ключом)
+    public static let openaiKey = "openai-api-key"
 
     public func read(_ account: String) -> String? {
         let key = service + "/" + account

@@ -127,6 +127,8 @@ import Testing
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     let store = try Store(path: dir.appendingPathComponent("db.sqlite"))
+    #expect(Conversation(title: "чат", backend: .api, model: .sonnet, effort: .medium).usesCLI == false)
+    #expect(Conversation(title: "агент", kind: .agent, folder: "/tmp", backend: .api, model: .sonnet, effort: .high).usesCLI == true)
     var c = Conversation(title: "т", kind: .agent, folder: "/tmp", backend: .subscription, model: .sonnet, effort: .high)
     c.extraPaths = ["/tmp/a"]
     try store.save(c)

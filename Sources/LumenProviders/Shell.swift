@@ -17,8 +17,9 @@ public enum Shell {
     }
 
     /// Запускает программу и ждёт конца. stdin = /dev/null, чтобы `claude -p` не ждал ввода 3 с.
+    /// `input` — записать в stdin и закрыть (например, ключ для `codex login --with-api-key`)
     public static func run(_ executable: URL, _ args: [String], cwd: URL? = nil,
-                           extraEnv: [String: String] = [:]) async throws -> Output {
+                           extraEnv: [String: String] = [:], input: Data? = nil) async throws -> Output {
         try await withCheckedThrowingContinuation { cont in
             let p = Process()
             p.executableURL = executable
@@ -28,7 +29,14 @@ public enum Shell {
             let out = Pipe(), err = Pipe()
             p.standardOutput = out
             p.standardError = err
-            p.standardInput = FileHandle.nullDevice
+            var inPipe: Pipe?
+            if let input {
+                let pipe = Pipe()
+                inPipe = pipe
+                p.standardInput = pipe
+            } else {
+                p.standardInput = FileHandle.nullDevice
+            }
             // читаем в фоне, чтобы большой вывод не забил буфер трубы и не повесил процесс
             let collector = Collector()
             let group = DispatchGroup()
@@ -53,6 +61,11 @@ public enum Shell {
             let closeWriters = { try? out.fileHandleForWriting.close(); try? err.fileHandleForWriting.close() }
             do {
                 try p.run()
+                // маленькая запись (< 64 КБ буфера трубы) — пишем и закрываем сразу, дедлока не будет
+                if let input, let pipe = inPipe {
+                    pipe.fileHandleForWriting.write(input)
+                    try? pipe.fileHandleForWriting.close()
+                }
                 closeWriters()
             } catch {
                 closeWriters()

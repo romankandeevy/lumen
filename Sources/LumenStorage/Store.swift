@@ -391,7 +391,8 @@ public final class Store: Sendable {
         _ = try db.write { db in try Conversation.deleteOne(db, key: id) }
     }
 
-    /// Артефакты: всё, что Lumen и боты выдали вложением (файлы make_file, снимки, показанные картинки), свежие сверху
+    /// Артефакты: файлы, что Lumen и боты выдали вложением (make_file, видео, документы), свежие сверху.
+    /// Картинки и снимки экрана сюда не входят никогда (Рома, 26.10)
     public func artifacts(limit: Int = 2000) throws -> [(message: ChatMessage, title: String)] {
         try db.read { db in
             let rows = try Row.fetchAll(db, sql: """
@@ -400,7 +401,11 @@ public final class Store: Sendable {
                 WHERE message.role = 'assistant' AND message.attachments IS NOT NULL AND message.attachments != '[]'
                 ORDER BY message.createdAt DESC LIMIT ?
                 """, arguments: [limit])
-            return try rows.map { (try ChatMessage(row: $0), $0["convTitle"] as String? ?? "") }
+            return try rows.compactMap { row in
+                var m = try ChatMessage(row: row)
+                m.attachments = m.attachments.filter(\.isArtifact)
+                return m.attachments.isEmpty ? nil : (m, row["convTitle"] as String? ?? "")
+            }
         }
     }
 

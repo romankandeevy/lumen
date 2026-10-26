@@ -20,6 +20,8 @@ public final class ClaudeSession: @unchecked Sendable {
         public var resumeAt: String?
         public var cwd: URL?
         public var extraEnv: [String: String]
+        /// Не читать OAuth подписки: только `ANTHROPIC_API_KEY` (иначе `claude` платит подпиской даже при ключе)
+        public var bare = false
         /// Дописать к системному промпту Claude Code (агент), а не заменить его
         public var appendSystemPrompt: String?
         /// Что разрешено без вопросов и что запрещено даже при обходе (`--allowedTools` / `--disallowedTools`)
@@ -69,6 +71,12 @@ public final class ClaudeSession: @unchecked Sendable {
         public var permissionMode = "dontAsk"
         public var asksHost: Bool { permissionMode != "dontAsk" && permissionMode != "bypassPermissions" }
 
+        /// Агент/бот по ключу: `claude --bare`, чтобы не взять вход в подписку
+        public mutating func payWithAPIKey(_ key: String) {
+            extraEnv["ANTHROPIC_API_KEY"] = key
+            bare = true
+        }
+
         public init(model: String, effort: String? = nil, systemPrompt: String? = nil, tools: [String]? = [],
                     userSettings: Bool = false, sessionID: String = UUID().uuidString.lowercased(),
                     resume: Bool = false, cwd: URL? = nil, extraEnv: [String: String] = [:],
@@ -104,8 +112,10 @@ public final class ClaudeSession: @unchecked Sendable {
         /// Аргументы командной строки. Флаги-списки (`--tools`) съедают следующий аргумент,
         /// поэтому текст запроса в аргументы не кладём никогда — он идёт через stdin.
         public var arguments: [String] {
-            var a = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-                     "--include-partial-messages", "--model", model, "--permission-mode", permissionMode]
+            var a = ["-p"]
+            if bare { a.append("--bare") }
+            a += ["--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+                  "--include-partial-messages", "--model", model, "--permission-mode", permissionMode]
             if asksHost { a += ["--permission-prompt-tool", "stdio"] }
             if let effort { a += ["--effort", effort] }
             if !fallbackModels.isEmpty { a += ["--fallback-model", fallbackModels.joined(separator: ",")] }
@@ -274,6 +284,17 @@ public final class ClaudeSession: @unchecked Sendable {
     }
 
     public var isRunning: Bool { process.isRunning }
+
+    private var billedUSD = 0.0
+
+    /// `total_cost_usd` в итоге хода накопительный за весь процесс claude (Рома, 26.10: в «В этом месяце» ход считался заново).
+    /// Новый ход стоил разницу с прошлым итогом; у только что запущенного процесса счёт начинается с нуля.
+    public func newCost(_ total: Double) -> Double {
+        lock.lock(); defer { lock.unlock() }
+        let delta = total >= billedUSD ? total - billedUSD : total
+        billedUSD = total
+        return delta
+    }
 
     /// Что `claude` написал в stderr — для понятной ошибки, если процесс упал
     public var errorOutput: String {

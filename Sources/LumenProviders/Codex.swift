@@ -25,9 +25,28 @@ public struct CodexCLI: Sendable {
         return out.status == 0 && text.contains("logged in") && !text.contains("not logged in")
     }
 
+    /// Чем платит codex: подписка ChatGPT или ключ OpenAI API
+    public enum AuthMode: Equatable, Sendable { case signedOut, chatgpt, apiKey }
+
+    public func authMode() async -> AuthMode {
+        guard let out = try? await Shell.run(binary, ["login", "status"]) else { return .signedOut }
+        let text = (out.stdout + out.stderr).lowercased()
+        // «Logged in using an API key - …»
+        if text.contains("api key") { return .apiKey }
+        if text.contains("logged in") && !text.contains("not logged in") { return .chatgpt }
+        return .signedOut
+    }
+
     /// Вход через браузер аккаунтом ChatGPT. Ждёт, пока человек войдёт.
     public func login() async throws {
         let out = try await Shell.run(binary, ["login"])
+        if out.status != 0 { throw ClaudeError.failed(out.stderr.isEmpty ? out.stdout : out.stderr) }
+    }
+
+    /// Вход ключом OpenAI API: дальше модели GPT платят ключом, а не подпиской ChatGPT.
+    /// Ключ уходит в stdin (`printenv OPENAI_API_KEY | codex login --with-api-key`).
+    public func login(apiKey: String) async throws {
+        let out = try await Shell.run(binary, ["login", "--with-api-key"], input: Data(apiKey.utf8))
         if out.status != 0 { throw ClaudeError.failed(out.stderr.isEmpty ? out.stdout : out.stderr) }
     }
 

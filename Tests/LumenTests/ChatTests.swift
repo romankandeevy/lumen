@@ -350,12 +350,30 @@ import Testing
     app.update { $0.apiKeys.append(second) }
     app.useKey(second.id)
     #expect(app.prefs.activeKeyID == second.id)
+    #expect(app.prefs.backend == .api)
     #expect(kc.read(Keychain.anthropicKey)?.hasSuffix("BBBB") == true)
     app.renameKey(second.id, "Рабочий")
     #expect(app.prefs.apiKeys.last?.name == "Рабочий")
     app.deleteKey(second.id)
     #expect(app.prefs.activeKeyID == first.id && kc.read(Keychain.anthropicKey)?.hasSuffix("AAAA") == true)
     for e in app.prefs.apiKeys { kc.delete(AppModel.keyAccount(e.id)) }
+}
+
+/// Выбор API в настройках переключает открытый чат, а не только новые
+@MainActor @Test func choosingApiMovesOpenChat() throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-backend-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let app = try AppModel(paths: AppPaths(root: home))
+    app.finishOnboarding(name: "Рома", address: .ty, backend: .subscription, theme: .lumen)
+    var c = Conversation(title: "т", backend: .subscription, model: .sonnet, effort: .medium, cliSessionID: "old-session")
+    try app.store.save(c)
+    app.reloadConversations()
+    app.openChat(c)
+    app.chooseBackend(.api)
+    #expect(app.prefs.backend == .api)
+    #expect(app.chat.conversation?.backend == .api)
+    #expect(app.chat.conversation?.cliSessionID == nil)
+    #expect(app.chat.conversation?.usesCLI == false)
 }
 
 

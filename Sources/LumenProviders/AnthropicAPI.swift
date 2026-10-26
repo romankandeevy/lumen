@@ -48,4 +48,19 @@ public struct AnthropicAPI: Sendable {
         struct E: Decodable { struct Inner: Decodable { let message: String }; let error: Inner }
         return (try? JSONDecoder().decode(E.self, from: data))?.error.message
     }
+
+    /// Строгие схемы для API: у каждого object — явное `additionalProperties: false`.
+    /// Anthropic отклоняет запрос с «tools.N.custom: For 'object' type, 'additionalProperties'
+    /// must be explicitly set to false» — MCP-схемы и старые описания инструментов так не пишут (Рома, 26.10)
+    public static func strict(_ value: Any) -> Any {
+        if let d = value as? [String: Any] {
+            var out = d.mapValues { strict($0) }
+            if out["type"] as? String == "object", out["additionalProperties"] == nil {
+                out["additionalProperties"] = false
+            }
+            return out
+        }
+        if let a = value as? [Any] { return a.map { strict($0) } }
+        return value
+    }
 }

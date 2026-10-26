@@ -45,6 +45,12 @@ import Testing
     #expect(a[a.firstIndex(of: "--setting-sources")! + 1] == "")
     #expect(a.contains("--session-id"))
     #expect(!a.contains("--resume"))
+    #expect(!a.contains("--bare"))
+
+    var paid = ClaudeSession.Config(model: "claude-sonnet-5-5", sessionID: "abc")
+    paid.payWithAPIKey("sk-ant-test")
+    #expect(paid.arguments.contains("--bare"))
+    #expect(paid.extraEnv["ANTHROPIC_API_KEY"] == "sk-ant-test")
 
     // агент: свои настройки (остров видит сессию), все инструменты, продолжение сессии
     let agent = ClaudeSession.Config(model: "claude-sonnet-5-5", tools: nil, userSettings: true, sessionID: "abc", resume: true)
@@ -86,6 +92,25 @@ import Testing
 @Test func apiKeyShape() {
     #expect(AnthropicAPI.looksValid("sk-ant-api03-" + String(repeating: "x", count: 40)))
     #expect(!AnthropicAPI.looksValid("sk-proj-123"))
+}
+
+/// Схемы инструментов для API: у каждого object — явное additionalProperties: false, иначе Anthropic отклоняет ход (Рома, 26.10)
+@Test func toolSchemasAreStrictForObject() {
+    let schema: [String: Any] = ["type": "object",
+                                 "properties": ["q": ["type": "string"],
+                                                "where": ["type": "object", "properties": ["x": ["type": "number"]]]]]
+    guard let s = AnthropicAPI.strict(schema) as? [String: Any],
+          let props = s["properties"] as? [String: Any], let w = props["where"] as? [String: Any] else {
+        Issue.record("схема не сохранилась"); return
+    }
+    #expect(s["additionalProperties"] as? Bool == false)
+    #expect(w["additionalProperties"] as? Bool == false)
+    // явно указанное не трогаем
+    let open = AnthropicAPI.strict(["type": "object", "additionalProperties": true]) as? [String: Any]
+    #expect(open?["additionalProperties"] as? Bool == true)
+    // как в Lumen: схема без additionalProperties у самого object
+    let bare = AnthropicAPI.strict(["type": "object", "properties": [String: Any]()]) as? [String: Any]
+    #expect(bare?["additionalProperties"] as? Bool == false)
 }
 
 @Test func storeKeepsSettingsAndUpsertsFacts() throws {

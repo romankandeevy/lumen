@@ -423,11 +423,11 @@ struct SettingsView: View {
                 GroupTitle(text: "Через что отвечать по умолчанию")
                 ThreeColumns(spacing: 8) {
                     ChoiceCard(title: "Подписка", note: "Входит в тариф Claude. Есть лимит на 5 часов и на неделю.",
-                               active: app.prefs.backend == .subscription, settingsStyle: true) { app.update { $0.backend = .subscription } }
+                               active: app.prefs.backend == .subscription, settingsStyle: true) { app.chooseBackend(.subscription) }
                     ChoiceCard(title: "API", note: "Платишь за токены. Без лимитов по времени.",
-                               active: app.prefs.backend == .api, settingsStyle: true) { app.update { $0.backend = .api } }
+                               active: app.prefs.backend == .api, settingsStyle: true) { app.chooseBackend(.api) }
                 }
-                Text("Касается новых чатов. Начатый разговор продолжается тем же способом.")
+                Text("Этот разговор и новые. Старый чат — открой его и снова выбери здесь, если он ещё на другом способе.")
                     .font(.geist(12)).foregroundStyle(p.mutedFg).padding(.top, 8)
             }
             group("Модель в новых разговорах", footer: "В поле ввода её можно сменить для любого разговора.") {
@@ -1745,14 +1745,16 @@ struct WidthCard: View {
     }
 }
 
-/// ChatGPT через официальный codex по подписке ChatGPT: вход в браузере, модели GPT появляются в выборе модели
+/// ChatGPT через официальный codex: подписка ChatGPT (вход в браузере) или ключ OpenAI API —
+/// модели GPT появляются в выборе модели после любого входа
 struct ChatGPTCard: View {
     @Bindable var app: AppModel
 
     @Environment(\.palette) private var p
+    @State private var key = ""
 
     var body: some View {
-        SettingsCard(title: "Подписка ChatGPT", icon: "message-circle", status: AnyView(status)) {
+        SettingsCard(title: "ChatGPT", icon: "message-circle", status: AnyView(status)) {
             VStack(alignment: .leading, spacing: 0) {
                 switch app.codex {
                 case .checking:
@@ -1765,25 +1767,96 @@ struct ChatGPTCard: View {
                     LButton(title: "Проверить", icon: "refresh-cw", kind: .outline, small: true) { Task { await app.refreshCodex() } }
                         .padding(.top, 16)
                 case .signedOut, .signingIn:
-                    Text("Войди аккаунтом ChatGPT — откроется браузер. После входа модели GPT появятся в выборе модели в чате и у агента.")
-                        .font(.geist(13.5)).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
-                    LButton(title: "Войти через ChatGPT", kind: .primary, busy: app.codex == .signingIn) { Task { await app.codexSignIn() } }
-                        .padding(.top, 16)
+                    signIn(signedIn: false)
+                    apiKeyEntry
                 case .signedIn:
-                    Text("Вход через Codex на этом Маке. В выборе модели: \(ChatModel.gpt.map(\.name).joined(separator: ", ")).")
-                        .font(.geist(13.5)).fixedSize(horizontal: false, vertical: true)
-                    Text("Агент на ChatGPT правит файлы только в своей папке и без сети — push сделать не может.")
-                        .font(.geist(12)).foregroundStyle(p.mutedFg).padding(.top, 4).fixedSize(horizontal: false, vertical: true)
-                    LButton(title: "Выйти", icon: "log-out", kind: .ghost, small: true) { Task { await app.codexSignOut() } }
-                        .padding(.top, 12)
+                    signIn(signedIn: true)
+                    if app.codexAuth != .apiKey { apiKeyEntry }
                 }
             }
         }
     }
 
+    /// Подписка ChatGPT: вход через браузер (или выход, если уже вошли)
+    @ViewBuilder private func signIn(signedIn: Bool) -> some View {
+        if signedIn {
+            Text(app.codexAuth == .apiKey
+                 ? "Вход ключом OpenAI API — модели GPT платят ключом, не подпиской. В выборе модели: \(ChatModel.gpt.map(\.name).joined(separator: ", "))."
+                 : "Вход аккаунтом ChatGPT (по подписке). В выборе модели: \(ChatModel.gpt.map(\.name).joined(separator: ", ")).")
+                .font(.geist(13.5)).fixedSize(horizontal: false, vertical: true)
+            Text("Агент на ChatGPT правит файлы только в своей папке и без сети — push сделать не может.")
+                .font(.geist(12)).foregroundStyle(p.mutedFg).padding(.top, 4).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                LButton(title: app.codexAuth == .apiKey ? "Войти по подписке ChatGPT" : "Выйти",
+                        icon: app.codexAuth == .apiKey ? "globe" : "log-out", kind: .ghost, small: true) {
+                    Task {
+                        if app.codexAuth == .apiKey { await app.codexSignIn() } else { await app.codexSignOut() }
+                    }
+                }
+            }
+            .padding(.top, 12)
+        } else {
+            Text("Войди аккаунтом ChatGPT — откроется браузер. После входа модели GPT появятся в выборе модели в чате и у агента.")
+                .font(.geist(13.5)).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
+            LButton(title: "Войти через ChatGPT", kind: .primary, busy: app.codex == .signingIn) { Task { await app.codexSignIn() } }
+                .padding(.top, 16)
+        }
+    }
+
+    /// Или ключ OpenAI API: проверка настоящим запросом и вход codex этим ключом
+    @ViewBuilder private var apiKeyEntry: some View {
+        if app.savedOpenAITail == nil {
+            Divider().padding(.vertical, 14)
+            Text("Или ключ OpenAI API — GPT платят ключом, а не подпиской ChatGPT:")
+                .font(.geist(13.5)).foregroundStyle(p.mutedFg)
+            HStack(spacing: 8) {
+                GlowField(placeholder: "sk-…", text: $key, secure: true, mono: true, onSubmit: check)
+                LButton(title: "Подключить", kind: .outline, busy: app.openaiKeyState == .checking, action: check)
+                    .disabled(key.isEmpty)
+            }
+            .padding(.top, 8)
+            if let note = keyNote {
+                Text(note).font(.geist(12)).foregroundStyle(noteColor).padding(.top, 6).fixedSize(horizontal: false, vertical: true)
+            }
+            Text("Ключ хранится в Связке ключей macOS и никуда не уходит, кроме OpenAI.")
+                .font(.geist(12)).foregroundStyle(p.mutedFg).padding(.top, 6)
+        } else {
+            HStack(spacing: 8) {
+                Text("Ключ OpenAI: sk-…\(app.savedOpenAITail ?? "")").font(.system(size: 12, design: .monospaced)).foregroundStyle(p.mutedFg)
+                IconButton(icon: "trash", help: "Отключить ключ") { app.forgetOpenAIKey() }
+            }
+            .padding(.top, 12)
+        }
+    }
+
+    private func check() {
+        Task {
+            await app.checkOpenAIKey(key)
+            if app.openaiKeyState == .ok { key = "" }
+        }
+    }
+
+    private var keyNote: String? {
+        switch app.openaiKeyState {
+        case .rejected: "Ключ не подошёл. Он начинается с sk- — скопируй его заново в platform.openai.com."
+        case .noNetwork: "Нет связи с OpenAI. Проверь интернет и нажми «Подключить» ещё раз."
+        case .error(let m): m
+        case .ok: "Ключ работает — модели GPT платят ключом OpenAI."
+        default: nil
+        }
+    }
+
+    private var noteColor: Color {
+        switch app.openaiKeyState {
+        case .ok: Palette.ok
+        case .rejected, .noNetwork, .error: Palette.destructive
+        default: p.mutedFg
+        }
+    }
+
     private var status: some View {
         switch app.codex {
-        case .signedIn: StatusDot(on: true, text: "подключено")
+        case .signedIn: StatusDot(on: true, text: app.codexAuth == .apiKey ? "ключ API" : "подключено")
         case .checking: StatusDot(on: false, text: "проверяю")
         default: StatusDot(on: false, text: "не подключено")
         }

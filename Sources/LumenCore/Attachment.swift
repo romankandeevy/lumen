@@ -45,6 +45,9 @@ public struct Attachment: Codable, Sendable, Equatable, Hashable, Identifiable {
     public var isVideo: Bool { Self.videoExts.contains(url.pathExtension.lowercased()) }
     public var isAudio: Bool { Self.audioExts.contains(url.pathExtension.lowercased()) }
 
+    /// Попадает в «Артефакты»: документы, текст, PDF, видео, звук. Картинки и снимки экрана — никогда (Рома, 26.10)
+    public var isArtifact: Bool { kind != .image && snapshot != true }
+
     /// «1,2 МБ», «340 КБ»
     public var sizeText: String {
         if size < 1000 { return "\(size) байт" }

@@ -418,6 +418,18 @@ final class ChatController {
         }
     }
 
+    /// Подписка или ключ API: сразу этот разговор и новые
+    func applyBackend(_ backend: Backend) {
+        guard var c = conversation, !c.model.isGPT, c.backend != backend else { return }
+        c.backend = backend
+        sessions[c.id]?.close()
+        sessions[c.id] = nil
+        // агентская сессия claude с OAuth не продолжается ключом — новая
+        c.cliSessionID = c.usesCLI ? UUID().uuidString.lowercased() : nil
+        conversation = c
+        try? app.store.save(c)
+    }
+
     /// Модель и «сколько думать» для следующего хода
     func set(model: ChatModel? = nil, effort: Effort? = nil) {
         // новая задача агента помнит свои модель и «сколько думать», чат — свои
@@ -467,8 +479,8 @@ final class ChatController {
             c = Conversation(title: Self.title(from: text.isEmpty ? attachments.first?.name ?? "Вложение" : text), backend: app.prefs.backend, model: app.prefs.model, effort: app.prefs.effort)
         }
         if conversation == nil { c.projectID = newProjectID }
-        // ChatGPT идёт по подписке ChatGPT, не по ключу Anthropic
-        if c.model.isGPT { c.backend = .subscription }
+        // ChatGPT платит тем, чем вошёл codex: подписка ChatGPT или ключ OpenAI API (Рома, 26.10)
+        if c.model.isGPT { c.backend = app.codexAuth == .apiKey ? .api : .subscription }
         begin(c, text: text, attachments: attachments, isNew: conversation == nil)
     }
 
@@ -854,9 +866,9 @@ final class ChatController {
             var changes: ChangeSet?
             if let before, let files = try? await git.changes(since: before), !files.isEmpty { changes = ChangeSet(files: files) }
             if let result {
-                try? app.store.logSpend(conversationID: b.id, backend: .subscription, model: b.model.rawValue, input: result.inputTokens,
-                                        output: result.outputTokens, cacheRead: result.cacheReadTokens,
-                                        cacheWrite: result.cacheWriteTokens, usd: result.costUSD)
+                try? app.store.logSpend(conversationID: b.id, backend: b.backend == .api ? .api : .subscription, model: b.model.rawValue,
+                                        input: result.inputTokens, output: result.outputTokens, cacheRead: result.cacheReadTokens,
+                                        cacheWrite: result.cacheWriteTokens, usd: session.newCost(result.costUSD))
             }
             let ok = result?.ok == true
             let stopped = isStopped(c)
@@ -985,9 +997,15 @@ final class ChatController {
         if !retried { chooseModel(c) }
         // вход в сайты коннекторов продлевается до хода; продлили — процесс поднимется с новым токеном (--resume)
         if await app.freshenOAuth(app.connectorsFor(c)) { restart(c.id) }
-        if c.backend == .api, let stop = app.limitReached {
-            await finish(c, text: "", error: stop)
-            return
+        if c.backend == .api {
+            guard app.keychain.read(Keychain.anthropicKey) != nil else {
+                await finish(c, text: "", error: APIChatError.noKey.localizedDescription)
+                return
+            }
+            if let stop = app.limitReached {
+                await finish(c, text: "", error: stop)
+                return
+            }
         }
         // агент: что было изменено в папке до хода — чтобы показать только его правки
         let git = c.folder.map { Git(folder: URL(fileURLWithPath: $0)) }
@@ -1101,11 +1119,11 @@ final class ChatController {
                 await finish(c, text: answer, error: Self.cliError(raw), changes: changes)
                 return
             }
-            // расход: по подписке claude даёт оценку «сколько стоило бы по API»; агент по ключу платит ключом
-            let paidBy: Backend = c.kind == .agent && c.backend == .api ? .api : .subscription
+            // расход: по подписке claude даёт оценку «сколько стоило бы по API»; по ключу платит ключом любой разговор через claude (агент, бот, группа)
+            let paidBy: Backend = c.backend == .api ? .api : .subscription
             try? app.store.logSpend(conversationID: c.id, backend: paidBy, model: c.model.rawValue, input: result.inputTokens,
                                     output: result.outputTokens, cacheRead: result.cacheReadTokens,
-                                    cacheWrite: result.cacheWriteTokens, usd: result.costUSD)
+                                    cacheWrite: result.cacheWriteTokens, usd: session.newCost(result.costUSD))
             let ctx = (result.contextTokens, result.contextWindow)
             if isStopped(c) {
                 await finish(c, text: answer, stopped: true, changes: changes, context: ctx)
@@ -1114,6 +1132,13 @@ final class ChatController {
             } else {
                 // лимит у этой модели кончился — сразу ответить другой, у которой он есть (автовыбор модели)
                 let failure = result.text.isEmpty ? session.errorOutput : result.text
+                // сессии claude нет (после смены способа оплаты её начинают заново) — один раз заново, без «Повторить» (Рома, 26.10)
+                if !retried, hadTurnsBefore, answer.isEmpty, (failure + session.errorOutput).localizedCaseInsensitiveContains("no conversation found") {
+                    app.log("Сессия \(c.cliSessionID ?? "-") не нашлась — начинаю заново", conversation: c)
+                    sessions[c.id] = nil
+                    await runCLI(c, text: text, attachments: attachments, hadTurnsBefore: false, retried: true)
+                    return
+                }
                 if !retried, answer.isEmpty, await switchModelAfterLimit(c, failure) {
                     await runCLI(c, text: text, attachments: attachments, hadTurnsBefore: hadTurnsBefore, retried: true)
                     return
@@ -1232,6 +1257,11 @@ final class ChatController {
             if let git, let before, let files = try? await git.changes(since: before), !files.isEmpty {
                 changes = ChangeSet(files: files)
             }
+            // платим ключом OpenAI — ход в журнал трат, чтобы «В этом месяце» и предохранитель видели GPT (у ChatModel.gpt цены нулевые, поэтому usd = 0)
+            if let result, result.ok, app.codexAuth == .apiKey {
+                try? app.store.logSpend(conversationID: c.id, backend: .api, model: c.model.rawValue, input: result.inputTokens,
+                                        output: result.outputTokens, cacheRead: result.cacheReadTokens, cacheWrite: 0, usd: 0)
+            }
             let ctx = result.map { ($0.contextTokens, $0.contextWindow) }
             if isStopped(c) {
                 await finish(c, text: answer, stopped: true, changes: changes, context: ctx)
@@ -1260,8 +1290,10 @@ final class ChatController {
     /// Тёплый процесс на разговор. Если сменились модель или effort — перезапуск с `--resume`.
     private func cliSession(for c: Conversation, cli: ClaudeCLI, resume: Bool) throws -> ClaudeSession {
         let model = effectiveModel(c)
+        // тёплый процесс с другим способом оплаты не годится: подписка не продолжается ключом (Рома, 26.10)
+        let wantsKey = c.backend == .api && app.keychain.read(Keychain.anthropicKey) != nil
         if let s = sessions[c.id], s.isRunning, s.config.model == model.rawValue, s.config.effort == c.effort.rawValue,
-           sessionFlags[c.id] == toolFlags {
+           s.config.bare == wantsKey, sessionFlags[c.id] == toolFlags {
             // режим меняется на ходу, без перезапуска (ночью — обход разрешений)
             if c.kind == .agent, let mode = effectiveMode(c), sessionModes[c.id] != mode {
                 s.setMode(mode.rawValue)
@@ -1287,7 +1319,6 @@ final class ChatController {
             config = .init(model: bot.model.rawValue, effort: bot.effort.rawValue, tools: perms.tools, userSettings: false,
                            sessionID: sid, resume: resume, cwd: app.botFolder(bot), appendSystemPrompt: app.botPrompt(bot),
                            allowedTools: perms.allowed, disallowedTools: perms.disallowed)
-            if c.backend == .api, let key = app.keychain.read(Keychain.anthropicKey) { config.extraEnv["ANTHROPIC_API_KEY"] = key }
             // позванный бот может работать минутами — MCP-вызову delegate даём до 15 минут
             if bot.can.contains(.bots) { config.extraEnv["MCP_TOOL_TIMEOUT"] = "900000" }
         } else if c.kind == .agent, let folder = c.folder {
@@ -1299,8 +1330,6 @@ final class ChatController {
             // страж готовности: не даёт закончить, пока не проверено сделанное (Рома, 19.10)
             app.syncGuardFlag()
             config.guardCommand = app.guardCommand
-            // агент по ключу: тот же claude, но платит ключ (§2.4 техплана)
-            if c.backend == .api, let key = app.keychain.read(Keychain.anthropicKey) { config.extraEnv["ANTHROPIC_API_KEY"] = key }
         } else {
             // у чата своя папка для временного (а не «/», откуда запущено приложение)
             // «Поиск в сети» включён — у чата есть WebSearch и WebFetch (без вопросов); выключен — только свои инструменты Lumen
@@ -1342,6 +1371,8 @@ final class ChatController {
         }
         // секреты коннекторов — в окружение claude, в файлах их нет
         config.extraEnv.merge(app.secretValues(for: app.connectorsFor(c).map(\.server))) { a, _ in a }
+        // ключ без --bare claude игнорирует и берёт вход в подписку
+        if c.backend == .api, let key = app.keychain.read(Keychain.anthropicKey) { config.payWithAPIKey(key) }
         // хуки из «Кастомизации»
         config.settings = app.hooksSettingsFile()?.path
         if resume { config.resumeAt = resumeAt }
@@ -1381,7 +1412,8 @@ final class ChatController {
         let memoryDefs = MemoryTools.definitions.filter { app.prefs.useMemory || !["remember", "recall"].contains($0.name) }
         request.tools = (memoryDefs + (tools.availableSkills.isEmpty ? [] : MemoryTools.skillDefinitions)
                          + (tools.project == nil ? [] : MemoryTools.projectDefinitions) + SkillAdmin.definitions + CustomizeAdmin.definitions).map {
-            JSONBox(["name": $0.name, "description": $0.description, "input_schema": $0.schema, "strict": true])
+            // strict требует явного additionalProperties: false у каждого object — приводит схемы и MCP, и свои
+            JSONBox(["name": $0.name, "description": $0.description, "input_schema": AnthropicAPI.strict($0.schema), "strict": true])
         }
         // Lumen сам зовёт ботов — как delegate у lumen-mcp
         if !app.bots.isEmpty, c.kind != .bot {

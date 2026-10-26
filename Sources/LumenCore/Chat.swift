@@ -539,8 +539,8 @@ public struct ChangeSet: Codable, Sendable, Equatable {
     }
 }
 
-/// Разговор во вкладке «Чат» или «Агент». Через что он думает, выбирается при создании и не меняется:
-/// у подписки история живёт в сессии `claude`, у API — в базе Lumen.
+/// Разговор во вкладке «Чат» или «Агент». Через что он думает, задаётся при создании;
+/// в настройках «Модели и оплата» можно переключить открытый разговор (чат по ключу идёт в API, агент — в `claude --bare`).
 public struct Conversation: Codable, Sendable, Equatable, Identifiable, Hashable {
     public var id: String
     public var title: String

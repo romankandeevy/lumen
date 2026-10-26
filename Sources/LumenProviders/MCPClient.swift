@@ -366,7 +366,8 @@ public final class MCPPool: @unchecked Sendable {
             guard let l = live[n] else { continue }
             for t in l.tools {
                 out.append(JSONBox(["name": Self.apiName(n, t.name), "description": String(t.description.prefix(1024)),
-                                    "input_schema": t.schema.value]))
+                                    // MCP-схемы не знают про strict API: у каждого object — additionalProperties: false
+                                    "input_schema": AnthropicAPI.strict(t.schema.value)]))
             }
         }
         return out

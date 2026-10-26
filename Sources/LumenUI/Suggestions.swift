@@ -70,7 +70,13 @@ extension AppModel {
                                         facts: memories.map(\.text), recent: conversations.prefix(8).map(\.title))
         let basis = suggestionBasis
         var text: String?
-        if case .signedIn = claude, let cli {
+        let key = keychain.read(Keychain.anthropicKey)
+        // Рома, 26.10: выбран движок API, а подсказки предпочитали подписку — платим как выбрано,
+        // вторым способом достаём, если первый не ответил
+        let wantAPI = prefs.backend == .api
+        // выбран API — подпиской не достаём: человек выбрал платить ключом (Рома, 26.10)
+        if wantAPI, let key { text = await askAPI(prompt, key: key) }
+        if text == nil, !wantAPI, case .signedIn = claude, let cli {
             // одноразовый процесс: без инструментов, без настроек ~/.claude
             if let s = try? ClaudeSession(cli: cli, config: .init(model: ChatModel.haiku.rawValue, effort: Effort.low.rawValue,
                                                                  systemPrompt: "Отвечай только тем, что просят.", tools: [])) {
@@ -81,29 +87,33 @@ extension AppModel {
                 }
                 s.close()
             }
-        } else if let key = keychain.read(Keychain.anthropicKey), limitReached == nil {
-            var api = AnthropicAPI(key: key)
-            api.session = urlSession
-            var req = AnthropicChatRequest(model: .haiku, effort: .low, system: "Отвечай только тем, что просят.",
-                                           messages: [["role": "user", "content": prompt]])
-            req.maxTokens = 400
-            var out = ""
-            do {
-                    for try await ev in api.chat(req) {
-                        switch ev {
-                        case .textDelta(let t): out += t
-                        case .finished(_, _, let u):
-                            try? store.logSpend(conversationID: nil, backend: .api, model: ChatModel.haiku.rawValue, input: u.input, output: u.output,
-                                                cacheRead: u.cacheRead, cacheWrite: u.cacheWrite,
-                                                usd: ChatModel.haiku.cost(input: u.input, output: u.output, cacheRead: u.cacheRead, cacheWrite: u.cacheWrite))
-                        }
-                    }
-                    text = out
-            } catch {}
         }
+        if text == nil, !wantAPI, let key, limitReached == nil { text = await askAPI(prompt, key: key) }
         guard let text, let items = Suggestions.parse(text) else { return }
         let cache = SuggestionCache(items: items, at: Date(), basis: basis)
         suggestionCache = cache
         try? store.set("suggestions", cache)
+    }
+
+    /// Тот же запрос по ключу API — напрямую, без claude
+    private func askAPI(_ prompt: String, key: String) async -> String? {
+        var api = AnthropicAPI(key: key)
+        api.session = urlSession
+        var req = AnthropicChatRequest(model: .haiku, effort: .low, system: "Отвечай только тем, что просят.",
+                                       messages: [["role": "user", "content": prompt]])
+        req.maxTokens = 400
+        var out = ""
+        do {
+            for try await ev in api.chat(req) {
+                switch ev {
+                case .textDelta(let t): out += t
+                case .finished(_, _, let u):
+                    try? store.logSpend(conversationID: nil, backend: .api, model: ChatModel.haiku.rawValue, input: u.input, output: u.output,
+                                        cacheRead: u.cacheRead, cacheWrite: u.cacheWrite,
+                                        usd: ChatModel.haiku.cost(input: u.input, output: u.output, cacheRead: u.cacheRead, cacheWrite: u.cacheWrite))
+                }
+            }
+            return out.isEmpty ? nil : out
+        } catch { return nil }
     }
 }

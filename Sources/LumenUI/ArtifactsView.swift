@@ -2,7 +2,7 @@ import AppKit
 import LumenCore
 import SwiftUI
 
-/// «Артефакты»: всё, что Lumen и боты выдали вложением — файлы (make_file), снимки страниц, показанные картинки.
+/// «Артефакты»: файлы, что Lumen и боты выдали вложением — документы (make_file), видео. Картинок и снимков экрана здесь нет (Рома, 26.10).
 /// Ничего не лежит в проектах: открыть сбоку, скачать в «Загрузки», перейти в разговор, откуда это, или прикрепить к чату.
 /// «Прикрепить» копит файлы внизу («2 файла ждут · Открыть чат»), поле ввода забирает их при открытии чата (Рома, 21.10)
 struct ArtifactsView: View {
@@ -11,7 +11,6 @@ struct ArtifactsView: View {
     @Environment(\.palette) private var p
     @State private var items: [Item] = []
     @State private var query = ""
-    @State private var filter = 0
 
     struct Item: Identifiable {
         let attachment: Attachment
@@ -23,8 +22,7 @@ struct ArtifactsView: View {
     private var shown: [Item] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         return items.filter { it in
-            (filter == 0 || (filter == 1) == (it.attachment.kind != .image))
-                && (q.isEmpty || (it.attachment.name + " " + it.title).lowercased().contains(q))
+            q.isEmpty || (it.attachment.name + " " + it.title).lowercased().contains(q)
         }
     }
 
@@ -32,12 +30,11 @@ struct ArtifactsView: View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Артефакты").font(.geist(28, .semibold))
-                Text("Файлы и картинки, которые выдали Lumen и боты. Открой сбоку, скачай или прикрепи к чату.")
+                Text("Файлы, которые выдали Lumen и боты: документы, видео. Открой сбоку, скачай или прикрепи к чату.")
                     .font(.geist(14)).foregroundStyle(p.mutedFg)
             }
             HStack(spacing: 12) {
                 GlowField(placeholder: "Поиск по имени и разговору", text: $query, icon: "search")
-                MiniSegmented(value: $filter, options: [(0, "Все \(items.count)"), (1, "Файлы"), (2, "Картинки")])
             }
             if shown.isEmpty {
                 Text(items.isEmpty ? "Пока пусто. Попроси Lumen или бота «сделай файл…» — он появится здесь и под ответом."
