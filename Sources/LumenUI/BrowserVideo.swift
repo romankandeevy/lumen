@@ -107,13 +107,14 @@ extension BrowserModel {
         return tab
     }
 
-    /// В Студии — только то, что работает в Lumen: без рекламы их приложения и подсказок про их агента (агент тут — Lumen, через чат)
+    /// В Студии — только то, что работает в Lumen: без логотипа HeyGen в шапке, рекламы их приложения и подсказок про их агента
+    /// (агент тут — Lumen, через чат). Лицензия Apache-2.0 логотип показывать не требует; текст лицензии лежит в VideoGuide
     func tidyStudio(_ tab: Tab) {
         let js = """
             if (!window.__lumenTidy) {
               window.__lumenTidy = true;
               const st = document.createElement('style');
-              st.textContent = '[data-testid=header-open-in-desktop], .hf-framey-trigger { display: none !important; }';
+              st.textContent = '[data-testid=header-open-in-desktop], .hf-framey-trigger, svg[aria-label=Hyperframes], svg[aria-label=Hyperframes] + span[aria-hidden=true] { display: none !important; }';
               document.head.appendChild(st);
               const hide = () => {
                 const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);

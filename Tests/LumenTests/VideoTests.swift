@@ -50,6 +50,8 @@ import WebKit
     try await Task.sleep(for: .milliseconds(400))
     let promo = try await tab.webView.callAsyncJavaScript("const b = document.querySelector('[data-testid=header-open-in-desktop]'); return b ? getComputedStyle(b).display : 'none'", contentWorld: .page) as? String
     #expect(promo == "none")
+    let logo = try await tab.webView.callAsyncJavaScript("const l = document.querySelector('svg[aria-label=Hyperframes]'); return l ? getComputedStyle(l).display : 'none'", contentWorld: .page) as? String
+    #expect(logo == "none", "логотип HeyGen в шапке Студии спрятан")
 
     // сцена: заголовок выезжает, плашка проявляется — 3 секунды
     let html = """
