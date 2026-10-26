@@ -701,6 +701,21 @@ index 8e04f21..ab9573c 100644
  	// Grid Helper
  
  	let option = new UIRow().addClass( 'option' ).addClass( 'toggle' ).setTextContent( strings.getKey( 'menubar/view/gridHelper' ) ).onClick( function () {
+diff --git a/editor/js/Menubar.js b/editor/js/Menubar.js
+index 78d9822..380d40d 100644
+--- a/editor/js/Menubar.js
++++ b/editor/js/Menubar.js
+@@ -20,7 +20,9 @@ function Menubar( editor ) {
+ 	container.add( new MenubarRender( editor ) );
+ 	container.add( new MenubarHelp( editor ) );
+ 
+-	container.add( new MenubarStatus( editor ) );
++	// inside Lumen the model is saved by Lumen itself: no autosave switch and version on the right — in a narrow panel
++	// they wrapped onto a second line over the viewport
++	if ( ! new URLSearchParams( location.search ).has( 'lumen' ) ) container.add( new MenubarStatus( editor ) );
+ 
+ 	return container;
+ 
 diff --git a/editor/js/Resizer.js b/editor/js/Resizer.js
 index c595e00..d2d5a89 100644
 --- a/editor/js/Resizer.js

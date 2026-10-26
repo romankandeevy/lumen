@@ -172,6 +172,7 @@ final class BrowserModel: NSObject {
     /// «Стоп» увеличивает: всё, что стояло в очереди до него, не выполняется
     @ObservationIgnored private var stopEpoch = 0
     @ObservationIgnored var lastHumanInput = Date.distantPast
+    @ObservationIgnored private var lastTouchNote = Date.distantPast
     /// Вкладка, в которой идёт текущее действие агента: закроют её посреди действия — остаток не попадёт к человеку
     @ObservationIgnored var pinned: Tab?
     @ObservationIgnored private var monitor: Any?
@@ -518,16 +519,12 @@ final class BrowserModel: NSObject {
             guard let hit = win.contentView?.hitTest(e.locationInWindow), hit === w || hit.isDescendant(of: w) else { return }
         }
         lastHumanInput = Date()
-        guard active.id == agentTabID else { return }
-        if agentActive || acting > 0 {
-            if !paused {
-                paused = true
-                takeover = true
-                events.append("Человек сам взял управление браузером (он нажал или напечатал на твоей странице). Ты на паузе: ничего не делай, пока он не вернёт управление, и не повторяй действия. Спроси его в чате, что дальше.")
-            }
-        } else {
-            // агент уже закончил, страницей пользуется человек — вкладка снова его
-            releaseAgentTab()
+        // человек тоже пользуется страницей агента — агент не останавливается и вкладку не теряет (Рома, 26.10);
+        // в следующем ответе он узнает, что страница могла измениться
+        guard active.id == agentTabID, agentActive || acting > 0 else { return }
+        if Date().timeIntervalSince(lastTouchNote) > 10 {
+            lastTouchNote = Date()
+            events.append("Человек тоже нажимал или печатал на твоей странице — она могла измениться. Перед следующим действием прочитай её заново (browser_read_page), работай дальше.")
         }
     }
 

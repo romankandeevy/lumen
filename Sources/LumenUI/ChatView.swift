@@ -2438,6 +2438,10 @@ struct MarkdownTable: View {
 struct ScrollTracking: ViewModifier {
     @Binding var atBottom: Bool
     var follow: () -> Void = {}
+    /// Человек сейчас листает (пальцы на трекпаде или переписка ещё едет по инерции)
+    @State private var scrolling = false
+    /// Пока листал, переписка выросла — догнать низ, когда остановится
+    @State private var owed = false
 
     func body(content: Content) -> some View {
         if #available(macOS 15.0, *) {
@@ -2447,11 +2451,20 @@ struct ScrollTracking: ViewModifier {
                     [g.contentSize.height - (g.contentOffset.y + g.containerSize.height), g.containerSize.height, g.contentSize.height]
                 } action: { old, new in
                     if old.count == 3, atBottom, new[2] > old[2] + 0.5 || abs(new[1] - old[1]) > 0.5 {
-                        follow()
+                        // человек листает к низу, а ленивый список досчитывает высоты сообщений: если тут же тянуть вниз,
+                        // прокрутка борется с пальцами и переписка качается вверх-вниз (Рома, 26.10) — подождать, пока остановится
+                        if scrolling { owed = true } else { follow() }
                         return
                     }
                     let gap = new[0]
                     if atBottom && gap > 160 { atBottom = false } else if !atBottom && gap < 40 { atBottom = true }
+                }
+                .onScrollPhaseChange { _, phase in
+                    scrolling = phase != .idle
+                    if phase == .idle, owed {
+                        owed = false
+                        if atBottom { follow() }
+                    }
                 }
         } else {
             content
