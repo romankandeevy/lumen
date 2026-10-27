@@ -33,6 +33,8 @@ public struct Palette: Sendable {
     var textStrong: Color { foreground.mixed(with: isLight ? .black : .white, 0.2) }
     /// Текст ответа
     var textBody: Color { foreground.mixed(with: background, 0.05) }
+    /// Ссылка в тексте ответа: акцент темы; у чёрно-белых тем акцент почти не отличается от букв — тогда синий
+    var link: Color { isMono ? Color(hex: isLight ? 0x2F6FD0 : 0x7DB4FF) : glow }
     /// Неактивные названия в «Недавних»
     var textSoft: Color { foreground.mixed(with: background, 0.12) }
     /// Модель и «сколько думать» под полем

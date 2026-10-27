@@ -147,7 +147,7 @@ import Testing
     #expect(b == [
         .heading(1, "Заголовок"), .paragraph("Абзац\nвторая строка"), .rule,
         .bullet(0, "один"), .bullet(1, "вложенный"), .bullet(0, "два"),
-        .ordered(0, "1", "раз"), .ordered(0, "2", "два"), .quote("цитата"), .paragraph("**не пункт**"),
+        .ordered(0, "1", "раз"), .ordered(0, "2", "два"), .quote(1, "цитата"), .paragraph("**не пункт**"),
     ])
     #expect(MarkdownBlocks.isRule("- - -") && MarkdownBlocks.isRule("***") && !MarkdownBlocks.isRule("--"))
 }

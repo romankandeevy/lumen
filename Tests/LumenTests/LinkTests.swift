@@ -72,3 +72,36 @@ import Testing
     try move(to: NSPoint(x: 1, y: r.midY + v.textContainerOrigin.y))
     #expect(l.temporaryAttribute(.underlineStyle, atCharacterIndex: at.location + 1, effectiveRange: nil) == nil)
 }
+
+@Test func checkboxesAndNestedQuotesAreParsed() {
+    #expect(MarkdownBlocks.parse("- [x] готово\n- [ ] ждёт\n  - [X] вложенное\n- [x]не чекбокс\n- обычный") == [
+        .task(0, true, "готово"), .task(0, false, "ждёт"), .task(1, true, "вложенное"), .bullet(0, "[x]не чекбокс"), .bullet(0, "обычный"),
+    ])
+    #expect(MarkdownBlocks.parse("> раз\n> > два\n> > ещё\n\n> снова") == [.quote(1, "раз"), .quote(2, "два\nещё"), .quote(1, "снова")])
+}
+
+@MainActor @Test func linksAreItalicAndTasksGetBoxes() {
+    let base = NSFont.systemFont(ofSize: 15)
+    let s = LinkText.styledBlocks("- [x] сделано\n- [ ] ждёт\n\nСмотри [доки](https://docs.dev)", base: base, size: 15, extra: 4, color: .white, muted: .gray)
+    let ns = s.string as NSString
+    #expect(ns.contains("☑\tсделано") && ns.contains("☐\tждёт"))
+    let at = ns.range(of: "доки").location
+    let font = s.attribute(.font, at: at, effectiveRange: nil) as? NSFont
+    let slanted = (s.attribute(.obliqueness, at: at, effectiveRange: nil) as? Double ?? 0) > 0
+    #expect(slanted || font?.fontDescriptor.symbolicTraits.contains(.italic) == true)
+    #expect(s.attribute(.strikethroughStyle, at: ns.range(of: "сделано").location, effectiveRange: nil) != nil)
+    #expect(s.attribute(.strikethroughStyle, at: ns.range(of: "ждёт").location, effectiveRange: nil) == nil)
+}
+
+@Test func tildeFencesAndFormulasBecomeBlocks() {
+    let parts = RichText.parts("Вот код:\n\n~~~python\nprint(1)\n~~~\n\n$$\nE = mc^2\n$$\n\n\\[ a^2 + b^2 = c^2 \\]\n\n```math\n\\int_0^1 x\\,dx\n```")
+    #expect(parts.contains(.code("print(1)", lang: "python")))
+    let visuals = parts.compactMap { part -> String? in if case .visual(let h, true) = part { h } else { nil } }
+    #expect(visuals.count == 3)
+    #expect(visuals[0].contains("E = mc^2") && visuals[1].contains("a^2 + b^2 = c^2") && visuals[2].contains("int_0^1"))
+    #expect(MathBlock.display("цена $$ и $$ ещё") == nil)
+}
+
+@MainActor @Test func lineBreakTagsBecomeNewlines() {
+    #expect(String(RichText.markdown("раз<br>два<BR/>три").characters) == "раз\nдва\nтри")
+}

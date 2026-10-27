@@ -28,16 +28,16 @@ struct LinkText: NSViewRepresentable {
     func updateNSView(_ v: LinkTextView, context: Context) {
         context.coordinator.open = { openURL($0) }
         let m = metrics
-        let key = "\(t.font)|\(t.scale)|\(Font.uiScale)|\(p.foreground)|\(p.glow)|\(numbers.hashValue)"
+        let key = "\(t.font)|\(t.scale)|\(Font.uiScale)|\(p.foreground)|\(p.glow)|\(p.link)|\(numbers.hashValue)"
         v.barColor = NSColor(p.foreground.opacity(0.22))
         v.ruleColor = NSColor(p.borderBase.opacity(0.14))
         v.setCaret(caret, color: NSColor(p.glow), height: m.size * 1.1)
         guard context.coordinator.text != source || context.coordinator.key != key else { return }
         context.coordinator.text = source
         context.coordinator.key = key
-        v.linkTextAttributes = [.foregroundColor: NSColor(p.glow), .cursor: NSCursor.pointingHand]
+        v.linkTextAttributes = [.foregroundColor: NSColor(p.link), .cursor: NSCursor.pointingHand]
         v.textContainerInset = NSSize(width: 0, height: m.extra / 2)
-        v.setText(Self.styledBlocks(source, base: m.font, size: m.size, extra: m.extra, color: NSColor(p.textBody), muted: NSColor(p.mutedFg), numbers: numbers))
+        v.setText(Self.styledBlocks(source, base: m.font, size: m.size, extra: m.extra, color: NSColor(p.textBody), muted: NSColor(p.mutedFg), accent: NSColor(p.link), numbers: numbers))
         v.invalidateIntrinsicContentSize()
     }
 
@@ -97,11 +97,12 @@ struct LinkText: NSViewRepresentable {
             if let intent = run.inlinePresentationIntent {
                 if intent.contains(.code) { font = .monospacedSystemFont(ofSize: size * 0.9, weight: forceBold ? .semibold : .regular) }
                 if intent.contains(.stronglyEmphasized) { font = bold(font) }
-                if intent.contains(.emphasized) {
-                    let it = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
-                    if it.fontName == font.fontName { attrs[.obliqueness] = 0.18 } else { font = it }
-                }
                 if intent.contains(.strikethrough) { attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+            }
+            // курсив — и у ссылки: её видно среди текста, даже когда цвет акцента близок к цвету букв
+            if run.inlinePresentationIntent?.contains(.emphasized) == true || run.link != nil {
+                let it = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
+                if it.fontName == font.fontName { attrs[.obliqueness] = 0.18 } else { font = it }
             }
             attrs[.font] = font
             if let link = run.link { attrs[.link] = link }
@@ -120,7 +121,7 @@ struct LinkText: NSViewRepresentable {
     /// Весь ответ одним текстом: заголовки крупнее и жирно, списки с отступом и маркерами, цитата с чертой, линия «---».
     /// Выделяется и копируется целиком — через абзацы, списки и заголовки
     @MainActor static func styledBlocks(_ source: String, base: NSFont, size: CGFloat, extra: CGFloat, color: NSColor, muted: NSColor,
-                                         numbers: [String: Int] = [:]) -> NSAttributedString {
+                                         accent: NSColor? = nil, numbers: [String: Int] = [:]) -> NSAttributedString {
         let blocks = MarkdownBlocks.parse(source)
         let out = NSMutableAttributedString()
         for (i, b) in blocks.enumerated() {
@@ -144,12 +145,15 @@ struct LinkText: NSViewRepresentable {
                 piece = item(marker: depth == 0 ? "•" : "◦", depth: depth, hang: 16, text: t, base: base, size: size, para: para, color: color, muted: muted, next: next, last: last, numbers: numbers)
             case .ordered(let depth, let num, let t):
                 piece = item(marker: num + ".", depth: depth, hang: 22, text: t, base: base, size: size, para: para, color: color, muted: muted, next: next, last: last, numbers: numbers)
-            case .quote(let t):
-                para.firstLineHeadIndent = 14
-                para.headIndent = 14
+            case .task(let depth, let done, let t):
+                piece = item(marker: done ? "☑" : "☐", depth: depth, hang: 22, text: t, base: base, size: size, para: para,
+                             color: done ? muted : color, muted: done ? (accent ?? muted) : muted, next: next, last: last, numbers: numbers, strike: done)
+            case .quote(let depth, let t):
+                para.firstLineHeadIndent = 14 * CGFloat(depth)
+                para.headIndent = 14 * CGFloat(depth)
                 para.paragraphSpacing = last ? 0 : 12
                 piece = runs(RichText.inline(t), base: base, size: size, para: para, color: muted, numbers: numbers)
-                extraAttrs[.lumenQuote] = true
+                extraAttrs[.lumenQuote] = depth
             case .rule:
                 para.minimumLineHeight = 26
                 para.maximumLineHeight = 26
@@ -170,7 +174,7 @@ struct LinkText: NSViewRepresentable {
     /// Пункт списка: маркер, табуляция, текст; перенос строки встаёт под текст, а не под маркер
     @MainActor private static func item(marker: String, depth: Int, hang: CGFloat, text: String, base: NSFont, size: CGFloat,
                                         para: NSMutableParagraphStyle, color: NSColor, muted: NSColor, next: MDBlock?, last: Bool,
-                                        numbers: [String: Int]) -> NSAttributedString {
+                                        numbers: [String: Int], strike: Bool = false) -> NSAttributedString {
         let indent = CGFloat(depth) * 20
         para.firstLineHeadIndent = indent
         para.headIndent = indent + hang
@@ -178,7 +182,9 @@ struct LinkText: NSViewRepresentable {
         para.defaultTabInterval = hang
         para.paragraphSpacing = last ? 0 : ((next?.isListItem ?? false) ? 4 : 12)
         let out = NSMutableAttributedString(string: marker + "\t", attributes: [.font: base, .foregroundColor: muted, .paragraphStyle: para])
+        let from = out.length
         out.append(runs(RichText.inline(text), base: base, size: size, para: para, color: color, numbers: numbers))
+        if strike { out.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: NSRange(location: from, length: out.length - from)) }
         return out
     }
 
@@ -194,7 +200,7 @@ struct LinkText: NSViewRepresentable {
 }
 
 extension NSAttributedString.Key {
-    /// Абзац-цитата: слева рисуется черта
+    /// Абзац-цитата: слева рисуется черта на каждый уровень вложенности (значение — глубина, Int)
     static let lumenQuote = NSAttributedString.Key("lumenQuote")
     /// Абзац-линия «---»: через всю ширину рисуется тонкая черта
     static let lumenRule = NSAttributedString.Key("lumenRule")
@@ -249,12 +255,14 @@ final class LinkTextView: NSTextView {
         let origin = textContainerOrigin
         let all = NSRange(location: 0, length: storage.length)
         storage.enumerateAttribute(.lumenQuote, in: all) { v, range, _ in
-            guard v != nil else { return }
+            guard let depth = v as? Int else { return }
             let glyphs = l.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
             var r = l.boundingRect(forGlyphRange: glyphs, in: c)
             r.origin.x += origin.x; r.origin.y += origin.y
             barColor.setFill()
-            NSBezierPath(roundedRect: NSRect(x: 0, y: r.minY + 2, width: 3, height: max(4, r.height - 4)), xRadius: 1.5, yRadius: 1.5).fill()
+            for level in 0..<max(1, depth) {
+                NSBezierPath(roundedRect: NSRect(x: CGFloat(level) * 14, y: r.minY + 2, width: 3, height: max(4, r.height - 4)), xRadius: 1.5, yRadius: 1.5).fill()
+            }
         }
         storage.enumerateAttribute(.lumenRule, in: all) { v, range, _ in
             guard v != nil else { return }

@@ -1132,8 +1132,10 @@ struct RichText: View {
         return [cells(lines[0])] + lines.dropFirst(2).map(cells)
     }
 
-    static func parts(_ text: String) -> [Part] {
+    static func parts(_ source: String) -> [Part] {
         var out: [Part] = []
+        // забор из тильд «~~~» — тот же блок кода, что и из обратных кавычек
+        let text = source.contains("~~~") ? source.replacingOccurrences(of: #"(?m)^[ ]{0,3}~{3,}"#, with: "```", options: .regularExpression) : source
         let chunks = text.components(separatedBy: "```")
         for (i, chunk) in chunks.enumerated() {
             if i % 2 == 1 {
@@ -1149,6 +1151,8 @@ struct RichText: View {
                 // ```visual — живая картинка; пока блок не закрыт (ответ ещё пишется), рисовать нечего
                 if let l = lang?.lowercased(), Visuals.langs.contains(l) {
                     out.append(.visual(code, done: i < chunks.count - 1))
+                } else if let l = lang?.lowercased(), MathBlock.langs.contains(l), !code.isEmpty {
+                    out.append(.visual(MathBlock.html(code), done: i < chunks.count - 1))
                 } else if !code.isEmpty {
                     out.append(.code(code, lang: lang))
                 }
@@ -1163,6 +1167,12 @@ struct RichText: View {
                 for para in chunk.components(separatedBy: "\n\n") {
                     let s = para.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !s.isEmpty else { continue }
+                    // формула на отдельных строках «$$ … $$» или «\[ … \]» — рисуется как формула
+                    if let tex = MathBlock.display(s) {
+                        flush()
+                        out.append(.visual(MathBlock.html(tex), done: true))
+                        continue
+                    }
                     // таблица может идти сразу под строкой текста, без пустой строки
                     let lines = s.components(separatedBy: "\n")
                     let isRow = { (l: String) in l.trimmingCharacters(in: .whitespaces).hasPrefix("|") }
@@ -1194,9 +1204,14 @@ struct RichText: View {
     /// Строчная разметка куска без заголовков: блоки (заголовки, списки…) уже разобраны MarkdownBlocks
     @MainActor private static var inlined: [String: AttributedString] = [:]
 
+    /// «<br>» (в ячейках таблиц и абзацах) — перенос строки
+    private static func breaks(_ s: String) -> String {
+        s.contains("<") ? s.replacingOccurrences(of: #"(?i)<br\s*/?>"#, with: "\n", options: .regularExpression) : s
+    }
+
     @MainActor static func inline(_ s: String) -> AttributedString {
         if let hit = inlined[s] { return hit }
-        var out = (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
+        var out = (try? AttributedString(markdown: breaks(s), options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
         detectLinks(&out)
         if inlined.count > 600 { inlined.removeAll() }
         inlined[s] = out
@@ -1213,7 +1228,7 @@ struct RichText: View {
 
     private static func parseMarkdown(_ s: String) -> AttributedString {
         // заголовки «## …» и «**…**» в начале строки — жирным, списки оставляем как есть
-        let cleaned = s.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
+        let cleaned = breaks(s).split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
             let l = String(line)
             if let r = l.range(of: #"^#{1,6}\s+"#, options: .regularExpression) { return "**" + l[r.upperBound...] + "**" }
             return l
