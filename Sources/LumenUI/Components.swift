@@ -13,7 +13,7 @@ enum R {
     static let xxxl: CGFloat = 26.4
 }
 
-/// Подложка строки списка (макет 21.10): выбранная — мягкий градиент и тонкое кольцо внутри, под курсором — едва заметная.
+/// Подложка строки списка (макет 21.10): выбранная — мягкая заливка без рамки (Рома, 27.10), под курсором — едва заметная.
 /// Цветной черты слева нет нигде
 struct RowBackground: ViewModifier {
     let active: Bool
@@ -26,7 +26,7 @@ struct RowBackground: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         content.background {
             if active {
-                shape.fill(p.activeFill).overlay(shape.strokeBorder(p.activeRing))
+                shape.fill(p.activeFill)
             } else if hover {
                 shape.fill(p.hover)
             }
@@ -723,6 +723,40 @@ struct Shimmer: ViewModifier {
 
 extension View {
     func shimmer(_ color: Color) -> some View { modifier(Shimmer(color: color)) }
+
+    /// Название разговора, пока идёт ход: текст чуть притушен, а в одном месте он мягко светлеет, и это место плывёт
+    /// по строке (вместо точки справа; Рома, 27.10: без тени и свечения вокруг, просто немного светлее в одном месте)
+    @ViewBuilder func runningGlow(_ on: Bool, _ color: Color) -> some View {
+        if on { modifier(TextGlint(color: color)) } else { self }
+    }
+}
+
+struct TextGlint: ViewModifier {
+    let color: Color
+    @State private var start = Date()
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(0.62)
+            .overlay {
+                TimelineView(.animation) { ctx in
+                    // 2,6 с на проход, из них 1,8 с свет идёт по строке, остальное — пауза
+                    let t = ctx.date.timeIntervalSince(start).truncatingRemainder(dividingBy: 2.6) / 1.8
+                    GeometryReader { g in
+                        let w = max(36, g.size.width * 0.3)
+                        let x = -w + (g.size.width + w) * min(1, t)
+                        LinearGradient(stops: [.init(color: color.opacity(0), location: 0),
+                                               .init(color: color.opacity(0.9), location: 0.5),
+                                               .init(color: color.opacity(0), location: 1)],
+                                       startPoint: .leading, endPoint: .trailing)
+                            .frame(width: w)
+                            .offset(x: x)
+                    }
+                }
+                .mask(content)
+                .allowsHitTesting(false)
+            }
+    }
 }
 
 /// Место, за которое тянут окно: пустая полоса шапки двигает окно, двойной щелчок — по-системному (развернуть или свернуть)

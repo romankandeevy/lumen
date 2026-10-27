@@ -164,6 +164,9 @@ public final class AppModel {
     /// Подсказки пустого чата, придуманные Lumen (Suggestions.swift)
     var suggestionCache: SuggestionCache?
     var suggestionsLoading = false
+    /// Подсказки новой задачи агента — для каждой папки свои
+    var agentSuggestionCache: [String: SuggestionCache] = [:]
+    var agentSuggestionsLoading: Set<String> = []
     /// Вкладка панели: Чат или Агент
     /// Вкладки наверху панели, как в макете: Чат, Агент, Боты
     enum Tab { case chat, agent, bots }
@@ -257,9 +260,11 @@ public final class AppModel {
         hooks = HooksFile.load(paths.hooks)
         skillUses = (try? store.skillUseCounts()) ?? [:]
         suggestionCache = try? store.value("suggestions", as: SuggestionCache.self)
+        agentSuggestionCache = (try? store.value("agentSuggestions", as: [String: SuggestionCache].self)) ?? [:]
         writeMemoryFiles()
         // выход из приложения: процессы claude не должны пережить Lumen
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            VoiceBackend.shared.shutdown()
             MainActor.assumeIsolated {
                 self?.chat.closeAll()
                 self?.browser.stopAllStudios()

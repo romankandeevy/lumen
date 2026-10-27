@@ -28,6 +28,26 @@ enum Suggestions {
         return lines.joined(separator: "\n\n")
     }
 
+    /// Пока Lumen не придумал для папки (нет подписки и ключа, первый показ): общие задачи
+    static func agentFallback(home: Bool) -> [String] {
+        home
+            ? ["Найди самые большие файлы и скажи, что можно удалить", "Наведи порядок в папке «Загрузки»", "Расскажи, что занимает место на диске"]
+            : ["Расскажи, что в этой папке и как она устроена", "Найди, что здесь можно улучшить, и предложи план", "Проверь, что всё собирается, а тесты проходят"]
+    }
+
+    static func agentPrompt(name: String, folder: String, home: Bool, branch: String?, changed: Int, files: [String], recent: [String]) -> String {
+        var lines = ["Ты придумываешь подсказки для экрана новой задачи агента в Lumen. Агент работает с файлами и кодом в выбранной папке на Маке."]
+        lines.append("Напиши ровно три коротких задачи, которые человек мог бы поручить агенту прямо сейчас в этой папке. Пиши от его лица, по-русски, до 55 знаков каждая, без кавычек и эмодзи, начинай с глагола.")
+        lines.append("Три разные: первая — продолжить или довести дело, которое видно по недавним задачам и незакоммиченному; вторая — проверить или починить что-то (тесты, ошибки, порядок); третья — улучшить или упростить то, что в папке лежит. Не повторяй названия недавних задач дословно.")
+        if !name.isEmpty { lines.append("Человека зовут \(name), к агенту он обращается на «ты».") }
+        lines.append(home ? "Папка: домашняя папка человека (все его файлы)." : "Папка: \(folder).")
+        if let branch { lines.append("Ветка git: \(branch), изменённых файлов не закоммичено: \(changed).") }
+        if !files.isEmpty { lines.append("Что лежит в папке:\n" + files.prefix(25).map { "- \($0)" }.joined(separator: "\n")) }
+        if !recent.isEmpty { lines.append("Недавние задачи в этой папке:\n" + recent.prefix(8).map { "- \($0)" }.joined(separator: "\n")) }
+        lines.append("Ответь только JSON-массивом из трёх строк, без пояснений.")
+        return lines.joined(separator: "\n\n")
+    }
+
     /// Достать три строки из ответа модели (JSON-массив, возможно в ```)
     static func parse(_ text: String) -> [String]? {
         guard let a = text.firstIndex(of: "["), let b = text.lastIndex(of: "]"), a < b else { return nil }
@@ -69,6 +89,15 @@ extension AppModel {
         let prompt = Suggestions.prompt(name: profile.name, address: profile.address,
                                         facts: memories.map(\.text), recent: conversations.prefix(8).map(\.title))
         let basis = suggestionBasis
+        let text = await askFast(prompt)
+        guard let text, let items = Suggestions.parse(text) else { return }
+        let cache = SuggestionCache(items: items, at: Date(), basis: basis)
+        suggestionCache = cache
+        try? store.set("suggestions", cache)
+    }
+
+    /// Быстрый вопрос Haiku: по подписке через claude, иначе по ключу API (по выбранному движку). Ответ или nil
+    func askFast(_ prompt: String) async -> String? {
         var text: String?
         let key = keychain.read(Keychain.anthropicKey)
         // Рома, 26.10: выбран движок API, а подсказки предпочитали подписку — платим как выбрано,
@@ -89,10 +118,7 @@ extension AppModel {
             }
         }
         if text == nil, !wantAPI, let key, limitReached == nil { text = await askAPI(prompt, key: key) }
-        guard let text, let items = Suggestions.parse(text) else { return }
-        let cache = SuggestionCache(items: items, at: Date(), basis: basis)
-        suggestionCache = cache
-        try? store.set("suggestions", cache)
+        return text
     }
 
     /// Тот же запрос по ключу API — напрямую, без claude
@@ -115,5 +141,41 @@ extension AppModel {
             }
             return out.isEmpty ? nil : out
         } catch { return nil }
+    }
+}
+
+extension AppModel {
+    static func agentSuggestionKey(_ folder: URL?) -> String { folder?.standardizedFileURL.path ?? "~" }
+
+    /// Что предложить на экране новой задачи агента в этой папке (три задачи)
+    func agentSuggestions(for folder: URL?) -> [String] {
+        // всегда три: если модель дала меньше, недостающее — из запасных
+        var items = agentSuggestionCache[Self.agentSuggestionKey(folder)]?.items ?? []
+        for f in Suggestions.agentFallback(home: folder.map(Self.isHome) ?? true) where items.count < 3 && !items.contains(f) { items.append(f) }
+        return Array(items.prefix(3))
+    }
+
+    /// Придумать заново для папки, если подсказок нет, им больше 6 часов или в папке с тех пор что-то поменялось (но не чаще раза в 10 минут)
+    func refreshAgentSuggestionsIfNeeded(folder: URL?, git: Git.Info?) {
+        let key = Self.agentSuggestionKey(folder)
+        guard !agentSuggestionsLoading.contains(key) else { return }
+        let tasks = conversations.filter { $0.kind == .agent && $0.folder.map { URL(fileURLWithPath: $0).standardizedFileURL.path } == key }
+        let basis = "\(git?.branch ?? "-")-\(git?.changed ?? 0)-\(tasks.count)-\(Int(tasks.first?.updatedAt.timeIntervalSince1970 ?? 0))"
+        let cached = agentSuggestionCache[key]
+        let age = cached.map { Date().timeIntervalSince($0.at) } ?? .infinity
+        guard age > 6 * 3600 || (cached?.basis != basis && age > 600) else { return }
+        agentSuggestionsLoading.insert(key)
+        Task {
+            defer { agentSuggestionsLoading.remove(key) }
+            let home = folder.map(Self.isHome) ?? true
+            // имена файлов — только у настоящей папки проекта, у домашней не отправляем
+            let files = home ? [] : ((try? FileManager.default.contentsOfDirectory(atPath: key)) ?? []).filter { !$0.hasPrefix(".") }.sorted()
+            let prompt = Suggestions.agentPrompt(name: profile.name, folder: folder?.lastPathComponent ?? "", home: home, branch: git?.branch,
+                                                 changed: git?.changed ?? 0, files: files, recent: tasks.prefix(8).map(\.title))
+            for _ in 0..<150 where claude == .checking { try? await Task.sleep(for: .milliseconds(100)) }
+            guard let text = await askFast(prompt), let items = Suggestions.parse(text) else { return }
+            agentSuggestionCache[key] = SuggestionCache(items: items, at: Date(), basis: basis)
+            try? store.set("agentSuggestions", agentSuggestionCache)
+        }
     }
 }

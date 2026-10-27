@@ -185,6 +185,14 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var sidebarHidden = false
     /// Ширина левой панели и правой (контекст, паспорт бота) — тянутся за край, не шире половины окна
     public var sidebarWidth: Double = 284
+    /// Знак-затмение в переписке: в приветствии, на строке «думаю» и рядом с ответом. Выключен — обычный чат без знака (Рома, 27.10)
+    public var showMark = true
+    /// Язык голосового ввода (микрофон в поле ввода): «ru-RU» или «en-US»
+    public var voiceLanguage = "ru-RU"
+    /// Прозрачность (Рома, 27.10): 0 — сплошная, 1 — чистое стекло (виден рабочий стол под окном).
+    /// У левой панели и у основной области (чата) — каждая своя
+    public var glassSidebar: Double = 0
+    public var glassMain: Double = 0
     public var panelWidth: Double = 320
     /// Модель и «сколько думать» для новой задачи агента (у чата — `model` и `effort`)
     public var agentModel: ChatModel?
@@ -295,6 +303,10 @@ public struct Preferences: Codable, Sendable, Equatable {
         contextOpen = try c.decodeIfPresent(Bool.self, forKey: .contextOpen) ?? false
         sidebarHidden = try c.decodeIfPresent(Bool.self, forKey: .sidebarHidden) ?? false
         sidebarWidth = try c.decodeIfPresent(Double.self, forKey: .sidebarWidth) ?? 284
+        showMark = try c.decodeIfPresent(Bool.self, forKey: .showMark) ?? true
+        voiceLanguage = try c.decodeIfPresent(String.self, forKey: .voiceLanguage) ?? "ru-RU"
+        glassSidebar = min(1, max(0, (try? c.decodeIfPresent(Double.self, forKey: .glassSidebar)) ?? 0))
+        glassMain = min(1, max(0, (try? c.decodeIfPresent(Double.self, forKey: .glassMain)) ?? 0))
         panelWidth = try c.decodeIfPresent(Double.self, forKey: .panelWidth) ?? 320
         betaUpdates = try c.decodeIfPresent(Bool.self, forKey: .betaUpdates) ?? false
         agentModel = try? c.decodeIfPresent(ChatModel.self, forKey: .agentModel)

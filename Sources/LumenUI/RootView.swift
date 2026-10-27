@@ -23,12 +23,18 @@ public struct RootView: View {
         }
     }
 
+    /// Окно прозрачно, если стекло включено хоть где-то и там, где оно включено, есть что просвечивать
+    private var mainGlass: Bool { app.prefs.glassMain > 0 }
+    private var windowGlass: Bool { mainGlass || (app.prefs.glassSidebar > 0 && !app.prefs.sidebarHidden) }
+
     public var body: some View {
         let p = app.palette
         let _ = { Font.uiScale = CGFloat(app.prefs.uiFontSize / 14) }()
         GeometryReader { g in
         HStack(spacing: 0) {
             if !app.prefs.sidebarHidden { Sidebar(app: app).transition(.move(edge: .leading)) }
+            // всё правее панели закрашено цветом темы: панель может быть стеклянной, а остальное окно — нет
+            HStack(spacing: 0) {
             ZStack {
             Group {
                 switch app.page {
@@ -72,6 +78,15 @@ public struct RootView: View {
             .onPreferenceChange(SkyAnchorKey.self) { if let c = $0 { skyCenter = c } }
             .background { if app.prefs.skyBackground { Sky(start: skyStart, center: skyCenter).ignoresSafeArea() } }
             if app.browserOpen && !app.browserFull { BrowserPane(app: app, browser: app.browser).transition(.move(edge: .trailing)) }
+            }
+            .background {
+                // основная область: сплошная или стеклянная — по «Настройки → Окно → Прозрачность»
+                if mainGlass {
+                    GlassFill(amount: app.prefs.glassMain) { p.background }.ignoresSafeArea()
+                } else {
+                    p.background.ignoresSafeArea()
+                }
+            }
         }
         .environment(\.windowWidth, g.size.width)
         }
@@ -100,6 +115,7 @@ public struct RootView: View {
         .overlay {
             if app.browserOpen && app.browserFull {
                 BrowserPane(app: app, browser: app.browser, full: true)
+                    .background(p.background.ignoresSafeArea())
                     .transition(.opacity.combined(with: .scale(scale: 0.985)))
             }
         }
@@ -143,7 +159,8 @@ public struct RootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: app.prefs.onboarded)
-        .background(p.background.ignoresSafeArea())
+        .background { if !windowGlass { p.background.ignoresSafeArea() } }
+        .background(WindowGlass(on: windowGlass).frame(width: 0, height: 0))
         // кнопки окна — дальше от края и на линии шапки (TitleBar)
         .background(TrafficLights().frame(width: 0, height: 0))
         // чат по подписке должен знать, где claude и есть ли вход
@@ -211,7 +228,7 @@ struct Sidebar: View {
                 .scrollIndicators(.never)
             } else {
                 // как в Claude: сверху — действия строками с иконками
-                VStack(spacing: 2) {
+                VStack(spacing: 5) {
                     // открыт пустой новый чат (или новая задача) — пункт горит, как открытый разговор
                     NavRow(title: app.tab == .agent ? "Новая задача" : "Новый чат", icon: "plus",
                            active: app.page == .chat && app.chat.conversation == nil, hint: "⌘N", lead: true) {
@@ -270,8 +287,15 @@ struct Sidebar: View {
                 .offset(x: 4).ignoresSafeArea()
         }
         // чуть светлее основной области, сверху вниз (макет 21.10: #101116 → #0C0D11); справа — тонкая линия
-        .background(LinearGradient(colors: [p.background.mixed(with: p.foreground, 0.03), p.background.mixed(with: p.foreground, 0.01)],
-                                   startPoint: .top, endPoint: .bottom).ignoresSafeArea())
+        // «Прозрачность» (настройки → Окно): под цветом панели — размытое стекло
+        .background {
+            let tint = LinearGradient(colors: [p.background.mixed(with: p.foreground, 0.03), p.background.mixed(with: p.foreground, 0.01)],
+                                      startPoint: .top, endPoint: .bottom)
+            Group {
+                if app.prefs.glassSidebar > 0 { GlassFill(amount: app.prefs.glassSidebar) { tint } } else { tint }
+            }
+            .ignoresSafeArea()
+        }
         .overlay(alignment: .trailing) { p.line.frame(width: 1).ignoresSafeArea() }
         .onChange(of: app.chat.conversation?.projectID) { _, id in if let id { collapsed.remove("p:" + id) } }
     }
@@ -515,17 +539,16 @@ struct ChatRow: View {
         Group {
             HStack(alignment: c.kind == .agent ? .top : .center, spacing: 8) {
                 if c.kind == .agent {
-                    // как в макете: ноутбук (на этом Маке) или крутилка, пока работает
-                    Group {
-                        if running { LiveDot(color: p.glow) } else { Icon("laptop", 14) }
-                    }
-                    .foregroundStyle(p.mutedFg).frame(width: 20, height: 18)
+                    // как в макете: ноутбук (на этом Маке); что сессия работает — видно по свету в названии
+                    Icon("laptop", 14)
+                        .foregroundStyle(p.mutedFg).frame(width: 20, height: 18)
                     VStack(alignment: .leading, spacing: 0) {
                         if renaming {
                             renameField
                         } else {
                             Text(c.title).font(.geist(14)).lineLimit(1)
                                 .foregroundStyle(active || hover ? p.foreground : p.textSoft)
+                                .runningGlow(running, p.glow)
                         }
                         Text(AppModel.folderName(URL(fileURLWithPath: c.folder ?? ""))).font(.geist(12)).foregroundStyle(p.mutedFg).lineLimit(1)
                     }
@@ -536,10 +559,10 @@ struct ChatRow: View {
                     } else {
                         Text(c.title).font(.geist(14)).lineLimit(1).truncationMode(.tail)
                             .foregroundStyle(active || hover ? p.foreground : p.textSoft)
+                            .runningGlow(running, p.glow)
                     }
                     Spacer(minLength: 4)
-                    // даты у разговоров не пишем (Рома, 22.10); только живая точка, пока идёт ход
-                    if running { LiveDot(color: p.glow).opacity(hover || dotsHover ? 0 : 1) }
+                    // даты у разговоров не пишем (Рома, 22.10); пока идёт ход — светится название (27.10: вместо точки справа)
                 }
             }
             .padding(.horizontal, 8).padding(.vertical, c.kind == .agent ? 5 : 0)
@@ -777,11 +800,10 @@ private struct BotRow: View {
             HStack(spacing: 10) {
                 BotAvatar(bot: bot, size: 22, anim: working ? .play : .idle, animated: working)
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(bot.name).tw(14, lh: 20).lineLimit(1)
+                    Text(bot.name).tw(14, lh: 20).lineLimit(1).runningGlow(working, BotColor.accent(bot.hue))
                     Text("@\(bot.id)").tw(11, lh: 14).foregroundStyle(BotColor.accent(bot.hue).opacity(0.8)).lineLimit(1)
                 }
                 Spacer(minLength: 4)
-                if working { LiveDot(color: BotColor.accent(bot.hue)) }
             }
             .foregroundStyle(active ? p.foreground : p.foreground.opacity(0.8))
             .padding(.horizontal, 12).padding(.vertical, 6)

@@ -49,11 +49,10 @@ struct GroupRow: View {
             HStack(spacing: 10) {
                 GroupAvatars(bots: app.groupMembers(group), size: 20)
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(group.name).tw(14, lh: 20).lineLimit(1)
+                    Text(group.name).tw(14, lh: 20).lineLimit(1).runningGlow(working, p.glow)
                     Text(Plural.bots(group.members.count)).tw(11, lh: 14).foregroundStyle(p.mutedFg).lineLimit(1)
                 }
                 Spacer(minLength: 4)
-                if working { LiveDot(color: p.glow) }
             }
             .foregroundStyle(active ? p.foreground : p.foreground.opacity(0.8))
             .padding(.horizontal, 10).padding(.vertical, 6)

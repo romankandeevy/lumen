@@ -38,7 +38,7 @@ struct AgentHome: View {
 
                 hints.padding(.horizontal, 6).padding(.top, 12)
 
-                if !tasks.isEmpty { recentList.padding(.top, 40) }
+                suggestionList.padding(.top, 36)
             }
             .frame(maxWidth: 700)
             .padding(.horizontal, 24)
@@ -61,18 +61,29 @@ struct AgentHome: View {
         gitChecked = false
         if let folder { git = await Git(folder: folder).info() }
         gitChecked = true
+        app.refreshAgentSuggestionsIfNeeded(folder: folder, git: git)
     }
 
     /// Шар и вопрос — как приветствие чата: Literata 60, без свечения сзади. Длинное имя папки — 48, потом 40 в одну строку,
     /// и только потом перенос: две строки по 60 стоят слишком широко
-    private var headline: some View {
+    @ViewBuilder private var headline: some View {
         let hot = composerFocused || !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let orb = LumenMark(state: app.orb, size: 64, hot: hot).skyAnchor()
-        return ViewThatFits(in: .horizontal) {
-            HStack(spacing: 22) { orb; text(46).fixedSize() }
-            HStack(spacing: 22) { orb; text(40).fixedSize() }
-            HStack(spacing: 20) { orb; text(34).fixedSize() }
-            HStack(alignment: .top, spacing: 20) { orb; text(34).fixedSize(horizontal: false, vertical: true) }
+        if app.prefs.showMark {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 22) { orb; text(46).fixedSize() }
+                HStack(spacing: 22) { orb; text(40).fixedSize() }
+                HStack(spacing: 20) { orb; text(34).fixedSize() }
+                HStack(alignment: .top, spacing: 20) { orb; text(34).fixedSize(horizontal: false, vertical: true) }
+            }
+        } else {
+            // знак выключен («Настройки → Основные → Вид») — один вопрос, без знака
+            ViewThatFits(in: .horizontal) {
+                text(46).fixedSize()
+                text(40).fixedSize()
+                text(34).fixedSize()
+                text(34).fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -130,22 +141,12 @@ struct AgentHome: View {
         }
     }
 
-    /// «Недавно в этой папке»: только три последние задачи
-    private var recentList: some View {
-        let shown = Array(tasks.prefix(3))
-        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
-        return VStack(alignment: .leading, spacing: 0) {
-            Text("Недавно в этой папке").font(.geist(12.5, .medium)).foregroundStyle(p.mutedFg)
-                .padding(.leading, 4).padding(.bottom, 8)
-            VStack(spacing: 0) {
-                ForEach(Array(shown.enumerated()), id: \.element.id) { i, c in
-                    if i > 0 { p.borderBase.opacity(0.055).frame(height: 1) }
-                    RecentTaskRow(c: c) { app.openChat(c) }
-                }
-            }
-            .background(p.borderBase.opacity(0.02), in: shape)
-            .clipShape(shape)
-            .overlay(shape.strokeBorder(p.borderBase.opacity(0.07)))
+    /// Вместо истории (Рома, 27.10): три предложения, чем заняться прямо сейчас в этой папке; щелчок кладёт текст в поле
+    private var suggestionList: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Чем заняться прямо сейчас").font(.geist(12.5, .medium)).foregroundStyle(p.mutedFg).padding(.leading, 4)
+            StartChips(items: app.agentSuggestions(for: folder), icons: ["lightbulb", "wrench", "sparkles"], tint: p.glow) { draft = $0 }
+                .animation(.easeOut(duration: 0.3), value: app.agentSuggestions(for: folder))
         }
     }
 }

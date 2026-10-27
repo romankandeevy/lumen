@@ -36,6 +36,8 @@ cp "$BIN/Lumen" "$APP/Contents/MacOS/Lumen"
 cp "$BIN/lumen-mcp" "$APP/Contents/MacOS/lumen-mcp"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp -R Resources/Fonts Resources/Icons "$APP/Contents/Resources/"
+# голосовой ввод: скрипт распознавания (Python и модели берутся из FlowLocal)
+ditto Resources/Voice "$APP/Contents/Resources/Voice"
 cp build/icon-out/AppIcon.icns build/icon-out/Assets.car "$APP/Contents/Resources/"
 # редактор макетов (OpenPencil, MIT): собирается отдельно tools/design/build.sh, без него макетов просто нет
 if [ -f build/design/index.html ]; then

@@ -261,6 +261,12 @@ struct SettingsView: View {
                 row("Космический фон", "Звёзды и лучи из центра знака за перепиской", icon: "sparkles") {
                     LSwitch(isOn: Binding(get: { app.prefs.skyBackground }, set: { v in app.update { $0.skyBackground = v } }))
                 }
+                row("Знак-затмение", "В приветствии, на строке «думаю» и рядом с ответом. Выключен — обычный чат без знака", icon: "moon") {
+                    LSwitch(isOn: Binding(get: { app.prefs.showMark }, set: { v in app.update { $0.showMark = v } }))
+                }
+                row("Питомец", "Живёт в переписке или поверх окон. Где и кто — в разделе «Питомец»", icon: "paw-print") {
+                    LSwitch(isOn: Binding(get: { app.prefs.pet.enabled }, set: { v in app.update { $0.pet.enabled = v } }))
+                }
                 row("Свет", "У каждой темы есть светлые и тёмные цвета", icon: "sun-moon") {
                     LightSwitch(value: lightBinding).fixedSize()
                 }
@@ -338,6 +344,16 @@ struct SettingsView: View {
                            in: 220...420).frame(width: 240)
                 }
             }
+            group("Прозрачность") {
+                row("Левая панель", app.prefs.glassSidebar == 0 ? "Сплошная" : "Стекло: сквозь панель видно рабочий стол, \(Int((app.prefs.glassSidebar * 100).rounded()))%", icon: "panel-left") {
+                    Slider(value: Binding(get: { app.prefs.glassSidebar }, set: { v in app.update { $0.glassSidebar = (v * 20).rounded() / 20 } }),
+                           in: 0...1).frame(width: 240)
+                }
+                row("Основная область", app.prefs.glassMain == 0 ? "Сплошная. Чат и страницы справа от панели" : "Стекло, \(Int((app.prefs.glassMain * 100).rounded()))%. Текст на стекле читается хуже — не крутите до конца", icon: "message-square") {
+                    Slider(value: Binding(get: { app.prefs.glassMain }, set: { v in app.update { $0.glassMain = (v * 20).rounded() / 20 } }),
+                           in: 0...1).frame(width: 240)
+                }
+            }
             group("Браузер сбоку", aside: "⇧⌘B · на всё окно ⌥⌘B") {
                 row("Выезжает сам", "Когда агент открывает страницу или показывает макет", icon: "globe") {
                     LSwitch(isOn: Binding(get: { app.prefs.browserAutoOpen }, set: { v in app.update { $0.browserAutoOpen = v } }))
@@ -380,6 +396,11 @@ struct SettingsView: View {
                 }
             }
             group("Поле ввода") {
+                row("Язык голосового ввода", "Микрофон в поле ввода. Распознаёт FlowLocal на этом Маке: GigaAM для русского, Parakeet для английского", icon: "mic") {
+                    Segmented(value: Binding(get: { app.prefs.voiceLanguage }, set: { v in app.update { $0.voiceLanguage = v } }),
+                              options: [("ru-RU", "Русский"), ("en-US", "English")])
+                        .frame(width: 200)
+                }
                 row("Отправка", app.prefs.sendWithCommand ? "Enter — новая строка" : "Shift+Enter — новая строка", icon: "keyboard") {
                     Segmented(value: Binding(get: { app.prefs.sendWithCommand }, set: { v in app.update { $0.sendWithCommand = v } }),
                               options: [(false, "Enter"), (true, "⌘ Enter")])

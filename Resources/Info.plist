@@ -30,6 +30,8 @@
 	<string>25</string>
 	<key>LumenUnreleased</key>
 	<false/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Lumen слушает микрофон, пока вы диктуете сообщение голосом. Звук не сохраняется.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>SUEnableAutomaticChecks</key>

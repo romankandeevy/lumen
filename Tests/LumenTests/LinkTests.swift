@@ -105,3 +105,85 @@ import Testing
 @MainActor @Test func lineBreakTagsBecomeNewlines() {
     #expect(String(RichText.markdown("раз<br>два<BR/>три").characters) == "раз\nдва\nтри")
 }
+
+@Test func sidebarAndMainHaveTheirOwnGlass() throws {
+    let none = try JSONDecoder().decode(Preferences.self, from: Data("{}".utf8))
+    #expect(none.glassSidebar == 0 && none.glassMain == 0)
+    let clamped = try JSONDecoder().decode(Preferences.self, from: Data(#"{"glassSidebar":5,"glassMain":-1}"#.utf8))
+    #expect(clamped.glassSidebar == 1 && clamped.glassMain == 0)
+    // прежние настройки (булевы переключатели) не ломают разбор
+    let old = try JSONDecoder().decode(Preferences.self, from: Data(#"{"glass":0.5,"glassSidebar":true,"glassMain":false}"#.utf8))
+    #expect(old.glassSidebar == 0 && old.glassMain == 0)
+    var p = Preferences()
+    p.glassSidebar = 0.4
+    p.glassMain = 0.15
+    let back = try JSONDecoder().decode(Preferences.self, from: JSONEncoder().encode(p))
+    #expect(back.glassSidebar == 0.4 && back.glassMain == 0.15)
+}
+
+@Test func eclipseMarkIsOnByDefaultAndCanBeSwitchedOff() throws {
+    #expect(try JSONDecoder().decode(Preferences.self, from: Data("{}".utf8)).showMark)
+    var p = Preferences()
+    p.showMark = false
+    #expect(try JSONDecoder().decode(Preferences.self, from: JSONEncoder().encode(p)).showMark == false)
+}
+
+@Test func agentSuggestionsHaveFallbackAndPromptKnowsTheFolder() {
+    #expect(Suggestions.agentFallback(home: false).count == 3 && Suggestions.agentFallback(home: true).count == 3)
+    let p = Suggestions.agentPrompt(name: "Рома", folder: "lumen", home: false, branch: "main", changed: 3, files: ["Sources", "README.md"], recent: ["Починить таблицы"])
+    #expect(p.contains("lumen") && p.contains("main") && p.contains("README.md") && p.contains("Починить таблицы") && p.contains("Рома"))
+    // у домашней папки список файлов не уходит
+    let home = Suggestions.agentPrompt(name: "", folder: "roman", home: true, branch: nil, changed: 0, files: [], recent: [])
+    #expect(home.contains("домашняя папка") && !home.contains("Что лежит"))
+    #expect(Suggestions.parse(#"["Почини тесты", "Разбери README", "Убери дубли"]"#) == ["Почини тесты", "Разбери README", "Убери дубли"])
+}
+
+@Test func dictationAppendsToWhatIsAlreadyInTheField() throws {
+    #expect(VoiceInput.merged(base: "", transcript: " привет ") == "привет")
+    #expect(VoiceInput.merged(base: "Напиши", transcript: "письмо") == "Напиши письмо")
+    #expect(VoiceInput.merged(base: "Напиши ", transcript: "письмо") == "Напиши письмо")
+    #expect(VoiceInput.merged(base: "Строка\n", transcript: "вторая") == "Строка\nвторая")
+    #expect(VoiceInput.merged(base: "Уже было", transcript: "  ") == "Уже было")
+    #expect(try JSONDecoder().decode(Preferences.self, from: Data("{}".utf8)).voiceLanguage == "ru-RU")
+    #expect(VoiceInput.modelLanguage("ru-RU") == "ru" && VoiceInput.modelLanguage("en-US") == "en")
+}
+
+/// Без этих описаний macOS закрывает приложение в тот момент, когда оно просит микрофон
+@Test func infoPlistExplainsMicrophoneAndSpeechAccess() throws {
+    let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("Resources/Info.plist")
+    let plist = try #require(NSDictionary(contentsOf: url))
+    #expect((plist["NSMicrophoneUsageDescription"] as? String)?.isEmpty == false)
+    // распознаёт FlowLocal, а не система: разрешение на речь не нужно
+    #expect(plist["NSSpeechRecognitionUsageDescription"] == nil)
+}
+
+/// Настоящий круг: речь (голос системы) → запись 16 кГц → процесс FlowLocal → текст. Без FlowLocal на Маке — пропускается
+@Test func flowLocalRecognizesSpokenRussian() async throws {
+    guard VoiceBackend.python.path.isEmpty == false, FileManager.default.isExecutableFile(atPath: VoiceBackend.python.path),
+          FileManager.default.fileExists(atPath: VoiceBackend.modelDir("ru").path),
+          FileManager.default.isExecutableFile(atPath: "/usr/bin/say"), FileManager.default.isExecutableFile(atPath: "/usr/bin/afconvert") else { return }
+    let script = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("Resources/Voice/server.py")
+    setenv("LUMEN_VOICE_SCRIPT", script.path, 1)
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("voice-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    func run(_ exe: String, _ args: [String]) throws -> Bool {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: exe)
+        p.arguments = args
+        p.standardError = FileHandle.nullDevice
+        try p.run(); p.waitUntilExit()
+        return p.terminationStatus == 0
+    }
+    let aiff = dir.appendingPathComponent("a.aiff").path, wav = dir.appendingPathComponent("a.wav").path
+    // нет русского голоса — нечего проверять
+    guard try run("/usr/bin/say", ["-v", "Milena", "Привет, как дела? Проверка голосового ввода.", "-o", aiff]),
+          try run("/usr/bin/afconvert", ["-f", "WAVE", "-d", "LEI16@16000", "-c", "1", aiff, wav]) else { return }
+    let raw = try Data(contentsOf: URL(fileURLWithPath: wav)).dropFirst(44)
+    let samples = raw.withUnsafeBytes { Array($0.bindMemory(to: Int16.self)) }.map { Float($0) / 32768 }
+    let text = try #require(await VoiceBackend.shared.transcribe(samples, lang: "ru"))
+    VoiceBackend.shared.shutdown()
+    #expect(text.lowercased().contains("как дела") && text.lowercased().contains("проверка"))
+}

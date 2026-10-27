@@ -288,12 +288,16 @@ struct ChatView: View {
                 .font(.greeting(46)).tracking(-0.7).foregroundStyle(p.textStrong)
                 .lineLimit(1).fixedSize()
                 .accessibilityAddTraits(.isHeader)
-            let orb = LumenMark(state: app.orb, size: 64, hot: hot).skyAnchor()
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 22) { orb; text }
-                VStack(spacing: 22) { orb; text.minimumScaleFactor(0.5) }
+            if app.prefs.showMark {
+                let orb = LumenMark(state: app.orb, size: 64, hot: hot).skyAnchor()
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 22) { orb; text }
+                    VStack(spacing: 22) { orb; text.minimumScaleFactor(0.5) }
+                }
+                .padding(.horizontal, 28)
+            } else {
+                text.minimumScaleFactor(0.5).padding(.horizontal, 28)
             }
-            .padding(.horizontal, 28)
         }
     }
 
@@ -461,7 +465,7 @@ struct ChatView: View {
                                 // знак у ответа — свет бежит по кругу, пока нет первого слова; питомец «вместо точек» — вместо него
                                 if petMark != nil {
                                     DotsSpinner(color: p.glow).frame(width: 26).padding(.trailing, 6)
-                                } else if !(app.prefs.pet.enabled && !app.prefs.pet.floating) {
+                                } else if app.prefs.showMark && !(app.prefs.pet.enabled && !app.prefs.pet.floating) {
                                     // питомец в переписке включён — затмения нет, даже если «вместо знака» выключено
                                     LumenMark(state: .thinking, size: 26).padding(.trailing, 6)
                                 }
@@ -728,7 +732,7 @@ struct MessageRow: View {
             HStack(alignment: .top, spacing: 0) {
                 // шар 26 слева от ответа (макет 21.10); у бота — его знак
                 Group {
-                    if !showsMark {
+                    if !showsMark || (!(chat?.app.prefs.showMark ?? true) && chat?.app.bot(message.botID) == nil) {
                         Color.clear.frame(width: 26, height: 26)
                     } else if let b = chat?.app.bot(message.botID) {
                         BotAvatar(bot: b, size: 26)
@@ -1281,6 +1285,8 @@ struct Composer: View {
     @State private var effortOpen = false
     @State private var folderOpen = false
     @State private var modeOpen = false
+    /// Голосовой ввод: микрофон справа в ряду кнопок
+    @State private var voice = VoiceInput()
 
     private var chat: ChatController { controller ?? app.chat }
     private var model: ChatModel { chat.conversation?.model ?? (agent ? app.defaultAgentModel : app.prefs.model) }
@@ -1497,7 +1503,64 @@ struct Composer: View {
         botFolderOpen = false
     }
 
-    var body: some View {
+    /// Экран новой задачи агента (Рома, 27.10: «вот так», как в Cursor): над полем — папка и «На этом Маке», в поле — «+», модель и отправить,
+    /// под полем — режимы пилюлями
+    private var startLayout: Bool { agent && big && chat.conversation == nil && !inBot && !inGroup }
+
+    @ViewBuilder var body: some View {
+        if startLayout {
+            VStack(alignment: .leading, spacing: 12) {
+                startHeader.zIndex(3)
+                box.zIndex(2)
+                modeChips.zIndex(1)
+            }
+        } else {
+            box
+        }
+    }
+
+    /// Над полем: папка (меню вниз) и где работает агент — на этом Маке
+    private var startHeader: some View {
+        HStack(spacing: 6) {
+            folderPicker.fixedSize()
+            HStack(spacing: 6) {
+                Icon("laptop", 16).foregroundStyle(p.mutedFg)
+                Text("На этом Маке").font(.geist(14, .medium))
+            }
+            .foregroundStyle(p.textControl)
+            .padding(.horizontal, 8).frame(height: 28)
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 8)
+    }
+
+    /// Под полем: режимы агента пилюлями (выбранный светлее), в конце — «Режим ▾» с «Ночью» и остальным. Shift+Tab по-прежнему листает режимы
+    private var modeChips: some View {
+        HStack(spacing: 8) {
+            ForEach(app.prefs.visibleModes) { m in
+                let on = m == mode
+                Button { chat.set(mode: m) } label: {
+                    HStack(spacing: 6) {
+                        Icon(m.icon, 13)
+                        Text(m.name).font(.geist(13.5, on ? .medium : .regular))
+                    }
+                    .foregroundStyle(on ? p.foreground : p.textControl)
+                    .padding(.horizontal, 12).frame(height: 32)
+                    .background(on ? p.hover : .clear, in: Capsule())
+                    .overlay(Capsule().strokeBorder(p.borderBase.opacity(on ? 0.2 : 0.1)))
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .help(m.note)
+                .accessibilityAddTraits(on ? [.isSelected] : [])
+            }
+            modeMenu.fixedSize()
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 4)
+    }
+
+    private var box: some View {
         VStack(alignment: .leading, spacing: 8) {
             if !mentionHits.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
@@ -1520,13 +1583,14 @@ struct Composer: View {
             }
             if !chat.openQueue.isEmpty { queueList }
             if !stripItems.wrappedValue.isEmpty { AttachmentStrip(items: stripItems) }
+            if case .problem(let problem) = voice.state { voiceProblem(problem) }
             // чипы бота и навыка лежат внутри текста — на одном уровне с буквами, ⌫ стирает их как символ
             ComposerTextView(
                 text: $draft, chips: fieldChips, inline: inlineChips, palette: p,
                 placeholder: mentioned.map { "Задача для «\($0.name)»" } ?? (agent ? "Опиши задачу · / — навыки агента" : (currentBot.map { "Напиши боту «\($0.name)»" } ?? (chat.conversation?.kind == .group ? "Написать группе · @id — ответит один" : "Просто напиши · / — команды и навыки"))),
                 focused: $focused,
                 // 16.5 / 1.5; растёт до 240 pt (9 строк), дальше листается
-                minLines: big ? 4 : 1, maxLines: 9,
+                minLines: big ? (agent ? 2 : 4) : 1, maxLines: 9,
                 // Enter — отправить, Shift+Enter — новая строка; в настройках можно наоборот: ⌘Enter — отправить, Enter — строка
                 onReturn: { shift, command in
                     if app.prefs.sendWithCommand && slashItems.isEmpty {
@@ -1549,6 +1613,8 @@ struct Composer: View {
                     return true
                 },
                 onEscape: {
+                    // Esc во время диктовки — закончить её, а не останавливать ответ
+                    if voice.busy { voice.stop(); return true }
                     if slashOpen {
                         draft = ""
                         return true
@@ -1575,7 +1641,7 @@ struct Composer: View {
                 absorbMention()
                 if slashIndex >= slashItems.count { slashIndex = 0 }
             }
-            .frame(minHeight: big ? 96 : 25, alignment: .topLeading) // одна строка, растёт с текстом (минимализм, 19.10)
+            .frame(minHeight: big ? (agent ? 62 : 96) : 25, alignment: .topLeading) // одна строка, растёт с текстом (минимализм, 19.10)
             .padding(.bottom, 6)
             // один ряд: слева «+», папка и режим, справа модель, «сколько думать» и отправить
             // узкая область (браузер сбоку, спрятанная панель): кнопки не вылезают за край, а встают в два ряда
@@ -1637,6 +1703,7 @@ struct Composer: View {
         .padding(.leading, big ? 0 : 44).padding(.trailing, big ? 0 : 28).padding(.bottom, big ? 0 : (disclaimer ? 40 : 16)).padding(.top, big ? 0 : 8)
         .frame(maxWidth: .infinity)
         .onAppear { focused = true }
+        .onDisappear { voice.cancel() }
         .onChange(of: focused) { _, f in focusedOut?.wrappedValue = f }
         // щелчок по имени папки в заголовке новой задачи — тот же выбор папки
         .onChange(of: app.folderPickerRequest) { if agent && chat.conversation == nil { folderOpen = true } }
@@ -1679,6 +1746,7 @@ struct Composer: View {
 
     /// Слева: «+», папка и режим агента, бот — каждая кнопка во всю подпись
     @ViewBuilder private func leftControls(compact: Bool) -> some View {
+        let night = app.prefs.night
         // как в Claude: «+» в левом нижнем углу — картинки и файлы
         PlusMenu(app: app, agent: agent, canPickFolder: agent && chat.conversation == nil, chat: chat, draft: $draft, attachments: $attachments,
                  research: $research, github: $githubAdded, showsTools: !inBot && !inGroup).fixedSize()
@@ -1687,9 +1755,42 @@ struct Composer: View {
             ToolPills(research: $research).fixedSize()
         }
         // агент: папка (единственная кнопка с рамкой) и «Режим» — в нём и режим, и «Ночь» (Рома, 21.10)
-        if agent { folderPicker.fixedSize(); modeMenu.fixedSize(); modePills }
+        if agent && !startLayout { folderPicker.fixedSize(); modeMenu.fixedSize(); modePills }
+        // на экране новой задачи папка и режимы вынесены из поля; плашка «Ночь до …» остаётся
+        if startLayout, night.active() { ModePill(text: "Ночь до " + (night.until.map { Night.clock($0) } ?? night.wake), icon: "moon").fixedSize() }
         if let b = currentBot { botChip(b).fixedSize(); botFolderPicker(b).fixedSize(); botEffortPicker(b).fixedSize() }
         ElsewherePill(app: app, compact: compact)
+    }
+
+    /// Микрофон: нажал — говори, текст появляется в поле; ещё раз (или Esc) — закончить. Кольцо дышит вместе с голосом
+    private var micButton: some View {
+        IconButton(icon: "mic", help: voice.listening ? "Закончить диктовку · Esc" : "Диктовать голосом", active: voice.listening) {
+            voice.toggle(base: draft, language: app.prefs.voiceLanguage) { draft = $0 }
+            focused = true
+        }
+        .overlay {
+            if voice.listening {
+                Circle().stroke(p.glow.opacity(0.55), lineWidth: 1.5)
+                    .scaleEffect(1 + voice.level * 0.35)
+                    .allowsHitTesting(false)
+                    .animation(.easeOut(duration: 0.12), value: voice.level)
+            }
+        }
+        .accessibilityLabel(voice.listening ? "Закончить диктовку" : "Диктовать голосом")
+    }
+
+    /// Нет доступа к микрофону или речи: что случилось и куда нажать
+    private func voiceProblem(_ problem: VoiceBackend.Problem) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Icon("triangle-alert", 13).foregroundStyle(p.mutedFg)
+            Text(problem.text).font(.geist(12.5)).foregroundStyle(p.mutedFg).fixedSize(horizontal: false, vertical: true)
+            if let title = problem.buttonTitle, let url = problem.url {
+                InlineTextButton(title: title) { NSWorkspace.shared.open(url) }.font(.geist(12.5))
+            }
+            Spacer(minLength: 4)
+            Button { voice.dismissProblem() } label: { Icon("x", 12).foregroundStyle(p.mutedFg) }.buttonStyle(.plain)
+        }
+        .padding(.trailing, 6)
     }
 
     /// Справа: модель, «сколько думать», отправить
@@ -1699,6 +1800,7 @@ struct Composer: View {
             modelPicker.fixedSize()
             effortPicker.fixedSize()
         }
+        micButton
         sendButton.padding(.leading, 6)
     }
 
@@ -1733,6 +1835,8 @@ struct Composer: View {
         if slashItems.indices.contains(slashIndex) { pickSlash(slashItems[slashIndex]); return }
         // идёт ответ — сообщение встаёт в очередь (в группе — сразу в комнату)
         guard canSend, ready else { return }
+        // диктовка не должна вернуть в поле то, что уже ушло
+        voice.cancel()
         var text = FileMarks.readable(draft, names: Dictionary(attachments.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a }))
         if let sk = pickedSkill { text = "Возьми навык «\(sk.name)»: " + text }
         if let b = mentioned { text = "@\(b.id) " + text }
@@ -1802,7 +1906,7 @@ struct Composer: View {
         let started = chat.conversation != nil
         let current = chat.conversation?.folder.map { URL(fileURLWithPath: $0) } ?? app.agentFolder
         let extra = started ? (chat.conversation?.extraPaths ?? []).map { URL(fileURLWithPath: $0) } : app.agentExtraDirs
-        return PickerButton(open: $folderOpen, bordered: true) {
+        return PickerButton(open: $folderOpen, bordered: !startLayout, opensDown: startLayout) {
             Icon("folder", 16).foregroundStyle(p.glow)
             Text((current.map(AppModel.folderName) ?? "Мои файлы") + (extra.isEmpty ? "" : " +\(extra.count)")).font(.geist(14, .medium))
         } panel: {
@@ -1977,15 +2081,17 @@ struct Composer: View {
         } else if !(app.claudeBusy(chat.conversation?.id) && canSend) {
             let on = canSend && ready
             // отправить — квадрат 28 со скруглением 8 (хендофф, 1.7.3); цвет «Люмена» и ботов тот же, что был у круга
-            let send = RoundedRectangle(cornerRadius: 8, style: .continuous)
+            let send = RoundedRectangle(cornerRadius: startLayout ? 14 : 8, style: .continuous)
             Button(action: self.send) {
                 Icon("arrow-up", 16)
                     // у «Люмена» — белая стрелка на синем шаре из CSS; у других тем плоская заливка цвета света, стрелка контрастная
-                    .foregroundStyle(on ? (currentBot != nil || p.orbSpec ? .white : p.onGlow) : p.faint)
+                    .foregroundStyle(on ? (startLayout ? p.background : (currentBot != nil || p.orbSpec ? .white : p.onGlow)) : p.faint)
                     .frame(width: 28, height: 28)
                     .background {
                         if on {
-                            if let b = currentBot {
+                            if startLayout {
+                                send.fill(p.foreground)
+                            } else if let b = currentBot {
                                 send.fill(BotColor.accent(b.hue))
                             } else if p.orbSpec {
                                 MiniOrbFill().clipShape(send)
@@ -2015,6 +2121,8 @@ struct PickerButton<Label: View, Panel: View>: View {
     @Binding var open: Bool
     /// Кнопка с рамкой (папка в большом поле новой задачи)
     var bordered = false
+    /// Меню открывается вниз (кнопка над полем, как папка на экране новой задачи агента), а не вверх
+    var opensDown = false
     /// К какому краю кнопки прижато меню: у кнопок справа — к правому
     var edge: HorizontalAlignment = .leading
     @ViewBuilder let label: Label
@@ -2046,11 +2154,11 @@ struct PickerButton<Label: View, Panel: View>: View {
         .buttonStyle(.plain)
         .onHover { hover = $0 }
         .accessibilityValue(open ? "открыто" : "закрыто")
-        .overlay(alignment: Alignment(horizontal: edge, vertical: .top)) {
+        .overlay(alignment: Alignment(horizontal: edge, vertical: opensDown ? .bottom : .top)) {
             if open {
-                // над кнопкой, с зазором 8: якорь нулевой высоты по верху кнопки, меню растёт от него вверх
+                // над кнопкой, с зазором 8: якорь нулевой высоты по верху кнопки, меню растёт от него вверх (opensDown — под кнопкой, вниз)
                 Color.clear.frame(width: 0, height: 0)
-                    .overlay(alignment: Alignment(horizontal: edge, vertical: .bottom)) {
+                    .overlay(alignment: Alignment(horizontal: edge, vertical: opensDown ? .top : .bottom)) {
                         panel
                             .environment(\.palette, p)
                             .popoverChrome()
@@ -2059,9 +2167,9 @@ struct PickerButton<Label: View, Panel: View>: View {
                                 closedAt = Date()
                             })
                             .fixedSize()
-                            .padding(.bottom, 8)
+                            .padding(opensDown ? .top : .bottom, 8)
                     }
-                    .transition(.opacity.combined(with: .offset(y: 4)))
+                    .transition(.opacity.combined(with: .offset(y: opensDown ? -4 : 4)))
             }
         }
         .animation(.easeOut(duration: 0.14), value: open)
