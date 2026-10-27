@@ -24,6 +24,9 @@ struct PlusMenu: View {
 
     @Environment(\.palette) private var p
     @State private var open = false
+    @State private var anchor = CGRect.zero
+    /// Меню только что закрыл щелчок мимо — тот же щелчок по «+» не должен открыть его снова
+    @State private var closedAt = Date.distantPast
     @State private var page: Page = .main
     @State private var hover = false
     @State private var repoText = ""
@@ -70,7 +73,11 @@ struct PlusMenu: View {
     }
 
     private var button: some View {
-        Button { page = .main; open.toggle() } label: {
+        Button {
+            guard Date().timeIntervalSince(closedAt) > 0.35 else { return }
+            page = .main
+            open.toggle()
+        } label: {
             // «+» 28, скругление 8, значок 20 (хендофф, 1.7.3)
             Icon("plus", 20).foregroundStyle(hover || open ? p.foreground : p.mutedFg.mixed(with: p.foreground, 0.2))
                 .frame(width: 28, height: 28)
@@ -85,8 +92,28 @@ struct PlusMenu: View {
             // ⌘U — сразу файлы, без меню
             Button("") { addFiles() }.keyboardShortcut("u", modifiers: .command).opacity(0).allowsHitTesting(false)
         }
-        // меню открывается сбоку от «+», а не над ним по центру
-        .popover(isPresented: $open, arrowEdge: .trailing) { panel }
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { anchor = $0 }
+        // меню — над «+», внутри окна Lumen (раньше было окошком-popover, которое вылезало за рамку окна), как у Claude;
+        // выше места до края окна — листается внутри
+        .overlay(alignment: .topLeading) {
+            if open {
+                Color.clear.frame(width: 0, height: 0)
+                    .overlay(alignment: .bottomLeading) {
+                        panel
+                            .fitInWindow(anchor: anchor)
+                            .popoverChrome()
+                            .background(DismissMonitor {
+                                open = false
+                                closedAt = Date()
+                            })
+                            .fixedSize()
+                            .padding(.bottom, 8)
+                    }
+                    .transition(.opacity.combined(with: .offset(y: 4)))
+            }
+        }
+        .animation(.easeOut(duration: 0.14), value: open)
+        .zIndex(open ? 10 : 0)
     }
 
     @ViewBuilder private var main: some View {

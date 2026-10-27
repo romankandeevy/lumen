@@ -1587,7 +1587,7 @@ struct Composer: View {
             // чипы бота и навыка лежат внутри текста — на одном уровне с буквами, ⌫ стирает их как символ
             ComposerTextView(
                 text: $draft, chips: fieldChips, inline: inlineChips, palette: p,
-                placeholder: mentioned.map { "Задача для «\($0.name)»" } ?? (agent ? "Опиши задачу · / — навыки агента" : (currentBot.map { "Напиши боту «\($0.name)»" } ?? (chat.conversation?.kind == .group ? "Написать группе · @id — ответит один" : "Просто напиши · / — команды и навыки"))),
+                placeholder: voice.listening ? "Слушаю…" : voice.state == .finishing ? "Разбираю…" : mentioned.map { "Задача для «\($0.name)»" } ?? (agent ? "Опиши задачу · / — навыки агента" : (currentBot.map { "Напиши боту «\($0.name)»" } ?? (chat.conversation?.kind == .group ? "Написать группе · @id — ответит один" : "Просто напиши · / — команды и навыки"))),
                 focused: $focused,
                 // 16.5 / 1.5; растёт до 240 pt (9 строк), дальше листается
                 minLines: big ? (agent ? 2 : 4) : 1, maxLines: 9,
@@ -1668,7 +1668,12 @@ struct Composer: View {
         // поле хендоффа (1.7.3): r20, внутри 14 сверху и 16 слева, кнопки ряда h28
         .padding(.top, 14).padding(.leading, 16).padding(.trailing, 10).padding(.bottom, 10)
         .background { glass }
+        // диктовка идёт — по нижней кромке поля бежит лазерная полоса
+        .overlay {
+            if voice.listening || voice.state == .finishing { LaserLine(level: voice.level, processing: voice.state == .finishing) }
+        }
         .animation(.easeOut(duration: 0.2), value: focused)
+        .animation(.easeOut(duration: 0.2), value: voice.state)
         // меню «/» — плавающим окном: над полем, а у большого поля новой задачи — под ним (сверху заголовок)
         .overlay(alignment: big ? .bottom : .top) {
             if slashOpen {
@@ -2133,6 +2138,7 @@ struct PickerButton<Label: View, Panel: View>: View {
     @State private var hover = false
     /// Меню только что закрыл щелчок мимо — тот же щелчок по кнопке не должен открыть его снова
     @State private var closedAt = Date.distantPast
+    @State private var anchor = CGRect.zero
 
     var body: some View {
         Button {
@@ -2153,6 +2159,7 @@ struct PickerButton<Label: View, Panel: View>: View {
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { anchor = $0 }
         .accessibilityValue(open ? "открыто" : "закрыто")
         .overlay(alignment: Alignment(horizontal: edge, vertical: opensDown ? .bottom : .top)) {
             if open {
@@ -2161,6 +2168,7 @@ struct PickerButton<Label: View, Panel: View>: View {
                     .overlay(alignment: Alignment(horizontal: edge, vertical: opensDown ? .top : .bottom)) {
                         panel
                             .environment(\.palette, p)
+                            .fitInWindow(anchor: anchor, down: opensDown)
                             .popoverChrome()
                             .background(DismissMonitor {
                                 open = false

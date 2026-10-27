@@ -4,10 +4,18 @@ import SwiftUI
 /// Ширина окна — чтобы панели не становились шире половины
 private struct WindowWidthKey: EnvironmentKey { static let defaultValue: CGFloat = 1180 }
 
+private struct WindowHeightKey: EnvironmentKey { static let defaultValue: CGFloat = 760 }
+
 extension EnvironmentValues {
     var windowWidth: CGFloat {
         get { self[WindowWidthKey.self] }
         set { self[WindowWidthKey.self] = newValue }
+    }
+
+    /// Высота окна — чтобы всплывающие меню не вылезали за его рамку
+    var windowHeight: CGFloat {
+        get { self[WindowHeightKey.self] }
+        set { self[WindowHeightKey.self] = newValue }
     }
 }
 

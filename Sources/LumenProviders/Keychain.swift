@@ -3,6 +3,12 @@ import Security
 import os
 
 /// Секреты — только в Связке ключей (§10.4). В базе, логах и промптах их нет.
+///
+/// Чтение и запись идут через системную программу `security`, а не через SecItem самого Lumen. Причина (Рома, 27.10:
+/// «просят три раза пароль»): запись, созданная Lumen, разрешена только сборке с тем же отпечатком кода (cdhash), а он
+/// меняется с каждой сборкой и с каждым обновлением, — и macOS при первом чтении каждого секрета спрашивал пароль от входа.
+/// У `security` отпечаток от Lumen не зависит, поэтому после одного «Всегда разрешать» вопросов больше нет.
+/// Цена: записи может прочитать и другая программа пользователя через `security` — так же, как это делает сам Claude Code.
 public struct Keychain: Sendable {
     public let service: String
 
@@ -27,53 +33,16 @@ public struct Keychain: Sendable {
     public func read(_ account: String) -> String? {
         let key = service + "/" + account
         if let v = Self.cache.withLock({ $0[key] }) { return v }
+        // `.adopting` — копия, которую прежние версии оставляли при переносе записи: если основной нет, берём её
         guard let value = load(account) ?? load(account + Self.stagingSuffix) else { return nil }
         Self.cache.withLock { $0[key] = value }
-        // запись могла остаться от старой сборки — тогда macOS спрашивает доступ при каждом запуске.
-        // Переписываем её от имени этой сборки (подпись постоянная): дальше вопросов не будет.
-        // только сам Lumen.app: переписанная тестами запись принадлежала бы тестам (так и случилось 16.10)
-        if Self.isApp, !Self.adopted.withLock({ $0.contains(key) }) {
-            Self.adopted.withLock { _ = $0.insert(key) }
-            adopt(value, account)
-        }
         return value
     }
 
     private static let stagingSuffix = ".adopting"
-    private static let log = Logger(subsystem: "com.roman.lumen", category: "keychain")
-
-    private func load(_ account: String) -> String? {
-        var q = base(account)
-        q[kSecReturnData as String] = true
-        q[kSecMatchLimit as String] = kSecMatchLimitOne
-        var out: CFTypeRef?
-        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-
-    /// Перенос в запись этой сборки. Сначала копия под временным именем, потом старая запись удаляется
-    /// и заводится новая, и только после этого копия. Если что-то падает, секрет остаётся хотя бы в одной записи:
-    /// `read` возьмёт копию, а перенос повторится при следующем запуске (отметка ставится только при успехе).
-    private func adopt(_ value: String, _ account: String) {
-        let done = UserDefaults.standard.stringArray(forKey: "lumen.keychainAdopted.v2") ?? []
-        let key = service + "/" + account
-        guard !done.contains(key) else { return }
-        let staging = account + Self.stagingSuffix
-        do {
-            SecItemDelete(base(staging) as CFDictionary)
-            try add(value, staging)
-            SecItemDelete(base(account) as CFDictionary)
-            try add(value, account)
-            SecItemDelete(base(staging) as CFDictionary)
-            UserDefaults.standard.set(done + [key], forKey: "lumen.keychainAdopted.v2")
-        } catch {
-            Self.log.error("Перенос ключа \(account) не удался: \(error.localizedDescription, privacy: .public). Копия в \(staging, privacy: .public)")
-        }
-    }
 
     /// Прочитанное за запуск — второй раз Связку не трогаем
     private static let cache = OSAllocatedUnfairLock(initialState: [String: String]())
-    private static let adopted = OSAllocatedUnfairLock(initialState: Set<String>())
 
     /// Есть ли запись — без чтения самого секрета: macOS на это не спрашивает пароль
     public func has(_ account: String) -> Bool {
@@ -85,32 +54,49 @@ public struct Keychain: Sendable {
     }
 
     public func save(_ value: String, for account: String) throws {
-        let data = Data(value.utf8)
-        let status = SecItemUpdate(base(account) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if status == errSecItemNotFound {
-            var q = base(account)
-            q[kSecValueData as String] = data
-            q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            let add = SecItemAdd(q as CFDictionary, nil)
-            guard add == errSecSuccess else { throw KeychainError(status: add) }
-        } else if status != errSecSuccess {
-            throw KeychainError(status: status)
-        }
+        // секрет — шестнадцатеричной строкой и через stdin (`security -i`): ни в аргументах процесса, ни в кавычках
+        let hex = Data(value.utf8).map { String(format: "%02x", $0) }.joined()
+        let run = Self.security(["-i"], stdin: "add-generic-password -U -s \(Self.quoted(service)) -a \(Self.quoted(account)) -X \(hex)\n")
+        guard run.status == 0 else { throw KeychainError(status: OSStatus(run.status), detail: run.err) }
         // кэш — только после записи: иначе при ошибке приложение считало бы ключ сохранённым
         Self.cache.withLock { $0[service + "/" + account] = value }
     }
 
-    private func add(_ value: String, _ account: String) throws {
-        var q = base(account)
-        q[kSecValueData as String] = Data(value.utf8)
-        q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let status = SecItemAdd(q as CFDictionary, nil)
-        guard status == errSecSuccess else { throw KeychainError(status: status) }
-    }
-
     public func delete(_ account: String) {
         Self.cache.withLock { $0[service + "/" + account] = nil }
-        SecItemDelete(base(account) as CFDictionary)
+        _ = Self.security(["delete-generic-password", "-s", service, "-a", account])
+        _ = Self.security(["delete-generic-password", "-s", service, "-a", account + Self.stagingSuffix])
+    }
+
+    private func load(_ account: String) -> String? {
+        // `-g` пишет секрет в stderr строкой `password: "…"`, а если там не только печатные символы (русский, перенос строки) —
+        // `password: 0x<hex> …`. `-w` так не различает: у него и обычный токен из букв a–f и цифр выглядит как hex
+        let run = Self.security(["find-generic-password", "-s", service, "-a", account, "-g"])
+        guard run.status == 0 else { return nil }
+        return Self.parsePassword(run.err)
+    }
+
+    /// Секрет из вывода `security … -g`
+    static func parsePassword(_ output: String) -> String? {
+        for line in output.split(separator: "\n", omittingEmptySubsequences: true) where line.hasPrefix("password: ") {
+            let rest = line.dropFirst("password: ".count)
+            if rest.hasPrefix("0x") {
+                let hex = rest.dropFirst(2).prefix { $0.isHexDigit }
+                guard hex.count % 2 == 0 else { return nil }
+                var bytes: [UInt8] = []
+                var i = hex.startIndex
+                while i < hex.endIndex {
+                    let j = hex.index(i, offsetBy: 2)
+                    guard let b = UInt8(hex[i..<j], radix: 16) else { return nil }
+                    bytes.append(b)
+                    i = j
+                }
+                return String(decoding: bytes, as: UTF8.self)
+            }
+            if rest == "<NULL>" { return "" }
+            if rest.hasPrefix("\""), rest.hasSuffix("\""), rest.count >= 2 { return String(rest.dropFirst().dropLast()) }
+        }
+        return nil
     }
 
     private func base(_ account: String) -> [String: Any] {
@@ -118,11 +104,35 @@ public struct Keychain: Sendable {
          kSecAttrService as String: service,
          kSecAttrAccount as String: account]
     }
+
+    private static func quoted(_ s: String) -> String {
+        "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
+    }
+
+    /// Запуск /usr/bin/security. Пока macOS спрашивает пароль, процесс ждёт — вызывающий тоже
+    private static func security(_ args: [String], stdin: String? = nil) -> (status: Int32, out: String, err: String) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        p.arguments = args
+        let out = Pipe(), err = Pipe(), inp = Pipe()
+        p.standardOutput = out
+        p.standardError = err
+        p.standardInput = inp
+        do { try p.run() } catch { return (-1, "", error.localizedDescription) }
+        if let stdin { inp.fileHandleForWriting.write(Data(stdin.utf8)) }
+        try? inp.fileHandleForWriting.close()
+        // выводы читаем до конца до ожидания, иначе полный буфер трубы подвесит процесс
+        let o = out.fileHandleForReading.readDataToEndOfFile()
+        let e = err.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return (p.terminationStatus, String(decoding: o, as: UTF8.self), String(decoding: e, as: UTF8.self))
+    }
 }
 
 public struct KeychainError: Error, LocalizedError {
     public let status: OSStatus
+    public var detail = ""
     public var errorDescription: String? {
-        "Связка ключей: " + ((SecCopyErrorMessageString(status, nil) as String?) ?? "ошибка \(status)")
+        "Связка ключей: " + (detail.isEmpty ? ((SecCopyErrorMessageString(status, nil) as String?) ?? "ошибка \(status)") : detail.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 }

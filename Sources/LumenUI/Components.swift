@@ -562,6 +562,28 @@ struct PopoverChrome: ViewModifier {
 
 extension View {
     func popoverChrome() -> some View { modifier(PopoverChrome()) }
+
+    /// Меню не выше места до края окна (Рома, 27.10: «Из GitHub» вылезало за рамку, как у Claude так нельзя): выше — листается внутри.
+    /// `anchor` — рамка кнопки в окне; меню растёт от неё вверх или (`down`) вниз
+    func fitInWindow(anchor: CGRect, down: Bool = false) -> some View { modifier(FitInWindow(anchor: anchor, down: down)) }
+}
+
+struct FitInWindow: ViewModifier {
+    let anchor: CGRect
+    let down: Bool
+
+    @Environment(\.windowHeight) private var windowHeight
+    @State private var natural: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        // зазор от кнопки 8 и поле у края окна 12
+        let room = max(160, (down ? windowHeight - anchor.maxY : anchor.minY) - 20)
+        ScrollView(.vertical, showsIndicators: false) {
+            content.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { natural = $0 }
+        }
+        .frame(height: natural > 0 ? min(natural, room) : nil)
+        .scrollBounceBehavior(.basedOnSize)
+    }
 }
 
 /// Закрыть плавающее меню: щелчок мимо него (по своим границам) или Esc

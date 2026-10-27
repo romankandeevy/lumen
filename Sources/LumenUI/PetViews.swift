@@ -256,21 +256,27 @@ struct PetSettingsContent: View {
                 row("Показывать питомца", "Повторяет, что делает Lumen: думает, пишет, запомнил; в тишине засыпает", icon: "paw-print") {
                     LSwitch(isOn: bind(\.enabled))
                 }
-                row("Поверх всех окон", "Маленькое окно без рамки: тянется мышью, щелчок открывает Lumen", icon: "app-window") {
-                    LSwitch(isOn: bind(\.floating)).disabled(!pet.enabled).opacity(pet.enabled ? 1 : 0.4)
-                }
-                row("Всегда в переписке", "Слева от последнего ответа — сидит и тогда, когда ничего не происходит. Если он поверх окон, в переписке его нет", icon: "message-square") {
-                    LSwitch(isOn: bind(\.alwaysInChat)).disabled(!pet.enabled || pet.floating).opacity(pet.enabled && !pet.floating ? 1 : 0.4)
-                }
-                row("Вместо знака «думаю»", "В переписке, пока ответа ещё нет, вместо знака-затмения — питомец, у ботов — их капля", icon: "message-circle") {
-                    LSwitch(isOn: bind(\.inChat)).disabled(!pet.enabled).opacity(pet.enabled ? 1 : 0.4)
-                }
-                row("Размер поверх окон", "Ещё — тянуть за уголок у самого питомца или щипком на трекпаде", icon: "layers") {
-                    HStack(spacing: 10) {
-                        Slider(value: bind(\.side), in: PetPrefs.sideRange, step: 4).frame(width: 180)
-                        Text("\(Int(pet.side)) pt").tw(12, lh: 16).foregroundStyle(p.mutedFg).monospacedDigit().frame(width: 46, alignment: .trailing)
+                // питомец выключен — остальных строк нет (серые недоступные выключатели путали: Рома, 27.10 «почему не мог включить»)
+                if pet.enabled {
+                    row("Поверх всех окон", "Маленькое окно без рамки: тянется мышью, щелчок открывает Lumen", icon: "app-window") {
+                        LSwitch(isOn: bind(\.floating))
                     }
-                    .disabled(!pet.enabled).opacity(pet.enabled ? 1 : 0.4)
+                    // «поверх окон» и «в переписке» — или то, или другое: включил одно — второе выключается само, а не серым недоступным
+                    row("Всегда в переписке", "Слева от последнего ответа — сидит и тогда, когда ничего не происходит. Включишь — он больше не висит поверх окон", icon: "message-square") {
+                        LSwitch(isOn: Binding(get: { pet.alwaysInChat && !pet.floating },
+                                              set: { v in app.update { if v { $0.pet.alwaysInChat = true; $0.pet.floating = false } else { $0.pet.alwaysInChat = false } } }))
+                    }
+                    row("Вместо знака «думаю»", "В переписке, пока ответа ещё нет, вместо знака-затмения — питомец, у ботов — их капля", icon: "message-circle") {
+                        LSwitch(isOn: bind(\.inChat))
+                    }
+                    if pet.floating {
+                        row("Размер поверх окон", "Ещё — тянуть за уголок у самого питомца или щипком на трекпаде", icon: "layers") {
+                            HStack(spacing: 10) {
+                                Slider(value: bind(\.side), in: PetPrefs.sideRange, step: 4).frame(width: 180)
+                                Text("\(Int(pet.side)) pt").tw(12, lh: 16).foregroundStyle(p.mutedFg).monospacedDigit().frame(width: 46, alignment: .trailing)
+                            }
+                        }
+                    }
                 }
             }
 

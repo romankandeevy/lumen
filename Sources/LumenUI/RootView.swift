@@ -89,6 +89,7 @@ public struct RootView: View {
             }
         }
         .environment(\.windowWidth, g.size.width)
+        .environment(\.windowHeight, g.size.height)
         }
         .ignoresSafeArea(.container, edges: .top)
         .animation(app.lessMotion ? nil : Motion.panel, value: app.prefs.sidebarHidden)
@@ -238,6 +239,8 @@ struct Sidebar: View {
                            trailing: customizeCount == 0 ? nil : "\(customizeCount)") { app.page = .skills }
                     NavRow(title: "Память", icon: "brain", active: app.page == .memory, trailing: "\(app.memoryCount)") { app.page = .memory }
                     NavRow(title: "Артефакты", icon: "copy", active: app.page == .artifacts) { app.page = .artifacts }
+                    // боты — пунктом списка, а не вкладкой (Рома, 27.10); справа — сколько их. Открывает раздел ботов
+                    NavRow(title: "Боты", icon: "bot", active: false, trailing: app.bots.isEmpty ? nil : "\(app.bots.count)") { app.switchTab(.bots) }
                     p.line.frame(height: 1).padding(.vertical, 8).padding(.horizontal, 11)
                     NavRow(title: "Новый проект", icon: "layers", active: false) {
                         app.createProject(folder: app.tab == .agent ? app.agentFolder : nil, kind: app.tab == .agent ? .agent : .chat)
@@ -456,7 +459,7 @@ struct ProfileCard: View {
 }
 
 /// Две вкладки, как Chat / Code в Claude (`tablist` в макете): mx-3 rounded-xl bg-foreground/[0.05] p-0.5.
-/// «Боты» появятся, когда заработают.
+/// Боты — не вкладка, а пункт списка ниже «Артефактов»; в разделе ботов ни одна из двух не горит
 struct TabSwitch: View {
     @Bindable var app: AppModel
 
@@ -465,8 +468,7 @@ struct TabSwitch: View {
     var body: some View {
         HStack(spacing: 0) {
             tab(.chat, "Чат", "house")
-            tab(.agent, "Агент", "code-xml")
-            tab(.bots, "Боты", "bot")
+            tab(.agent, "Code", "code-xml")
         }
         .segmentTrack()
         .accessibilityElement(children: .contain)

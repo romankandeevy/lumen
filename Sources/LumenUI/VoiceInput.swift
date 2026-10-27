@@ -202,3 +202,40 @@ final class VoiceRecorder: @unchecked Sendable {
         return lock.withLock { samples }
     }
 }
+
+/// Лазерная полоса по нижней кромке поля, пока идёт диктовка (Рома, 27.10): видно, что Lumen слушает. Тонкая светящаяся
+/// черта плывёт туда-сюда; чем громче голос, тем она ярче и длиннее. Пока разбирается запись — бегает быстро и тише
+struct LaserLine: View {
+    var level: Double
+    var processing = false
+
+    @Environment(\.palette) private var p
+
+    var body: some View {
+        TimelineView(.animation) { ctx in
+            let t = ctx.date.timeIntervalSinceReferenceDate
+            let period = processing ? 0.8 : 2.4
+            let phase = t.truncatingRemainder(dividingBy: period) / period
+            // 0 → 1 → 0 мягко, без рывка на краях
+            let pos = 0.5 - 0.5 * cos(phase * 2 * .pi)
+            GeometryReader { g in
+                let len = max(64, g.size.width * (0.18 + 0.2 * level))
+                ZStack(alignment: .bottomLeading) {
+                    Capsule()
+                        .fill(LinearGradient(colors: [p.glow.opacity(0), p.glow, p.glow.opacity(0)], startPoint: .leading, endPoint: .trailing))
+                        .frame(width: len, height: 2)
+                        .shadow(color: p.glow.opacity(0.9), radius: 4)
+                        .shadow(color: p.glow.opacity(0.45), radius: 12)
+                        .opacity(processing ? 0.55 : 0.65 + 0.35 * level)
+                        .offset(x: (g.size.width - len) * pos)
+                        .padding(.bottom, 1)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .allowsHitTesting(false)
+        .transition(.opacity)
+        .accessibilityHidden(true)
+    }
+}
